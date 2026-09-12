@@ -184,7 +184,8 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   for(const u of units.values()) for(const q of u.descPts){ const age=tNow-q.t; ctx.fillStyle=`rgba(159,181,159,${Math.max(0.03,0.12-age/6000)})`; ctx.beginPath(); ctx.arc(sx(q.x),sy(q.y),100*sc,0,7); ctx.fill(); }
   // геометрия с сонара: поверхности линиями, одиночные отражения точками; старые снимки тусклее
   for(const s of sonarSnaps){ const age=tNow-s.t; const al=Math.max(0.15,0.7-age/3000); const {pts,joined}=sonarSegments(s.b); const X=p=>sx(s.x+Math.cos(p.a)*p.r), Y=p=>sy(s.y+Math.sin(p.a)*p.r);
-    ctx.strokeStyle=`rgba(92,208,208,${al})`; ctx.fillStyle=ctx.strokeStyle; for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; if(joined(i)){ const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } else if(!joined((i+63)%64)) ctx.fillRect(X(p)-1,Y(p)-1,2,2); } }
+    // на карту — только поверхности (цепочки отсчётов); одиночные отражения (ящики, столбики) остаются в панели сонара
+    ctx.strokeStyle=`rgba(92,208,208,${al})`; for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!joined(i)) continue; const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } }
   ctx.strokeStyle='#555'; ctx.beginPath(); ctx.arc(sx(0),sy(0),14*sc,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(0)+16*sc,sy(0)-4);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); u.track.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
