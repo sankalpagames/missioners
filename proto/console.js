@@ -144,7 +144,8 @@ function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`выб
 function setTarget(tg){ units.get(active).sel=tg; renderDesc(); updateTarget(); }   // выбор — локальный, ничего не уходит
 function setGoal(name,p){ const u=units.get(active); u.goalName=name; if(p) u.goalPos={x:p.x,y:p.y}; else if(T()) u.goalPos={x:T().x,y:T().y}; $('#img-look').textContent=`смотрит: ${name?'на «'+name+'»':'вперёд'}`; }
 
-function drawMap(){ const cv=$('#map'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+function fitCanvas(cv){ const w=Math.max(50,cv.clientWidth|0), h=Math.max(50,cv.clientHeight|0); if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; } }
+function drawMap(){ const cv=$('#map'); fitCanvas(cv); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   const pts=[{x:0,y:0}]; for(const o of known.values()) pts.push(o); for(const u of units.values()){ pts.push(...u.track); }
   let minx=Math.min(...pts.map(p=>p.x))-30, maxx=Math.max(...pts.map(p=>p.x))+30, miny=Math.min(...pts.map(p=>p.y))-30, maxy=Math.max(...pts.map(p=>p.y))+30;
   const sc=Math.min(W/(maxx-minx),H/(maxy-miny))*map.zoom; const cx=(minx+maxx)/2-map.panX/sc, cy=(miny+maxy)/2-map.panY/sc; const sx=x=>W/2+(x-cx)*sc, sy=y=>H/2+(y-cy)*sc; map.tf={sx,sy,sc,cx,cy,W,H};
@@ -185,12 +186,12 @@ $('#map').onclick=e=>{ if(map.suppressClick){ map.suppressClick=false; return; }
   const wx=Math.round(tf.cx+(px-tf.W/2)/tf.sc), wy=Math.round(tf.cy+(py-tf.H/2)/tf.sc);
   setTarget(best?{id:best.id,cls:best.cls,x:best.x,y:best.y,name:best.name}:{id:0,cls:0,x:wx,y:wy,name:`точка ${wx}, ${wy}`}); };
 
-function drawChartTlm(){ const cv=$('#chart-tlm'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); const u=units.get(+$('#ch-unit').value||active); const f=$('#ch-field').value; if(!u||!u.hist.length) return;
+function drawChartTlm(){ const cv=$('#chart-tlm'); fitCanvas(cv); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); const u=units.get(+$('#ch-unit').value||active); const f=$('#ch-field').value; if(!u||!u.hist.length) return;
   const h=u.hist, t0=h[0].t, t1=Math.max(tNow,t0+60); const max=f==='pulse'?220:f==='cons'?3:100; ctx.strokeStyle='#1a1e25'; for(let g=0;g<=4;g++){ const y=H-g/4*H; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText((max*g/4).toFixed(0),2,y-2); }
   ctx.strokeStyle=UCOL[(u.id-1)%UCOL.length]; ctx.fillStyle=ctx.strokeStyle; ctx.beginPath(); let prev=null;
   for(const p of h){ const x=(p.t-t0)/(t1-t0)*W, y=H-Math.min(1,p[f]/max)*H; if(prev&&p.t-prev.t>6){ ctx.stroke(); ctx.beginPath(); ctx.moveTo(x,y); } else if(!prev) ctx.moveTo(x,y); else ctx.lineTo(x,y); ctx.fillRect(x-1,y-1,2,2); prev=p; } ctx.stroke();
   ctx.fillStyle='#555'; ctx.fillText(fmtT(t0),2,H-2); ctx.fillText(fmtT(t1),W-40,H-2); }
-function drawChartCh(){ const cv=$('#chart-ch'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); const h=link.stats.hist; if(!h.length) return;
+function drawChartCh(){ const cv=$('#chart-ch'); fitCanvas(cv); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); const h=link.stats.hist; if(!h.length) return;
   const kinds=['TLM','HB','SONAR','DESC','IMG','EVT','drop']; const max=Math.max(100,...h.map(s=>Math.max(s.cap,kinds.reduce((a,k)=>a+s[k],0)))); const bwd=W/90;
   h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd; let y=H; for(const k of kinds){ const hh=s[k]/max*H; ctx.fillStyle=KIND_COL[k]; ctx.fillRect(x,y-hh,bwd-1,hh); y-=hh; } });
   ctx.strokeStyle='#fff'; ctx.beginPath(); h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd+bwd/2, y=H-s.cap/max*H; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.fillStyle='#888'; ctx.font='10px monospace'; ctx.fillText(Math.round(max)+' Б/с',4,10); ctx.fillText('90 с',W-30,H-4); }
@@ -214,6 +215,11 @@ $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log
 $$('button[data-mode]').forEach(b=>b.onclick=()=>{ if(send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`) && b.dataset.mode==='3') setGoal('шлюз станции',{x:16,y:0}); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': камера не установлена','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
+{ const sp=$('#splitter'), lw=$('#logwrap'); let drag=null;
+  sp.onmousedown=e=>{ drag={y:e.clientY,h:lw.offsetHeight}; sp.classList.add('on'); e.preventDefault(); };
+  window.addEventListener('mousemove',e=>{ if(!drag) return; const h=Math.max(60,Math.min(innerHeight*0.6,drag.h-(e.clientY-drag.y))); lw.style.height=h+'px'; });
+  window.addEventListener('mouseup',()=>{ if(drag){ drag=null; sp.classList.remove('on'); try{ localStorage.setItem('missioners.logh',lw.style.height); }catch(e){} } });
+  try{ const hh=localStorage.getItem('missioners.logh'); if(hh) lw.style.height=hh; }catch(e){} }
 $('#v-items').onclick=e=>{ const b=e.target.closest('[data-eat]'); if(b) send([20,+b.dataset.eat,active],`М${active} съесть брикет`); };
 $('#st-btn-img').onclick=()=>{ const lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; send([3,lvl,0,d],`камера шлюза: кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 function sendStSub(){ const iv=+$('#st-sub-img').value, lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; Object.assign(stcam.subs,{img:iv,level:lvl,delta:!!d}); send([16,iv,0,lvl,d],`камера шлюза: автосъёмка ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
