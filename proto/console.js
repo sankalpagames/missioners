@@ -24,7 +24,8 @@ U(1); units.get(1).camera=true; units.get(1).sonar=true;
 function pos(id){ const u=units.get(id); if(u&&u.tlm) return {x:u.tlm.x,y:u.tlm.y}; if(u&&u.track.length) return u.track[u.track.length-1]; return {x:16,y:0}; }
 
 // ---------- лог ----------
-function log(txt,cls='sys'){ const d=document.createElement('div'); d.innerHTML=`<span class="t">${fmtT(tNow)}</span><span class="${cls}">${txt}</span>`; const l=$('#log'); l.appendChild(d); l.scrollTop=l.scrollHeight; }
+const logEntries=[];            // лог — тоже принятая информация, сохраняется и восстанавливается мгновенно
+function log(txt,cls='sys',t=tNow){ logEntries.push({t,txt,cls}); if(logEntries.length>800) logEntries.shift(); const d=document.createElement('div'); d.innerHTML=`<span class="t">${fmtT(t)}</span><span class="${cls}">${txt}</span>`; const l=$('#log'); l.appendChild(d); l.scrollTop=l.scrollHeight; }
 function fmtT(t){ if(!isFinite(t)) return '—'; const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 
 // ---------- мир → канал → консоль ----------
@@ -284,7 +285,7 @@ const SAVE_KEY='missioners.save';
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null}));
-  return { tNow, active, station, totals, stcam:{subs:stcam.subs}, units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
+  return { tNow, active, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
 }
 function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
 function requestSave(){ world.postMessage({t:'save'}); }
@@ -293,6 +294,7 @@ function restoreConsole(d){
   for(const su of d.units){ const u=U(su.id); Object.assign(u,su,{img:u.img, sonarData:su.sonarData?new Uint8Array(su.sonarData):null}); }
   known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
   journal.clear(); for(const [k,v] of d.journal) journal.set(k,v);
+  $('#log').innerHTML=''; logEntries.length=0; for(const e of d.log||[]) log(e.txt,e.cls,e.t); log('— сеанс восстановлен —','sys');
 }
 function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){ return null; } }
 function applySave(s){ const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap; link.reset();
