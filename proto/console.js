@@ -9,7 +9,11 @@ const known=new Map();          // ключ → объект с координа
 const journal=new Map();        // id объекта → [{t, unit, text}] — что узнали, изучив или взаимодействуя
 function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push({t:tNow,unit,text}); if($('.tabs button.on').dataset.tab==='journal') renderJournal(); }
 function jlast(id){ const j=journal.get(id); return j?j[j.length-1]:null; }
-function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:'объект '+id; }
+function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:(id>=100&&id<200?'свёрток':'объект '+id); }
+// объект, который миссионер изучил или трогал, — знакомый ему: подсветить на карте, дать имя, если его ещё нет
+function markSeen(id,unit){ let o=[...known.values()].find(k=>k.id===id); const p=pos(unit);
+  if(!o){ o={id,cls:0,x:p.x,y:p.y,at:tNow,unit,seenBy:new Set(),name:oname(id)}; known.set(id>=200&&id<250?'unit'+id:'o'+id,o); }
+  o.seenBy.add(unit); o.at=tNow; }
 const KIND_RU={TLM:'телеметрия',HB:'пульс станции',SONAR:'сонар',DESC:'описание',IMG:'изображение',EVT:'событие',EXAM:'осмотр',ACT:'действие',INFO:'статус станции',CONT:'содержимое'};
 const KIND_COL={TLM:'#5cb85c',HB:'#2f6f3a',SONAR:'#4a8fe0',DESC:'#9fb59f',IMG:'#e0a94a',EVT:'#8a7fd0',EXAM:'#8a7fd0',ACT:'#8a7fd0',INFO:'#2f6f3a',CONT:'#8a7fd0',drop:'#d9534f'};
 const UCOL=['#7fe07f','#4a8fe0','#e0a94a','#d97fd9','#5cd0d0','#d9534f'];
@@ -78,8 +82,8 @@ function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit), p=pos(pkt.unit); con
   u.desc=items; u.descAt=tNow; u.descPts.push({x:p.x,y:p.y,t:tNow}); if(pkt.unit===active) renderDesc();
   log(`М${pkt.unit} описание: ${items.length} — ${items.map(i=>i.name).join(', ')}`,'desc'); }
 // Осмотр и действие: [id, код, длина, текст] — текст составила станция, консоль его только печатает.
-function decodeExam(pkt){ const b=pkt.bytes, id=b[0], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); jadd(id,pkt.unit,`подошёл, посмотрел: ${text}`); log(`М${pkt.unit} изучил «${oname(id)}»: ${text}`,'desc'); renderDesc(); }
-function decodeAct(pkt){ const b=pkt.bytes, id=b[0], code=b[1], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,code===0?'evt':'err'); renderDesc(); }
+function decodeExam(pkt){ const b=pkt.bytes, id=b[0], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); markSeen(id,pkt.unit); jadd(id,pkt.unit,`подошёл, посмотрел: ${text}`); log(`М${pkt.unit} изучил «${oname(id)}»: ${text}`,'desc'); renderDesc(); }
+function decodeAct(pkt){ const b=pkt.bytes, id=b[0], code=b[1], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); if(code===0) markSeen(id,pkt.unit); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,code===0?'evt':'err'); renderDesc(); }
 function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М${pkt.unit} `:''; const txt=EVENTS[code]||('событие '+code);
   if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}); требуется новое описание`,'err'); else if(code===19||code===20) log(`${un}${txt}: ${ITEMS[arg]||arg}`,'evt'); else log(`${un}${txt}`,'evt');
   if(code===5){ const u=U(pkt.unit); u.alive=false; renderUnits(); }
