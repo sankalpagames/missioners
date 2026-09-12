@@ -82,6 +82,7 @@ const EVENTS = {
   23:'путь перекрыт, тело остановилось',
   24:'тело мертво: команда невозможна',
   25:'станция: вне зоны приёма, команда не доставлена',
+  26:'приборы обесточены: заряда нет',
 };
 
 if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, EVENTS, encText, decText };

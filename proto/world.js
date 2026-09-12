@@ -263,8 +263,8 @@ onmessage = e => {
   }
   switch(cmd){
     case 1: if(u.alive) describe(u); break;
-    case 2: if(u.sensors.sonar && u.charge>0) sonar(u); break;
-    case 3: if(u.sensors.camera && u.charge>0){ if(m.bytes[3]) imageDelta(u,Math.min(3,arg),'cmd'); else imagePyramid(u,Math.min(3,arg),'cmd'); } break;
+    case 2: if(!u.sensors.sonar) evt(2,u.id); else if(u.charge<=0) evt(26,u.id); else sonar(u); break;
+    case 3: if(u.sensors.camera && u.charge<=0) evt(26,u.id); else if(u.sensors.camera && u.charge>0){ if(m.bytes[3]) imageDelta(u,Math.min(3,arg),'cmd'); else imagePyramid(u,Math.min(3,arg),'cmd'); } break;
     case 16: if(u.sensors.camera){ u.sub.img={interval:arg,level:Math.min(3,m.bytes[3]),delta:!!m.bytes[4]}; u.subT.img=0; u.lastImg={}; } break;
     case 17: if(u.alive){ u.target=null; u.pending=null; evt(15,u.id); } break;
     case 21: { const item=arg, toUnit=!!m.bytes[3]; if(!atAirlock(u)){ evt(2,u.id); break; }
@@ -335,7 +335,7 @@ function tick(){
       const inT=tunnelT(u.x,u.y)>=0; u.toxin=Math.max(0,u.toxin+dt*(inT?0.06:-0.02));
       u.psyche=Math.max(0,Math.min(100,u.psyche+dt*(rest?0.05:-(0.01+0.15*u.fear+(inT&&!u.lightOn?0.04:0)))));
       u.cons=0.6+0.8*u.exertion+Math.pow(10,u.txDbm/10)*0.4+(u.lightOn?0.2:0)+(u.sub.img.interval?0.3:0)-(rest?0.4:0); u.gen=0.8-0.3*u.fear;
-      u.charge=Math.max(0,Math.min(100,u.charge+(u.gen-u.cons)*dt*0.05));
+      u.charge=Math.max(0,Math.min(100,u.charge+(u.gen-u.cons)*dt*0.01));   // ходьба с фонарём: ~3 ч; стоя — почти ровно; отдых восстанавливает
       if(u.skin<=0||u.bone<=0||u.glucose<=0||u.charge<=0){ u.alive=false; u.target=null; evt(5,u.id); }
       if(u.sub.tlm){ u.tlmTimer+=dt; if(u.tlmTimer>=u.sub.tlm){ u.tlmTimer=0; emit('bg','TLM',u.id,telemetry(u)); } }
       if(u.sub.desc){ u.subT.desc+=dt; if(u.subT.desc>=u.sub.desc){ u.subT.desc=0; describe(u,'bg'); } }
