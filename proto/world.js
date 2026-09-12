@@ -54,11 +54,11 @@ function spawn(sensors){
 spawn({camera:true, sonar:true});          // первый миссионер уже готов и несёт единственную камеру
 // стационарная камера у шлюза: смотрит от люка наружу (+x), сигнала не требует — она на станции
 const stationCam = { id:0, x:12, y:0, heading:0, goal:{x:60,y:8}, lightOn:true, charge:100, alive:true, lastImg:{}, pendingImg:null, frameNo:0, sensors:{camera:true}, sub:{img:{interval:0,level:2,delta:true}}, subT:{img:0}, items:[] };
-const creature = { x:330, y:210, home:{x:330,y:210}, lair:{x:346,y:222}, awake:false, hp:3, fleeing:false, cooldown:0 };   // после отпора уходит в логово и не трогает 2 минуты
+const creature = { x:338, y:216, home:{x:338,y:216}, lair:{x:350,y:226}, awake:false, hp:3, fleeing:false, cooldown:0 };   // после отпора уходит в логово и не трогает 2 минуты
 let antennaBoost = 0, hbTimer = 0, hbInterval = 2;
 
 function speedFor(m){ return m===2?0.6 : m===3?2.6 : m===4?0 : m===5?1.0 : 1.4; }
-function detectRadius(m){ return m===2?22 : m===4?35 : 70; }
+function detectRadius(m){ return m===2?6 : m===4?35 : 70; }   // без фонаря почти не замечает: идёт на свет
 
 // ---------- столкновения: тело не проходит сквозь корпус, скалы и стены тоннеля; вдоль препятствия скользит ----------
 const BODY_R = 0.6;
@@ -315,7 +315,7 @@ function tick(){
     else if(!nearest || nd>160){ creature.awake=false; creature.x=creature.home.x; creature.y=creature.home.y; }
     else if(creature.cooldown){ /* передышка: не преследует */ }
     else if(nd>2.5){ const h=Math.atan2(nearest.y-creature.y,nearest.x-creature.x); const cs=nearest.mode===2?0.7:1.1; creature.x+=Math.cos(h)*cs*dt; creature.y+=Math.sin(h)*cs*dt; }
-    else { nearest.dmgTimer+=dt; if(nearest.dmgTimer>2){ nearest.dmgTimer=0; nearest.skin-=15; nearest.bone-=7; nearest.pain=1; nearest.psyche-=6; evt(4,nearest.id); } }
+    else { nearest.dmgTimer+=dt; if(nearest.dmgTimer>2){ nearest.dmgTimer=0; nearest.skin-=12; nearest.bone-=5; nearest.pain=1; nearest.psyche-=6; evt(4,nearest.id); } }
     if(nearest && nearest.mode===5 && nd<4){ nearest.atkTimer+=dt; if(nearest.atkTimer>2){ nearest.atkTimer=0; creature.hp--; if(creature.hp<=0){ creature.fleeing=true; evt(9,nearest.id); } } }
   }
   for(const u of units){
