@@ -19,7 +19,7 @@ class Link {
       orbit: false, orbitPeriod: 420, orbitVisible: 300, orbitPhase0: 20,
     };
     this.phys = { units:{}, extraGain:0 };
-    this.t = 0; this.deepBudget = 0; this.localBudget = {};
+    this.t = 0; this.deepBudget = 0; this.localBudget = {}; this.secBg = 0;
     this.queues = { bg:{}, cmd:[] };   // bg: по одному свежему сообщению на источник и вид
     this.retry = [];
     this.stats = { sec:this.blankSec(), hist:[], dropped:0, delivered:0, retrans:0 };
@@ -76,12 +76,14 @@ class Link {
     while(guard++<300){
       let pick=null, q=null;
       // 1) пульс станции — всегда (крошечный резерв); 2) фон миссионеров — если нет потока
-      // 1) фон (подписки) — раньше команд; 2) команды в порядке очереди, минуя те, чей миссионер вне зоны
-      for(const key in this.queues.bg){ const arr=this.queues.bg[key]; if(!arr.length) continue; if(this.canSend(arr[0])){ pick=arr[0]; q=arr; break; } }
+      // 1) фон (подписки) — раньше команд, но не больше 60 % полосы в секунду: команды не голодают;
+      // 2) команды в порядке очереди, минуя те, чей миссионер вне зоны
+      const bgAllowed = this.secBg < 0.6*dcap/8 || !this.queues.cmd.length;
+      if(bgAllowed) for(const key in this.queues.bg){ const arr=this.queues.bg[key]; if(!arr.length) continue; if(this.canSend(arr[0])){ pick=arr[0]; q=arr; break; } }
       if(!pick){ const arr=this.queues.cmd;   // по порядку; пропускаем только пакеты миссионеров вне зоны, а не «маленькие, которые влезли»
         for(const p of arr){ if(this.deepBudget<p.size) break; if(p.unit && !(this.localCapBps(p.unit)>0 && (this.localBudget[p.unit]||0)>=p.size)) continue; pick=p; q=arr; break; } }
       if(!pick) break;
-      q.splice(q.indexOf(pick),1); this.spend(pick); pick.tries++;
+      q.splice(q.indexOf(pick),1); this.spend(pick); pick.tries++; if(pick.cls==='bg') this.secBg+=pick.size;
       this.stats.sec[this.kindOf(pick.kind)]+=pick.size;
       if(Math.random()<this.per(pick.unit,pick.size)){
         this.stats.sec.drop+=pick.size;
@@ -90,7 +92,7 @@ class Link {
       } else { this.stats.delivered++; this.onDeliver({...pick,latency:this.t-pick.born}); }
     }
     this._secAcc+=dt;
-    if(this._secAcc>=1){ this._secAcc-=1; this.stats.sec.cap=dcap/8; this.stats.hist.push({...this.stats.sec}); if(this.stats.hist.length>90) this.stats.hist.shift(); this.stats.sec=this.blankSec(); }
+    if(this._secAcc>=1){ this._secAcc-=1; this.secBg=0; this.stats.sec.cap=dcap/8; this.stats.hist.push({...this.stats.sec}); if(this.stats.hist.length>90) this.stats.hist.shift(); this.stats.sec=this.blankSec(); }
   }
   etaFor(msgId){ const cap=this.deepCapBps()/8; if(!cap) return Infinity; let last=-1; this.queues.cmd.forEach((p,i)=>{ if(p.msgId===msgId) last=i; }); if(last<0) return 0; let b=this.queueBytes('bg'); for(let i=0;i<=last;i++) b+=this.queues.cmd[i].size; return b/cap; }
 }
