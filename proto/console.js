@@ -292,10 +292,7 @@ document.addEventListener('mousemove',e=>{ if(tip.style.display!=='block') retur
 
 // ---------- главный цикл ----------
 let lastUp=true;
-let paused=false;
-document.addEventListener('visibilitychange',()=>{ paused=document.hidden; world.postMessage({t:paused?'pause':'resume'}); });
 setInterval(()=>{
-  if(paused) return;
   const dt=0.1*speed; tNow+=dt; link.tick(dt);
   world.postMessage({t:'link',carriers:Object.fromEntries([...units.keys()].map(id=>[id,link.carrier(id)]))});
   drawEcg(dt);
