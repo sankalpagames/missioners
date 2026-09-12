@@ -64,7 +64,7 @@ function telemetry(u){
 // ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), n, (id, флаги, заряд, предметы)*] ----------
 function heartbeat(){
   const b=[station.bioStock, station.camInv, station.growing?Math.ceil(station.growing.tLeft):255, units.length];
-  for(const u of units){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0), Math.round(u.charge*2.55), (u.items.includes(40)?1:0)|(u.items.includes(41)?2:0)); }
+  for(const u of units){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)); }
   emit('bg','HB',0,new Uint8Array(b));
 }
 
@@ -206,7 +206,8 @@ onmessage = e => {
     case 2: if(u.sensors.sonar && u.charge>0) sonar(u); break;
     case 3: if(u.sensors.camera && u.charge>0){ if(m.bytes[3]) imageDelta(u,Math.min(3,arg),'cmd'); else imagePyramid(u,Math.min(3,arg),'cmd'); } break;
     case 16: if(u.sensors.camera){ u.sub.img={interval:arg,level:Math.min(3,m.bytes[3]),delta:!!m.bytes[4]}; u.subT.img=0; u.lastImg={}; } break;
-    case 17: if(u.alive){ u.target=null; u.pending=null; evt(15,u.id); } break;   // стоп: цель остаётся, тело стоит
+    case 17: if(u.alive){ u.target=null; u.pending=null; evt(15,u.id); } break;
+    case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
     case 6: if(u.alive){ const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.target={x,y}; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
     case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ u.target={x:16,y:0}; u.goal={x:16,y:0}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;

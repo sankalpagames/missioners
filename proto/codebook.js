@@ -72,6 +72,7 @@ const EVENTS = {
   15:'миссионер остановлен',
   16:'объект не найден рядом',
   17:'станция: задача ПС-7 закрыта. Протокол остановлен.',
+  18:'съел брикет: глюкоза +50, электролиты +20',
 };
 
 if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, EVENTS, encText, decText };

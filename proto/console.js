@@ -61,7 +61,7 @@ function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit); if(boot.onTlm) boot.o
   const last=u.track[u.track.length-1]; if(!last||Math.hypot(last.x-u.tlm.x,last.y-u.tlm.y)>2) u.track.push({x:u.tlm.x,y:u.tlm.y,t:tNow});
 }
 function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.at=tNow; const n=b[3];
-  for(let i=0;i<n;i++){ const id=b[4+i*4], f=b[5+i*4], ch=b[6+i*4]/2.55, it=b[7+i*4]; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[it&1?40:0,it&2?41:0].filter(Boolean);
+  for(let i=0;i<n;i++){ const id=b[4+i*4], f=b[5+i*4], ch=b[6+i*4]/2.55, it=b[7+i*4]; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[])];
     u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.charge=ch; u.hbAt=tNow;
     if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err');
     if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} не принимается`,'err');
@@ -214,6 +214,7 @@ $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log
 $$('button[data-mode]').forEach(b=>b.onclick=()=>{ if(send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`) && b.dataset.mode==='3') setGoal('шлюз станции',{x:16,y:0}); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': камера не установлена','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
+$('#v-items').onclick=e=>{ const b=e.target.closest('[data-eat]'); if(b) send([20,+b.dataset.eat,active],`М${active} съесть брикет`); };
 $('#st-btn-img').onclick=()=>{ const lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; send([3,lvl,0,d],`камера шлюза: кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 function sendStSub(){ const iv=+$('#st-sub-img').value, lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; Object.assign(stcam.subs,{img:iv,level:lvl,delta:!!d}); send([16,iv,0,lvl,d],`камера шлюза: автосъёмка ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
 $('#st-sub-img').onchange=sendStSub; $('#st-img-level').onchange=()=>{ if(+$('#st-sub-img').value) sendStSub(); }; $('#st-img-delta').onchange=()=>{ if(+$('#st-sub-img').value) sendStSub(); };
@@ -251,7 +252,7 @@ setInterval(()=>{
     for(const k of ['electro','glucose','toxin','skin','bone','psyche']){ $('#b-'+k).style.width=T[k]+'%'; $('#v-'+k).textContent=T[k]; }
     $('#v-danger').textContent=T.danger?'ДА':'нет'; $('#v-danger').style.color=T.danger?'#ff5c5c':''; $('#v-cons').textContent=T.cons.toFixed(2); $('#v-charge').textContent=T.charge.toFixed(0)+'%'; $('#v-gen').textContent=T.gen.toFixed(2); $('#v-xy').textContent=`${T.x}, ${T.y}`; $('#v-mode').textContent=MODES[T.mode]||'—'; }
   else { $('#tlm-age').textContent=u&&!u.alive?'тело мертво':'нет данных'; $('#pulse-val').textContent='—'; }
-  $('#v-items').textContent=u&&u.items&&u.items.length?u.items.map(i=>ITEMS[i]).join(', '):'—';
+  { const el=$('#v-items'); const items=u&&u.items||[]; const n40=items.filter(i=>i===40).length; const html=[n40?`пищевой брикет${n40>1?' ×'+n40:''} <button class="mini" data-eat="40">съесть ●</button>`:'', items.includes(41)?'резак':''].filter(Boolean).join(', ')||'—'; if(el.innerHTML!==html) el.innerHTML=html; }
   $('#sonar-age').textContent=u&&u.sonarAt>-1e8?`снимок ${(tNow-u.sonarAt).toFixed(0)} с назад`:'нет данных';
   // расход по панелям
   const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };
