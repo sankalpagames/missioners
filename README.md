@@ -9,7 +9,7 @@
 Запуск:
 
 ```bash
-python3 -m http.server 8765 --directory proto
+python3 proto/serve.py
 ```
 
 и открыть http://localhost:8765. Отладочная шторка — кнопка «⚙ отладка».

@@ -1,6 +1,6 @@
 // МИР. Web Worker. Ничего не знает о консоли.
 // Наружу: (а) байтовые сообщения для канала, (б) физика линии по каждому миссионеру.
-importScripts('codebook.js');
+importScripts('codebook.js?v='+(self.location.search.slice(3)||'0'));
 
 const DT = 0.1;
 let speed = 1, msgId = 1, t = 0;
@@ -26,6 +26,8 @@ function bearingDeg(from,to){ return (Math.atan2(to.y-from.y,to.x-from.x)*180/Ma
 
 // ---------- состояние ----------
 const station = { bioStock:4, camInv:0, power:100, growing:null };
+const objState = {};                       // id объекта → состояние (по умолчанию 0)
+function stateOf(id){ return objState[id]||0; }
 const units = []; let nextUnit = 1;
 function spawn(sensors){
   const u = { id:nextUnit++, alive:true, x:16, y:0, heading:0, target:null, mode:1, lightOn:true,
@@ -33,7 +35,7 @@ function spawn(sensors){
     fear:0, pain:0, exertion:0, txDbm:0, dmgTimer:0, atkTimer:0,
     sensors:{ camera:!!sensors.camera, sonar:!!sensors.sonar },
     tlmTimer:Math.random(), carrier:true, linkLostFor:0, autoDone:false, autonomy:0,
-    sub:{ tlm:1, sonar:0, desc:0, img:{interval:0,level:2,delta:true} }, goal:null, subT:{ sonar:0, desc:0, img:0 }, lastImg:{}, pendingImg:null, frameNo:0 };
+    sub:{ tlm:1, sonar:0, desc:0, img:{interval:0,level:2,delta:true} }, goal:null, items:[], pending:null, subT:{ sonar:0, desc:0, img:0 }, lastImg:{}, pendingImg:null, frameNo:0 };
   units.push(u); return u;
 }
 spawn({camera:true, sonar:true});          // первый миссионер уже готов и несёт единственную камеру
@@ -57,10 +59,10 @@ function telemetry(u){
   const x=Math.round(u.x)+32768, y=Math.round(u.y)+32768; b[11]=x>>8; b[12]=x&255; b[13]=y>>8; b[14]=y&255; b[15]=u.mode;
   return b;
 }
-// ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), n, (id, флаги, заряд)*] ----------
+// ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), n, (id, флаги, заряд, предметы)*] ----------
 function heartbeat(){
   const b=[station.bioStock, station.camInv, station.growing?Math.ceil(station.growing.tLeft):255, units.length];
-  for(const u of units){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0), Math.round(u.charge*2.55)); }
+  for(const u of units){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0), Math.round(u.charge*2.55), (u.items.includes(40)?1:0)|(u.items.includes(41)?2:0)); }
   emit('bg','HB',0,new Uint8Array(b));
 }
 
@@ -136,13 +138,29 @@ function imageDelta(u, level, cls='bg'){
   else { u.pendingImg={level,f}; emit('bg','IMD'+level,u.id,out); }   // подписка: lastImg обновится, когда канал подтвердит приём кадра в передачу
 }
 
-// ---------- взаимодействие ----------
-function interact(u,id){
-  if(!u.alive) return;
-  if(id===1 && dist(u,POIS[0])<12){ if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; station.camInv++; evt(12,u.id); } else evt(2,u.id); return; }
-  if(id===31 && dist(u,POIS[2])<12){ if(!antennaBoost){ antennaBoost=6; evt(3,u.id); } else evt(2,u.id); return; }
-  if(id>=201 && id<250){ const v=units.find(v=>v.id===id-200); if(v && !v.alive && dist(u,v)<4){ if(v.sensors.camera){ v.sensors.camera=false; v.sub.img.interval=0; u.sensors.camera=true; u.lastImg={}; evt(13,u.id,v.id); } else evt(2,u.id); return; } }
-  evt(2,u.id);
+// ---------- изучить / взаимодействовать ----------
+// Обе команды — «подойди к объекту и сделай». Тело идёт к объекту; по прибытии выполняет и докладывает.
+function findObj(u,id){ return objectsAround(u,100).find(o=>o.id===id); }
+function beginAction(u,kind,id){
+  if(!u.alive) return; const o=findObj(u,id); if(!o){ evt(16,u.id,id); return; }
+  u.pending={kind,id}; u.goal={x:o.x,y:o.y};
+  if(dist(u,o)>3){ u.target={x:o.x,y:o.y}; evt(8,u.id); } else doPending(u);
+}
+function doPending(u){
+  const p=u.pending; u.pending=null; if(!p) return; const o=findObj(u,p.id); if(!o){ evt(16,u.id,p.id); return; }
+  const st=stateOf(o.id), cb=CODEBOOK[o.type]||CODEBOOK[250];
+  if(p.kind==='exam'){ emit('cmd','EXAM',u.id,new Uint8Array([o.id,o.type,st])); return; }
+  // взаимодействие: действие из текущего состояния
+  const acts=cb.actions||[]; const ai=acts.findIndex(a=>a.from===st); const a=acts[ai];
+  const reply=(code,newSt)=>emit('cmd','ACT',u.id,new Uint8Array([o.id,o.type,newSt,code,ai<0?255:ai]));
+  if(!a){ reply(1,st); return; }
+  if(a.needs && !u.items.includes(a.needs)){ reply(2,st); return; }
+  if(a.req && stateOf(a.req.obj)!==a.req.state){ reply(3,st); return; }
+  if(a.special==='return_camera'){ if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; station.camInv++; reply(0,st); } else reply(1,st); return; }
+  if(a.special==='strip'){ const v=o.unit; if(v&&v.sensors.camera){ v.sensors.camera=false; v.sub.img.interval=0; u.sensors.camera=true; u.lastImg={}; } objState[o.id]=a.to; reply(0,a.to); return; }
+  if(a.special==='boost') antennaBoost=6;
+  if(a.item===42){ u.sensors.camera=true; u.lastImg={}; } else if(a.item) u.items.push(a.item);
+  objState[o.id]=a.to; reply(0,a.to);
 }
 
 // ---------- команды (uplink) ----------
@@ -169,11 +187,12 @@ onmessage = e => {
     case 2: if(u.sensors.sonar && u.charge>0) sonar(u); break;
     case 3: if(u.sensors.camera && u.charge>0){ if(m.bytes[3]) imageDelta(u,Math.min(3,arg),'cmd'); else imagePyramid(u,Math.min(3,arg),'cmd'); } break;
     case 16: if(u.sensors.camera){ u.sub.img={interval:arg,level:Math.min(3,m.bytes[3]),delta:!!m.bytes[4]}; u.subT.img=0; u.lastImg={}; } break;
-    case 17: if(u.alive){ u.target=null; evt(15,u.id); } break;   // стоп: цель остаётся, тело стоит
+    case 17: if(u.alive){ u.target=null; u.pending=null; evt(15,u.id); } break;   // стоп: цель остаётся, тело стоит
     case 6: if(u.alive && u.goal){ u.target={...u.goal}; evt(8,u.id); } break;                       // идти к цели
-    case 18: { const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.lastImg={}; break; }   // задать цель: сюда идём и сюда смотрим
+    case 18: { const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.pending=null; u.lastImg={}; break; }   // задать цель: сюда идём и сюда смотрим
     case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3) u.target={x:16,y:0}; if(arg===4) u.target=null; evt(7,u.id,arg); } break;
-    case 8: interact(u,arg); break;
+    case 8: beginAction(u,'act',arg); break;
+    case 19: beginAction(u,'exam',arg); break;
     case 9: u.txDbm=arg-20; evt(8,u.id,9); break;
     case 12: u.sub.tlm=arg; break;        // интервал телеметрии, с (0 = выкл)
     case 13: u.sub.sonar=arg; u.subT.sonar=0; break;
@@ -200,7 +219,7 @@ function tick(){
       if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; if(u.autonomy===1) u.target=null; if(u.autonomy===2){ u.target={x:16,y:0}; u.mode=3; } } }
       else { u.linkLostFor=0; u.autoDone=false; }
       const sp=speedFor(u.mode);
-      if(u.target && sp>0){ const d=dist(u,u.target); if(d<1.5){ u.target=null; u.exertion=0; if(u.mode!==3) evt(1,u.id); } else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); u.x+=Math.cos(u.heading)*sp*dt; u.y+=Math.sin(u.heading)*sp*dt; u.exertion=Math.min(1,sp/1.4); } } else u.exertion=0;
+      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:1.5)){ u.target=null; u.exertion=0; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); } else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); u.x+=Math.cos(u.heading)*sp*dt; u.y+=Math.sin(u.heading)*sp*dt; u.exertion=Math.min(1,sp/1.4); } } else u.exertion=0;
       const dc=dist(u,creature);
       const fearT=creature.awake&&!creature.fleeing?Math.max(0,1-dc/80):0; u.fear+=(fearT-u.fear)*dt/2; u.pain=Math.max(0,u.pain-dt/8);
       const rest=u.mode===4; const pulseT=60+55*u.exertion+95*u.fear+45*u.pain-(rest?8:0); u.pulse+=(pulseT-u.pulse)*dt/3;

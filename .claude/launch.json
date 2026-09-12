@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "proto", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8765", "--directory", "proto"], "port": 8765 }
+    { "name": "proto", "runtimeExecutable": "python3", "runtimeArgs": ["proto/serve.py", "8765"], "port": 8765 }
   ]
 }

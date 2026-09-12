@@ -79,3 +79,11 @@ td{padding:1px 4px;border-bottom:1px solid #1a1e25}
 .cmds{margin-top:6px}
 .pbar{height:3px;background:#000;border:1px solid var(--line);width:256px;align-self:center}
 .pbar i{display:block;height:100%;background:var(--acc);width:0}
+
+#desc .j{color:var(--dim);font-size:10px}
+#journal .grp{margin:6px 0 2px;color:var(--acc);letter-spacing:.08em;font-size:10px}
+#journal .obj{padding:3px 4px;border-bottom:1px dotted var(--line);cursor:pointer}
+#journal .obj:hover{background:#1a1e25}
+#journal .obj .n{color:#9fb59f}
+#journal .e{color:var(--dim);padding-left:10px}
+#journal .e b{color:var(--fg);font-weight:normal}

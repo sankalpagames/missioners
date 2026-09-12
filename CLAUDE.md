@@ -11,7 +11,7 @@
 
 ## Прототип `proto/`
 
-Чистый JS, без сборки. Запуск: `python3 -m http.server 8765 --directory proto` (есть конфиг `proto` в `.claude/launch.json`).
+Чистый JS, без сборки. Запуск: `python3 proto/serve.py` (есть конфиг `proto` в `.claude/launch.json`).
 
 - `world.js` — мир, Web Worker. Не знает о консоли.
 - `link.js` — канал. Единственный путь мир → консоль.

@@ -1,13 +1,17 @@
 // КОНСОЛЬ. Видит только пакеты, доставленные каналом (link.onDeliver).
 // Всё, что нарисовано на экране, восстановлено из этих байтов. Отладочная шторка читает канал и мир напрямую.
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const link=new Link(); const world=new Worker('world.js');
+const link=new Link(); const world=new Worker('world.js?v='+window.__v);
 let speed=1, tNow=0, active=1, dbg=null;
 const units=new Map();          // id → знание о миссионере
 const station={bio:null,cam:null,grow:null,at:-1e9};
 const known=new Map();          // ключ → объект с координатами (только из полученных данных)
-const KIND_RU={TLM:'телеметрия',HB:'пульс станции',SONAR:'сонар',DESC:'описание',IMG:'изображение',EVT:'событие'};
-const KIND_COL={TLM:'#5cb85c',HB:'#2f6f3a',SONAR:'#4a8fe0',DESC:'#9fb59f',IMG:'#e0a94a',EVT:'#8a7fd0',drop:'#d9534f'};
+const journal=new Map();        // id объекта → [{t, unit, text}] — что узнали, изучив или взаимодействуя
+function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push({t:tNow,unit,text}); if($('.tabs button.on').dataset.tab==='journal') renderJournal(); }
+function jlast(id){ const j=journal.get(id); return j?j[j.length-1]:null; }
+function oname(id,type){ const cb=CODEBOOK[type]||CODEBOOK[250]; return id>=200&&id<250?`${cb.name} М${id-200}`:cb.name; }
+const KIND_RU={TLM:'телеметрия',HB:'пульс станции',SONAR:'сонар',DESC:'описание',IMG:'изображение',EVT:'событие',EXAM:'осмотр',ACT:'действие'};
+const KIND_COL={TLM:'#5cb85c',HB:'#2f6f3a',SONAR:'#4a8fe0',DESC:'#9fb59f',IMG:'#e0a94a',EVT:'#8a7fd0',EXAM:'#8a7fd0',ACT:'#8a7fd0',drop:'#d9534f'};
 const UCOL=['#7fe07f','#4a8fe0','#e0a94a','#d97fd9','#5cd0d0','#d9534f'];
 const bw={};                    // kind → массив {t,bytes} за 5 с
 const totals={};
@@ -35,6 +39,8 @@ link.onDeliver=pkt=>{
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
+    case 'EXAM': decodeExam(pkt); break;
+    case 'ACT': decodeAct(pkt); break;
   }
 };
 link.onDrop=pkt=>{ if(pkt.kind==='TLM'||pkt.kind==='HB') return; if(pkt.seq===undefined){ const u=U(pkt.unit); u.img.skipped++; u.img.state=`кадр пропущен (${u.img.skipped}): ${pkt.reason.split(': ')[1]}`; if(pkt.unit===active) showImg(u); return; } log(`М${pkt.unit} ${pkt.kind} #${pkt.msgId}/${pkt.seq}: ${pkt.reason}`,'err'); };
@@ -46,7 +52,7 @@ function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit);
   const last=u.track[u.track.length-1]; if(!last||Math.hypot(last.x-u.tlm.x,last.y-u.tlm.y)>2) u.track.push({x:u.tlm.x,y:u.tlm.y,t:tNow});
 }
 function decodeHb(b){ station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.at=tNow; const n=b[3];
-  for(let i=0;i<n;i++){ const id=b[4+i*3], f=b[5+i*3], ch=b[6+i*3]/2.55; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier;
+  for(let i=0;i<n;i++){ const id=b[4+i*4], f=b[5+i*4], ch=b[6+i*4]/2.55, it=b[7+i*4]; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[it&1?40:0,it&2?41:0].filter(Boolean);
     u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.charge=ch; u.hbAt=tNow;
     if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены (по пульсу станции)`,'err');
     if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} потеряна — миссионер вне зоны приёма`,'err');
@@ -59,8 +65,13 @@ function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit), p=pos(pkt.unit); con
     known.set(key,{id:it.id,type:it.type,x:it.x,y:it.y,at:tNow,unit:pkt.unit,seenBy:seen,name:it.id>=200&&it.id<250?`${c.name} М${it.id-200}`:c.name}); }
   u.desc=items; u.descAt=tNow; if(pkt.unit===active) renderDesc();
   log(`М${pkt.unit} описание: ${items.length} — ${items.map(i=>(CODEBOOK[i.type]||CODEBOOK[250]).name).join(', ')}`,'desc'); }
+function decodeExam(pkt){ const [id,type,st]=pkt.bytes; const cb=CODEBOOK[type]||CODEBOOK[250]; const text=(cb.states||[])[st]||'…'; jadd(id,pkt.unit,`подошёл, посмотрел: ${text}`); log(`М${pkt.unit} изучил «${oname(id,type)}»: ${text}`,'desc'); renderDesc(); }
+function decodeAct(pkt){ const [id,type,st,code,ai]=pkt.bytes; const cb=CODEBOOK[type]||CODEBOOK[250]; const a=(cb.actions||[])[ai]; const name=oname(id,type); let text;
+  if(code===0){ text=`${a?a.verb:'сделал'}. ${(cb.states||[])[st]||''}`; if(a&&a.item){ text+=` [${ITEMS[a.item]}]`; } if(a&&a.special==='boost') log('усиление тракта +6 дБ для всех миссионеров','sys'); }
+  else if(code===1) text='осмотрел: сделать здесь нечего.'; else if(code===2) text=`не смог: ${a?a.fail:'нужен предмет'}`; else text=`не смог: ${a?a.fail:'условие не выполнено'}`;
+  jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${name}: ${text}`,code===0?'evt':'err'); renderDesc(); }
 function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М${pkt.unit} `:''; const txt=EVENTS[code]||('событие '+code);
-  if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else log(`${un}${txt}`,'evt');
+  if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}) — нужно новое описание`,'err'); else log(`${un}${txt}`,'evt');
   if(code===5){ const u=U(pkt.unit); u.alive=false; renderUnits(); }
   if(code===6){ U(pkt.unit); renderUnits(); }
   if(code===3) log('усиление тракта +6 дБ для всех миссионеров','sys'); }
@@ -100,9 +111,18 @@ function selectUnit(){ const u=units.get(active); renderUnits(); renderDesc(); d
   $('#autonomy').value=u.autonomy; $('#sub-tlm').value=u.subs.tlm; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta;
   $('#sonar-body').hidden=!u.sonar; $('#sonar-none').hidden=u.sonar; $('#img-body').hidden=!u.camera; $('#img-none').hidden=u.camera; }
 function renderDesc(){ const u=units.get(active), el=$('#desc'); el.innerHTML=''; $('#desc-unit').textContent='М'+active; if(!u||!u.desc.length){ el.innerHTML='<div class="dim small">нет данных</div>'; return; }
-  el.insertAdjacentHTML('beforeend',`<div class="dim small">${(tNow-u.descAt).toFixed(0)} с назад</div>`);
-  for(const it of u.desc){ const c=CODEBOOK[it.type]||CODEBOOK[250]; const name=it.id>=200&&it.id<250?`${c.name} М${it.id-200}`:c.name; const d=document.createElement('div'); const tg=T(); d.className='it'+(tg&&tg.id===it.id?' sel':'');
-    d.innerHTML=`<span class="${it.type===250?'u':'n'}">${name}</span> <span class="dim">${it.bearing}° · ${it.range} м</span><br><span class="dim">${c.desc}</span>`; d.onclick=()=>setTarget({id:it.id,type:it.type,x:it.x,y:it.y,name}); el.appendChild(d); } }
+  el.insertAdjacentHTML('beforeend',`<div class="dim small">${(tNow-u.descAt).toFixed(0)} с назад</div>`); const tg=T();
+  for(const it of u.desc){ const name=oname(it.id,it.type); const d=document.createElement('div'); d.className='it'+(tg&&tg.id===it.id?' sel':''); const j=jlast(it.id);
+    d.innerHTML=`<span class="${it.type===250?'u':'n'}">${name}</span> <span class="dim">${it.bearing}° · ${it.range} м</span>`+(j?`<br><span class="j">М${j.unit}: ${j.text}</span>`:'');
+    d.onclick=()=>setTarget({id:it.id,type:it.type,x:it.x,y:it.y,name}); el.appendChild(d); } }
+function nearestLandmark(x,y){ let best=null, bd=1e9; for(const o of known.values()){ if(o.type>7) continue; const d=Math.hypot(o.x-x,o.y-y); if(d<bd){ bd=d; best=o; } } return best?best.name:'станция'; }
+function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const groups={};
+  for(const [id,entries] of journal){ const o=[...known.values()].find(k=>k.id===id); const grp=o?nearestLandmark(o.x,o.y):'без координат'; (groups[grp]=groups[grp]||[]).push({id,o,entries}); }
+  if(!Object.keys(groups).length){ el.innerHTML='<div class="dim">пока ничего не изучено. выбери объект и нажми «Изучить».</div>'; return; }
+  for(const g in groups){ el.insertAdjacentHTML('beforeend',`<div class="grp">${g.toUpperCase()}</div>`);
+    for(const {id,o,entries} of groups[g]){ const d=document.createElement('div'); d.className='obj'; const name=o?o.name:('объект '+id);
+      d.innerHTML=`<span class="n">${name}</span>${o?` <span class="dim">(${o.x}, ${o.y})</span>`:''}`+entries.map(e=>`<div class="e">${fmtT(e.t)} <b>М${e.unit}</b> ${e.text}</div>`).join('');
+      if(o) d.onclick=()=>setTarget({id:o.id,type:o.type,x:o.x,y:o.y,name}); el.appendChild(d); } } }
 function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`цель М${active}: ${tg.name} (${tg.x}, ${tg.y})`:'цель не выбрана'; }
 function setTarget(tg){ const u=units.get(active); const X=tg.x+32768, Y=tg.y+32768; if(send([18,0,active,X>>8,X&255,Y>>8,Y&255],`М${active} цель: ${tg.name}`)) u.target=tg; renderDesc(); updateTarget(); }
 
@@ -110,7 +130,13 @@ function drawMap(){ const cv=$('#map'), ctx=cv.getContext('2d'), W=cv.width, H=c
   const pts=[{x:0,y:0}]; for(const o of known.values()) pts.push(o); for(const u of units.values()){ pts.push(...u.track); }
   let minx=Math.min(...pts.map(p=>p.x))-30, maxx=Math.max(...pts.map(p=>p.x))+30, miny=Math.min(...pts.map(p=>p.y))-30, maxy=Math.max(...pts.map(p=>p.y))+30;
   const sc=Math.min(W/(maxx-minx),H/(maxy-miny))*map.zoom; const cx=(minx+maxx)/2-map.panX/sc, cy=(miny+maxy)/2-map.panY/sc; const sx=x=>W/2+(x-cx)*sc, sy=y=>H/2+(y-cy)*sc; map.tf={sx,sy,sc,cx,cy,W,H};
-  ctx.strokeStyle='#1a1e25'; const step=sc*50>=12?50:200; for(let gx=Math.floor(minx/step)*step;gx<maxx;gx+=step){ ctx.beginPath(); ctx.moveTo(sx(gx),0); ctx.lineTo(sx(gx),H); ctx.stroke(); } for(let gy=Math.floor(miny/step)*step;gy<maxy;gy+=step){ ctx.beginPath(); ctx.moveTo(0,sy(gy)); ctx.lineTo(W,sy(gy)); ctx.stroke(); }
+  // сетка: шаг подбирается так, чтобы клетка была 40–120 px; подписи координат по краям
+  const step=[1,2,5,10,20,50,100,200,500,1000].find(s=>s*sc>=40)||1000; const vx0=cx-W/2/sc, vx1=cx+W/2/sc, vy0=cy-H/2/sc, vy1=cy+H/2/sc;
+  ctx.strokeStyle='#1a1e25'; ctx.fillStyle='#444'; ctx.font='9px monospace';
+  for(let gx=Math.floor(vx0/step)*step;gx<=vx1;gx+=step){ ctx.beginPath(); ctx.moveTo(sx(gx),0); ctx.lineTo(sx(gx),H); ctx.stroke(); ctx.fillText(gx,sx(gx)+2,H-3); }
+  for(let gy=Math.floor(vy0/step)*step;gy<=vy1;gy+=step){ ctx.beginPath(); ctx.moveTo(0,sy(gy)); ctx.lineTo(W,sy(gy)); ctx.stroke(); ctx.fillText(gy,2,sy(gy)-2); }
+  // линейка масштаба
+  ctx.fillStyle='#aaa'; ctx.fillRect(W-16-step*sc,12,step*sc,2); ctx.fillText(step+' м',W-16-step*sc,10);
   ctx.strokeStyle='#555'; ctx.beginPath(); ctx.arc(sx(0),sy(0),14*sc,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(0)+16*sc,sy(0)-4);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); u.track.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
@@ -121,17 +147,19 @@ function drawMap(){ const cv=$('#map'), ctx=cv.getContext('2d'), W=cv.width, H=c
   ctx.globalAlpha=1; if(tg){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(sx(tg.x),sy(tg.y),7,0,7); ctx.stroke(); ctx.fillStyle='#fff'; ctx.fillText('цель',sx(tg.x)+9,sy(tg.y)-8); }
   ctx.globalAlpha=1;
   for(const u of units.values()){ const p=pos(u.id); const col=UCOL[(u.id-1)%UCOL.length]; ctx.fillStyle=u.alive?col:'#666'; ctx.beginPath(); ctx.arc(sx(p.x),sy(p.y),u.id===active?5:3.5,0,7); ctx.fill(); ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?'':' †'}${u.tlm?'':' ?'}`,sx(p.x)+7,sy(p.y)-6); if(u.tlm&&tNow-u.tlmAt>10){ ctx.fillStyle='#888'; ctx.fillText(`${(tNow-u.tlmAt).toFixed(0)} с назад`,sx(p.x)+7,sy(p.y)+6); } }
-  $('#map-count').textContent=`объектов: ${known.size} · ${(1/sc).toFixed(1)} м/px · зум ×${map.zoom.toFixed(1)}`; }
+  $('#map-count').textContent=`объектов: ${known.size}`; $('#map-scale').textContent=`1 px = ${(1/sc).toFixed(2)} м · ×${map.zoom.toFixed(1)}`; }
 const map={tf:null,zoom:1,panX:0,panY:0,drag:null};
 { const cv=$('#map');
   cv.onwheel=e=>{ e.preventDefault(); const tf=map.tf; if(!tf) return; const r=cv.getBoundingClientRect(); const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
-    const f=e.deltaY<0?1.2:1/1.2; const nz=Math.max(0.5,Math.min(40,map.zoom*f)); const k=nz/map.zoom;
+    const f=e.deltaY<0?1.07:1/1.07; const nz=Math.max(0.5,Math.min(40,map.zoom*f)); const k=nz/map.zoom;
     // зум к курсору: точка под курсором остаётся на месте
     map.panX=(map.panX-(px-tf.W/2))*k+(px-tf.W/2); map.panY=(map.panY-(py-tf.H/2))*k+(py-tf.H/2); map.zoom=nz; drawMap(); };
   cv.onmousedown=e=>{ map.drag={x:e.clientX,y:e.clientY,px:map.panX,py:map.panY,moved:false}; };
   window.addEventListener('mousemove',e=>{ if(!map.drag) return; const r=cv.getBoundingClientRect(), k=cv.width/r.width; const dx=(e.clientX-map.drag.x)*k, dy=(e.clientY-map.drag.y)*k; if(Math.hypot(dx,dy)>4) map.drag.moved=true; map.panX=map.drag.px+dx; map.panY=map.drag.py+dy; if(map.drag.moved) drawMap(); });
   window.addEventListener('mouseup',()=>{ if(map.drag&&map.drag.moved) map.suppressClick=true; map.drag=null; });
-  cv.ondblclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); }; }
+  cv.ondblclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); };
+  const zoomBy=f=>{ const nz=Math.max(0.5,Math.min(40,map.zoom*f)); const k=nz/map.zoom; map.panX*=k; map.panY*=k; map.zoom=nz; drawMap(); };
+  $('#map-plus').onclick=()=>zoomBy(1.5); $('#map-minus').onclick=()=>zoomBy(1/1.5); $('#map-reset').onclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); }; }
 $('#map').onclick=e=>{ if(map.suppressClick){ map.suppressClick=false; return; } const cv=$('#map'), r=cv.getBoundingClientRect(), tf=map.tf; if(!tf) return; const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
   let best=null, bd=12; for(const o of known.values()){ const d=Math.hypot(tf.sx(o.x)-px,tf.sy(o.y)-py); if(d<bd){ bd=d; best=o; } }
   const wx=Math.round(tf.cx+(px-tf.W/2)/tf.sc), wy=Math.round(tf.cy+(py-tf.H/2)/tf.sc);
@@ -156,7 +184,8 @@ $('#truth').onclick=e=>{ const r=$('#truth').getBoundingClientRect(); const x=((
 function send(bytes,label){ if(!link.sendUplink(bytes)){ log(`${label}: нет связи со станцией`,'err'); return false; } if(label) log(`→ ${label}`,'cmd'); return true; }
 function moveTo(name){ const u=units.get(active); if(!u||!u.alive){ log('М'+active+' не может идти: нет живого тела','err'); return; } send([6,0,active],`М${active} идти к цели: ${name}`); }
 $$('button[data-cmd]').forEach(b=>b.onclick=()=>{ const c=+b.dataset.cmd, tg=T();
-  if(c===8){ if(!tg||!tg.id) return log('выбери объект (из описания или на карте)','err'); send([8,tg.id,active],`М${active} взаимодействовать: ${tg.name}`); } });
+  if(c===8){ if(!tg||!tg.id) return log('выбери объект (из описания или на карте)','err'); send([8,tg.id,active],`М${active} взаимодействовать: ${tg.name}`); }
+  if(c===19){ if(!tg||!tg.id) return log('выбери объект (из описания или на карте)','err'); send([19,tg.id,active],`М${active} изучить: ${tg.name}`); } });
 $('#btn-desc').onclick=()=>{ const u=units.get(active); if(!u.alive) return log('М'+active+': описание требует живого тела (глаза)','err'); send([1,0,active],`М${active} описание`); };
 $('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана: кликни объект в описании или точку на карте','err'); moveTo(tg.name); };
 $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log('М'+active+': нет сонара','err'); send([2,0,active],`М${active} сонар`); };
@@ -173,7 +202,7 @@ $('#autonomy').onchange=e=>{ const u=units.get(active); u.autonomy=+e.target.val
 $('#btn-grow').onclick=()=>{ const mask=($('#g-cam').checked?1:0)|($('#g-sonar').checked?2:0); send([10,mask,0],`станция: вырастить миссионера (${$('#g-cam').checked?'камера, ':''}${$('#g-sonar').checked?'сонар':''})`); };
 $('#btn-st').onclick=()=>send([11,0,0],'станция: статус');
 $('#speed').onchange=e=>{ speed=+e.target.value; world.postMessage({t:'speed',v:speed}); };
-$$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab)); });
+$$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab)); if(b.dataset.tab==='journal') renderJournal(); });
 $('#btn-debug').onclick=()=>$('#drawer').hidden=false; $('#btn-debug-close').onclick=()=>$('#drawer').hidden=true;
 const bind=(id,key,fmt,tx)=>{ const el=$(id); el.oninput=()=>{ const v=+el.value; if(tx) send([9,v+20,active],`М${active} TX ${v} dBm`); else link.cfg[key]=v; $(id+'-v').textContent=fmt(v); }; };
 bind('#c-tx',null,v=>v+' dBm',true); bind('#c-noise','noiseDbm',v=>v+' dBm'); bind('#c-bw','bwHz',v=>v+' Hz'); bind('#c-deep','deepCapBps',v=>v+' bps');
@@ -195,6 +224,7 @@ setInterval(()=>{
     for(const k of ['electro','glucose','toxin','skin','bone','psyche']){ $('#b-'+k).style.width=T[k]+'%'; $('#v-'+k).textContent=T[k]; }
     $('#v-danger').textContent=T.danger?'ДА':'нет'; $('#v-danger').style.color=T.danger?'#ff5c5c':''; $('#v-cons').textContent=T.cons.toFixed(2); $('#v-charge').textContent=T.charge.toFixed(0)+'%'; $('#v-gen').textContent=T.gen.toFixed(2); $('#v-xy').textContent=`${T.x}, ${T.y}`; $('#v-mode').textContent=MODES[T.mode]||'—'; }
   else { $('#tlm-age').textContent=u&&!u.alive?'тело мертво':'нет данных'; $('#pulse-val').textContent='—'; }
+  $('#v-items').textContent=u&&u.items&&u.items.length?u.items.map(i=>ITEMS[i]).join(', '):'—';
   $('#sonar-age').textContent=u&&u.sonarAt>-1e8?`снимок ${(tNow-u.sonarAt).toFixed(0)} с назад`:'нет данных';
   // расход по панелям
   const setBw=(id,k)=>{ const r=bwRate(k); const el=$(id); el.textContent=r?r.toFixed(0)+' Б/с':'0 Б/с'; el.classList.toggle('hot',r>0); };
@@ -206,7 +236,7 @@ setInterval(()=>{
   if(up!==lastUp){ log(up?'связь со станцией установлена':'связь со станцией потеряна','sys'); lastUp=up; }
   // станция
   $('#st-bio').textContent=station.bio??'—'; $('#st-cam').textContent=station.cam??'—'; $('#st-grow').textContent=station.grow===null?'нет':station.grow+' с';
-  const tb=$('#roster tbody'); tb.innerHTML=''; for(const v of [...units.values()].sort((a,b)=>a.id-b.id)) tb.insertAdjacentHTML('beforeend',`<tr><td>М${v.id}</td><td>${v.alive?'жив':'мёртв'}</td><td>${v.carrier?'есть':'<span style="color:#d9534f">нет</span>'}</td><td>${[v.camera?'камера':'',v.sonar?'сонар':''].filter(Boolean).join(', ')||'—'}</td><td>${v.charge==null?'—':v.charge.toFixed(0)+'%'}</td><td>${v.streaming?'да':''}</td></tr>`);
+  const tb=$('#roster tbody'); tb.innerHTML=''; for(const v of [...units.values()].sort((a,b)=>a.id-b.id)) tb.insertAdjacentHTML('beforeend',`<tr><td>М${v.id}</td><td>${v.alive?'жив':'мёртв'}</td><td>${v.carrier?'есть':'<span style="color:#d9534f">нет</span>'}</td><td>${[v.camera?'камера':'',v.sonar?'сонар':''].filter(Boolean).join(', ')||'—'}</td><td>${v.charge==null?'—':v.charge.toFixed(0)+'%'}</td><td>${(v.items||[]).map(i=>ITEMS[i]).join(', ')||'—'}</td><td>${v.streaming?'да':''}</td></tr>`);
   // вкладки
   const tab=$('.tabs button.on').dataset.tab;
   if(tab==='map') drawMap(); if(tab==='charts'){ const cu=$('#ch-unit'); if(cu.options.length!==units.size){ const cur=cu.value; cu.innerHTML=''; for(const v of units.values()){ const o=document.createElement('option'); o.value=v.id; o.textContent='М'+v.id; cu.appendChild(o); } cu.value=cur||active; } drawChartTlm(); }

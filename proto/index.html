@@ -42,6 +42,7 @@
           <div data-tip="Генерация — метаболизм тела. Падает от страха."><label>генерация</label><b id="v-gen">—</b></div>
           <div data-tip="Заряд. Ноль — смерть тела. У мёртвого тела приборы продолжают работать на остатке."><label>заряд</label><b id="v-charge">—</b></div>
           <div data-tip="Координаты относительно станции, метры. 2×16 бит."><label>координаты</label><b id="v-xy">—</b></div>
+          <div data-tip="Предметы, которые несёт тело (по пульсу станции). Датчики — отдельно, в списке станции."><label>предметы</label><b id="v-items">—</b></div>
         </div>
       </div>
     </div>
@@ -56,27 +57,28 @@
 
   <section class="col center">
     <nav class="tabs">
-      <button data-tab="log" class="on">Лог</button><button data-tab="map" data-tip="Карта строится только из того, что дошло по каналу: координаты из телеметрии + пеленг/дальность из описаний.">Карта</button><button data-tab="charts" data-tip="История принятых значений по времени.">Графики</button><button data-tab="station" data-tip="Консоль станции: запас биоматериала, склад датчиков, выращивание миссионеров.">Станция</button><button data-tab="channel" data-tip="Кто ест полосу. Включай и выключай панели — и смотри сюда.">Канал</button>
+      <button data-tab="log" class="on">Лог</button><button data-tab="map" data-tip="Карта строится только из того, что дошло по каналу: координаты из телеметрии + пеленг/дальность из описаний.">Карта</button><button data-tab="charts" data-tip="История принятых значений по времени.">Графики</button><button data-tab="journal" data-tip="Все записи обо всех объектах, сгруппированные по ближайшему ориентиру. Описание показывает только то, что рядом с миссионером; журнал — всё, что когда-либо узнали.">Журнал</button><button data-tab="station" data-tip="Консоль станции: запас биоматериала, склад датчиков, выращивание миссионеров.">Станция</button><button data-tab="channel" data-tip="Кто ест полосу. Включай и выключай панели — и смотри сюда.">Канал</button>
     </nav>
     <div class="tab on" id="tab-log">
       <div id="log"></div>
     </div>
     <div class="tab" id="tab-map">
       <canvas id="map" width="720" height="460"></canvas>
-      <div class="row small dim"><span id="map-hint">колёсико — зум, тянуть — панорама, двойной клик — сброс. клик — задать цель (уходит миссионеру: сюда идти и сюда смотреть). тусклые объекты этот миссионер сам не видел.</span><span class="grow"></span><span id="map-count"></span></div>
+      <div class="row small dim"><button class="mini" id="map-minus">−</button><button class="mini" id="map-plus">+</button><button class="mini" id="map-reset">сброс</button><span id="map-scale"></span><span class="grow"></span><span id="map-hint">колёсико/кнопки — зум, тянуть — панорама. клик — задать цель. тусклые объекты этот миссионер сам не видел.</span><span class="grow"></span><span id="map-count"></span></div>
     </div>
     <div class="tab" id="tab-charts">
       <div class="row"><label class="small">миссионер <select id="ch-unit"></select></label><label class="small">величина <select id="ch-field"><option value="pulse">пульс</option><option value="glucose">глюкоза</option><option value="electro">электролиты</option><option value="toxin">токсины</option><option value="skin">кожа</option><option value="bone">опорно-двиг.</option><option value="psyche">психика</option><option value="charge">заряд</option><option value="cons">потребление</option></select></label></div>
       <canvas id="chart-tlm" width="720" height="300"></canvas>
       <div class="small dim">точки — принятые пакеты телеметрии; разрывы — то, чего ты не получил</div>
     </div>
+    <div class="tab" id="tab-journal"><div id="journal" class="small"></div></div>
     <div class="tab" id="tab-station">
       <div class="kv two">
         <div data-tip="Единиц биоматериала на станции. Один миссионер = одна единица. Пополнения нет."><label>биоматериал</label><b id="st-bio">—</b></div>
         <div data-tip="Камер на складе. Камера — уникальный датчик: их не производят. Снять с тела и принести обратно — единственный способ вернуть."><label>камеры на складе</label><b id="st-cam">—</b></div>
         <div data-tip="Идёт выращивание — секунд до готовности."><label>выращивание</label><b id="st-grow">—</b></div>
       </div>
-      <table id="roster"><thead><tr><th>№</th><th>состояние</th><th>несущая</th><th>датчики</th><th>заряд</th><th>автосъёмка</th></tr></thead><tbody></tbody></table>
+      <table id="roster"><thead><tr><th>№</th><th>состояние</th><th>несущая</th><th>датчики</th><th>заряд</th><th>предметы</th><th>автосъёмка</th></tr></thead><tbody></tbody></table>
       <div class="row" style="margin-top:8px">
         <label class="small"><input type="checkbox" id="g-cam"> камера</label>
         <label class="small"><input type="checkbox" id="g-sonar" checked> сонар</label>
@@ -96,7 +98,8 @@
         <div class="row">
           <button id="btn-stop" data-tip="Остановиться: сбросить цель движения. Тело стоит там, где стоит.">Стоп</button>
           <button id="btn-move" data-tip="Идти к цели. Цель уже в миссионере (ушла 7 байтами, когда ты её выбрал), поэтому сама команда — 3 байта. Тело идёт само, путь виден по телеметрии.">Перемещение</button>
-                    <button data-cmd="8" data-tip="Взаимодействовать с выбранной целью (объект из описания или с карты). Контекстно: шкаф усилителя — включить, тело — снять камеру, шлюз — сдать камеру на склад. Нужно подойти вплотную.">Взаимодействовать</button>
+                    <button data-cmd="19" data-tip="Изучить цель: тело подходит, смотрит вблизи и докладывает состояние объекта (3 байта). Из описания издалека видно только, что это; подробности — отсюда.">Изучить</button>
+          <button data-cmd="8" data-tip="Взаимодействовать с целью: тело подходит и делает то единственное, что можно сделать с объектом в его нынешнем состоянии — вскрыть, забрать, прочитать, срастить, включить. Иногда нужен предмет или другой объект в нужном состоянии.">Взаимодействовать</button>
           <span id="target-label" class="dim small"></span>
         </div>
         <div class="row modes" data-tip="Режимы тела. Исследование: фонарь, обычная скорость. Скрытность: без фонаря, медленно, тише — существо замечает с 22 м вместо 70. Отступление: бегом к шлюзу. Отдых: стоит, восстанавливает психику и заряд. Бой: при контакте бьёт.">
@@ -122,7 +125,7 @@
       </div>
     </div>
     <div class="block grow" id="blk-desc">
-      <div class="bh"><span class="bt" data-tip="Объекты из последнего описания. Клик — выбрать цель для «идти»/«взаимодействовать».">ОПИСАНИЕ <span id="desc-unit" class="dim"></span></span>
+      <div class="bh"><span class="bt" data-tip="Объекты из последнего описания: что видно издалека — имя, пеленг, дальность. Под каждым — последняя запись журнала (что узнали, изучив или взаимодействуя). Клик — выбрать цель.">ОПИСАНИЕ <span id="desc-unit" class="dim"></span></span>
         <select class="sub" id="sub-desc" data-tip="Автоописание. Каждый ответ — 4 Б на объект."><option value="0">по запросу</option><option value="15">каждые 15 с</option><option value="5">каждые 5 с</option></select>
         <button class="mini" id="btn-desc" data-tip="Описание с текущей позиции: список объектов вокруг в виде (id, тип, пеленг, дальность) — 4 байта на объект. Названия и тексты — из кодовой книги на твоей стороне. Неизвестный тип придёт как «объект, класс не определён». Нужно живое тело (глаза).">снять</button>
         <span class="bw" id="bw-desc"></span></div>
@@ -167,8 +170,9 @@
   </div>
 </div>
 
-<script src="codebook.js"></script>
-<script src="link.js"></script>
-<script src="console.js"></script>
+<script>
+// dev: скрипты грузим с меткой времени, чтобы браузер не держал старые версии
+(function(){ const v=Date.now(); window.__v=v; for(const f of ['codebook.js','link.js','console.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
+</script>
 </body>
 </html>
