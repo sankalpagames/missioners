@@ -111,8 +111,9 @@ td{padding:1px 4px;border-bottom:1px solid #1a1e25}
 .lamp.full{background:#d9534f;box-shadow:0 0 8px #d9534f}
 .bw.hot{color:var(--acc)}
 
-.cmdb::before{content:'●';display:inline-block;font-size:8px;margin-right:6px;vertical-align:1px;color:var(--acc)}
-button.cmdb:disabled::before{color:var(--dim)}
 
-.cdot::before{content:'●';font-size:8px;color:var(--acc);margin:0 4px 0 6px;vertical-align:1px}
-.cdot:first-child::before{margin-left:0}
+
+/* группа, отправляющая команды: серая точка после */
+.cg::after{content:'●';font-size:7px;color:#5a6470;margin-left:6px;vertical-align:1px}
+label.cg::after,h3.cg::after{margin-left:5px}
+.bh .cg{display:flex;gap:6px;align-items:center}

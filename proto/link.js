@@ -76,9 +76,9 @@ class Link {
     while(guard++<300){
       let pick=null, q=null;
       // 1) пульс станции — всегда (крошечный резерв); 2) фон миссионеров — если нет потока
-      // 1) фон (подписки) — раньше команд, но не больше 60 % полосы в секунду: команды не голодают;
+      // 1) фон (подписки) — раньше команд, но не больше 40 % полосы в секунду: команды не голодают;
       // 2) команды в порядке очереди, минуя те, чей миссионер вне зоны
-      const bgAllowed = this.secBg < 0.6*dcap/8 || !this.queues.cmd.length;
+      const bgAllowed = this.secBg < 0.4*dcap/8 || !this.queues.cmd.length;
       if(bgAllowed) for(const key in this.queues.bg){ const arr=this.queues.bg[key]; if(!arr.length) continue; if(this.canSend(arr[0])){ pick=arr[0]; q=arr; break; } }
       if(!pick){ const arr=this.queues.cmd;   // по порядку; пропускаем только пакеты миссионеров вне зоны, а не «маленькие, которые влезли»
         for(const p of arr){ if(this.deepBudget<p.size) break; if(p.unit && !(this.localCapBps(p.unit)>0 && (this.localBudget[p.unit]||0)>=p.size)) continue; pick=p; q=arr; break; } }
