@@ -180,8 +180,12 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   for(let gy=Math.floor(vy0/step)*step;gy<=vy1;gy+=step){ ctx.beginPath(); ctx.moveTo(0,sy(gy)); ctx.lineTo(W,sy(gy)); ctx.stroke(); ctx.fillText(gy,2,sy(gy)-2); }
   // линейка масштаба
   ctx.fillStyle='#aaa'; ctx.fillRect(W-16-step*sc,12,step*sc,2); ctx.fillText(step+' м',W-16-step*sc,10);
-  // покрытие: где и когда снимались описания (радиус 100 м) — единственное, что консоль честно знает о «просмотренном»
-  for(const u of units.values()) for(const q of u.descPts){ const age=tNow-q.t; ctx.fillStyle=`rgba(159,181,159,${Math.max(0.03,0.12-age/6000)})`; ctx.beginPath(); ctx.arc(sx(q.x),sy(q.y),100*sc,0,7); ctx.fill(); }
+  // покрытие: где снимались описания (радиус 100 м). Все прошлые — одна область одним тоном (без наслоения),
+  // последний снимок каждого миссионера — ярче, за минуту гаснет до общего тона
+  { const off=map.off||(map.off=document.createElement('canvas')); if(off.width!==W||off.height!==H){ off.width=W; off.height=H; } const o=off.getContext('2d'); o.clearRect(0,0,W,H); o.fillStyle='#9fb59f';
+    for(const u of units.values()) for(const q of u.descPts){ o.beginPath(); o.arc(sx(q.x),sy(q.y),100*sc,0,7); o.fill(); }
+    ctx.globalAlpha=0.07; ctx.drawImage(off,0,0); ctx.globalAlpha=1;
+    for(const u of units.values()){ const q=u.descPts[u.descPts.length-1]; if(!q) continue; const age=tNow-q.t; const a=Math.max(0,0.12*(1-age/60)); if(a<=0) continue; ctx.fillStyle=`rgba(159,181,159,${a})`; ctx.beginPath(); ctx.arc(sx(q.x),sy(q.y),100*sc,0,7); ctx.fill(); } }
   // геометрия с сонара: поверхности линиями, одиночные отражения точками; старые снимки тусклее
   for(const s of sonarSnaps){ const age=tNow-s.t; const al=Math.max(0.15,0.7-age/3000); const {pts,joined}=sonarSegments(s.b); const X=p=>sx(s.x+Math.cos(p.a)*p.r), Y=p=>sy(s.y+Math.sin(p.a)*p.r);
     // на карту — только поверхности (цепочки отсчётов); одиночные отражения (ящики, столбики) остаются в панели сонара
