@@ -65,7 +65,7 @@ function telemetry(u){
   b[0]=c(u.pulse); b[1]=c(u.electro); b[2]=c(u.glucose); b[3]=c(u.toxin); b[4]=c(u.skin); b[5]=c(u.bone); b[6]=c(u.psyche);
   b[7]=(creature.awake && dist(u,creature)<90)?1:0;
   b[8]=c(u.cons*50); b[9]=c(u.charge*2.55); b[10]=c(u.gen*50);
-  const x=Math.round(u.x)+32768, y=Math.round(u.y)+32768; b[11]=x>>8; b[12]=x&255; b[13]=y>>8; b[14]=y&255; b[15]=u.mode;
+  const [xh,xl,yh,yl]=posBytes(u); b[11]=xh; b[12]=xl; b[13]=yh; b[14]=yl; b[15]=u.mode;
   return b;
 }
 // ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), склад брикетов, склад резаков, n, (id, флаги, заряд, предметы)*] ----------
@@ -110,7 +110,8 @@ function describe(u, cls='cmd'){
   for(const o of objs){ const t=encText(nameOf(o)); parts.push([o.id&255, classOf(o), Math.round(bearingDeg(u,o)/2), Math.min(255,Math.round(dist(u,o))), t.length, ...t]); }
   emit(cls,'DESC',u.id,new Uint8Array([...posBytes(u),...parts.flat()]));   // первые 4 байта — где снято
 }
-function posBytes(u){ const x=Math.round(u.x)+32768, y=Math.round(u.y)+32768; return [x>>8,x&255,y>>8,y&255]; }
+function posBytes(u){ const x=Math.round(u.x*10)+32768, y=Math.round(u.y*10)+32768; return [x>>8,x&255,y>>8,y&255]; }   // дециметры, 16 бит: ±3276 м
+function decPos(b,o){ return { x:(((b[o]<<8)|b[o+1])-32768)/10, y:(((b[o+2]<<8)|b[o+3])-32768)/10 }; }
 function rayCircle(ox,oy,dx,dy,c){ const fx=ox-c.x, fy=oy-c.y; const b=2*(fx*dx+fy*dy), cc=fx*fx+fy*fy-c.r*c.r; const D=b*b-4*cc; if(D<0) return Infinity; const s=Math.sqrt(D); const t1=(-b-s)/2, t2=(-b+s)/2; if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
 function raySeg(ox,oy,dx,dy,s){ const ex=s.x2-s.x1, ey=s.y2-s.y1; const den=dx*ey-dy*ex; if(Math.abs(den)<1e-9) return Infinity; const tt=((s.x1-ox)*ey-(s.y1-oy)*ex)/den; const uu=((s.x1-ox)*dy-(s.y1-oy)*dx)/den; return (tt>0&&uu>=0&&uu<=1)?tt:Infinity; }
 // что отражает сонар: только тела с объёмом (радиус, м); следы, надписи, кабели, вода — нет
@@ -244,8 +245,8 @@ onmessage = e => {
     case 22: beginAction(u,'put',m.bytes[3],arg); break;    // положить: [22,item,unit,objId] (objId 0 — на грунт)
     case 23: beginAction(u,'take',m.bytes[3],arg); break;   // взять:    [23,item,unit,objId]
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
-    case 6: if(u.alive){ const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.target={x,y}; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
-    case 18: { const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
+    case 6: if(u.alive){ const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.target={x,y}; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
+    case 18: { const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
     case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ u.target={x:16,y:0}; u.goal={x:16,y:0}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
     case 8: beginAction(u,'act',arg); break;
     case 19: beginAction(u,'exam',arg); break;

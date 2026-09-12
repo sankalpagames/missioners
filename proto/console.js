@@ -49,7 +49,7 @@ link.onDeliver=pkt=>{
     case 'TLM': decodeTlm(pkt); break;
     case 'HB': decodeHb(pkt.bytes); break;
     case 'DESC': decodeDesc(pkt); break;
-    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:((b[0]<<8)|b[1])-32768,y:((b[2]<<8)|b[3])-32768}; const rays=b.slice(4); u.sonarData=rays; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays]}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(pkt.unit===active) drawSonar(rays); break; }
+    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const rays=b.slice(4); u.sonarData=rays; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays]}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(pkt.unit===active) drawSonar(rays); break; }
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
@@ -63,7 +63,7 @@ link.onDrop=pkt=>{ if(pkt.kind==='TLM'||pkt.kind==='HB') return; if(pkt.seq===un
 
 // ---------- декодеры ----------
 function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit); if(boot.onTlm) boot.onTlm(pkt);
-  u.tlm={pulse:b[0],electro:b[1],glucose:b[2],toxin:b[3],skin:b[4],bone:b[5],psyche:b[6],danger:b[7],cons:b[8]/50,charge:b[9]/2.55,gen:b[10]/50,x:((b[11]<<8)|b[12])-32768,y:((b[13]<<8)|b[14])-32768,mode:b[15]};
+  u.tlm={pulse:b[0],electro:b[1],glucose:b[2],toxin:b[3],skin:b[4],bone:b[5],psyche:b[6],danger:b[7],cons:b[8]/50,charge:b[9]/2.55,gen:b[10]/50,x:(((b[11]<<8)|b[12])-32768)/10,y:(((b[13]<<8)|b[14])-32768)/10,mode:b[15]};
   u.tlmAt=tNow; u.hist.push({t:tNow,...u.tlm}); if(u.hist.length>3000) u.hist.shift();
   const last=u.track[u.track.length-1]; if(!last||Math.hypot(last.x-u.tlm.x,last.y-u.tlm.y)>2) u.track.push({x:u.tlm.x,y:u.tlm.y,t:tNow});
 }
@@ -75,7 +75,7 @@ function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.c
     if(!wasCarrier&&u.carrier) log(`станция: несущая М${id} восстановлена`,'sys'); }
   renderUnits(); const au=units.get(active); if(au){ $('#sonar-body').hidden=!au.sonar; $('#sonar-none').hidden=au.sonar; $('#img-body').hidden=!au.camera; $('#img-none').hidden=au.camera; } }
 // Описание: [id, класс, пеленг/2, дальность, длина, текст]*. Класс: 0 объект, 1 ориентир, 2 неопознанное, 3 тело, 4 миссионер.
-function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit); const p={x:((b[0]<<8)|b[1])-32768,y:((b[2]<<8)|b[3])-32768}; const items=[];   // позиция съёмки — из пакета
+function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit); const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const items=[];   // позиция съёмки — из пакета, дециметры
   for(let i=4;i+4<b.length;){ const len=b[i+4]; const it={id:b[i],cls:b[i+1],bearing:b[i+2]*2,range:b[i+3],name:decText(b.slice(i+5,i+5+len))}; i+=5+len;
     it.x=Math.round(p.x+Math.cos(it.bearing*Math.PI/180)*it.range); it.y=Math.round(p.y+Math.sin(it.bearing*Math.PI/180)*it.range); items.push(it);
     const key=it.cls===2?'creature':'o'+it.id; const prev=known.get(key); const seen=prev?prev.seenBy:new Set(); seen.add(pkt.unit);
@@ -231,7 +231,7 @@ $('#truth').onclick=e=>{ const r=$('#truth').getBoundingClientRect(); const x=((
 
 // ---------- команды ----------
 function send(bytes,label){ if(!link.sendUplink(bytes)){ log(`${label}: нет связи со станцией`,'err'); return false; } if(label) log(`→ ${label}`,'cmd'); return true; }
-function coordBytes(p){ const X=p.x+32768, Y=p.y+32768; return [X>>8,X&255,Y>>8,Y&255]; }
+function coordBytes(p){ const X=Math.round(p.x*10)+32768, Y=Math.round(p.y*10)+32768; return [X>>8,X&255,Y>>8,Y&255]; }   // дециметры
 function moveTo(tg){ const u=units.get(active); if(!u||!u.alive){ log('М'+active+': тело мертво, перемещение невозможно','err'); return; } if(send([6,0,active,...coordBytes(tg)],`М${active} идти: ${tg.name}`)) setGoal(tg.name); }
 $$('button[data-cmd]').forEach(b=>b.onclick=()=>{ const c=+b.dataset.cmd, tg=T();
   if(c===8){ if(!tg||!tg.id) return log('объект не выбран','err'); if(send([8,tg.id,active],`М${active} взаимодействовать: ${tg.name}`)) setGoal(tg.name); }
@@ -286,7 +286,7 @@ setInterval(()=>{
   if(u&&u.tlm){ const T=u.tlm, age=tNow-u.tlmAt; $('#tlm-age').textContent=age<1.5?'live':`${age.toFixed(0)} с назад`; $('#tlm-age').style.color=age>3*Math.max(1,+$('#sub-tlm').value||1)?'#d9534f':'';
     $('#pulse-val').textContent=T.pulse; $('#pulse-cls').textContent=T.pulse<55?'замедленный':T.pulse<100?'нормальный':T.pulse<150?'ускоренный':T.pulse<220?'интенсивный':'экстремальный';
     for(const k of ['electro','glucose','toxin','skin','bone','psyche']){ $('#b-'+k).style.width=T[k]+'%'; $('#v-'+k).textContent=T[k]; }
-    $('#v-danger').textContent=T.danger?'ДА':'нет'; $('#v-danger').style.color=T.danger?'#ff5c5c':''; $('#v-cons').textContent=T.cons.toFixed(2); $('#v-charge').textContent=T.charge.toFixed(0)+'%'; $('#v-gen').textContent=T.gen.toFixed(2); $('#v-xy').textContent=`${T.x}, ${T.y}`; $('#v-mode').textContent=MODES[T.mode]||'—'; }
+    $('#v-danger').textContent=T.danger?'ДА':'нет'; $('#v-danger').style.color=T.danger?'#ff5c5c':''; $('#v-cons').textContent=T.cons.toFixed(2); $('#v-charge').textContent=T.charge.toFixed(0)+'%'; $('#v-gen').textContent=T.gen.toFixed(2); $('#v-xy').textContent=`${T.x.toFixed(1)}, ${T.y.toFixed(1)}`; $('#v-mode').textContent=MODES[T.mode]||'—'; }
   else { $('#tlm-age').textContent=u&&!u.alive?'тело мертво':'нет данных'; $('#pulse-val').textContent='—'; }
   { const el=$('#v-items'); const items=u&&u.items||[]; const n40=items.filter(i=>i===40).length; const html=[n40?`пищевой брикет${n40>1?' ×'+n40:''} <button class="mini" data-eat="40">съесть ●</button> <button class="mini" data-drop="40">сбросить ●</button>`:'', items.includes(41)?'резак <button class="mini" data-drop="41">сбросить ●</button>':''].filter(Boolean).join(', ')||'—'; if(el.innerHTML!==html) el.innerHTML=html; }
   $('#sonar-age').textContent=u&&u.sonarAt>-1e8?`снимок ${(tNow-u.sonarAt).toFixed(0)} с назад`:'нет данных';
