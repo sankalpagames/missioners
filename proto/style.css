@@ -136,3 +136,9 @@ button{white-space:nowrap}
 #desc .cont{margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;align-items:center}
 #xfer{display:inline-flex;gap:4px;align-items:center}
 #xfer[hidden]{display:none}
+
+.snrbar{height:5px;background:#000;border:1px solid var(--line);margin-top:3px}
+.snrbar i{display:block;height:100%;width:0;background:var(--grn)}
+.snrbar i.weak{background:var(--acc)}.snrbar i.lost{background:var(--red)}
+#units button.weak{border-color:var(--acc);color:var(--acc)}
+#units button.lost{border-color:var(--red);color:var(--red)}
