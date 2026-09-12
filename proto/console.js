@@ -119,13 +119,16 @@ function drawGray(cv,buf,side){ const ctx=cv.getContext('2d'), im=ctx.createImag
 function sonarSegments(b){ const pts=[]; for(let i=0;i<64;i++){ const r=b[i]/255*100; pts.push(r>=99.5?null:{a:i/64*Math.PI*2,r}); }
   const joined=i=>{ const p=pts[i], q=pts[(i+1)%64]; return p&&q&&Math.abs(p.r-q.r)<Math.max(4,0.18*Math.min(p.r,q.r)); };
   return {pts, joined}; }
-function drawSonar(b){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200); ctx.strokeStyle='#1e3a1e'; for(const r of [25,50,75,100]){ ctx.beginPath(); ctx.arc(c,c,r,0,7); ctx.stroke(); } if(!b) return;
-  const {pts,joined}=sonarSegments(b); const X=p=>c+Math.cos(p.a)*p.r, Y=p=>c+Math.sin(p.a)*p.r;
+function drawSonar(b){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200);
+  // масштаб — по самому дальнему отражению: ближняя геометрия заполняет круг
+  const {pts,joined}=b?sonarSegments(b):{pts:[],joined:()=>false}; const maxR=pts.reduce((m,p)=>p?Math.max(m,p.r):m,0); const R=Math.max(12,Math.min(100,maxR*1.15||100)); const k=100/R;
+  const step=[2,5,10,20,25,50].find(s=>s*k>=22)||50; ctx.strokeStyle='#1e3a1e'; ctx.fillStyle='#555'; ctx.font='9px monospace'; for(let r=step;r<=R;r+=step){ ctx.beginPath(); ctx.arc(c,c,r*k,0,7); ctx.stroke(); ctx.fillText(r,c+r*k+2,c-2); }
+  if(!b) return; const X=p=>c+Math.cos(p.a)*p.r*k, Y=p=>c+Math.sin(p.a)*p.r*k;
   // свободное пространство
-  ctx.fillStyle='rgba(127,224,127,0.07)'; ctx.beginPath(); for(let i=0;i<64;i++){ const p=pts[i]||{a:i/64*Math.PI*2,r:100}; i?ctx.lineTo(X(p),Y(p)):ctx.moveTo(X(p),Y(p)); } ctx.closePath(); ctx.fill();
+  ctx.fillStyle='rgba(127,224,127,0.07)'; ctx.beginPath(); for(let i=0;i<64;i++){ const p=pts[i]||{a:i/64*Math.PI*2,r:R}; i?ctx.lineTo(X(p),Y(p)):ctx.moveTo(X(p),Y(p)); } ctx.closePath(); ctx.fill();
   ctx.strokeStyle='#7fe07f'; ctx.lineWidth=1.5; for(let i=0;i<64;i++){ if(!joined(i)) continue; const p=pts[i], q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1;
   ctx.fillStyle='#7fe07f'; for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; const lone=!joined(i)&&!joined((i+63)%64); ctx.fillRect(X(p)-(lone?2:1),Y(p)-(lone?2:1),lone?4:2,lone?4:2); }
-  ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.font='9px monospace'; ctx.fillText('25',c+26,c-2); ctx.fillText('50',c+51,c-2); ctx.fillText('100 м',c+72,c-2); }
+  ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.fillText(`до ${R.toFixed(0)} м`,4,196); }
 let ecgPhase=0, ecgX=0;
 function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(active); const W=150;
   if(!u||!u.tlm||tNow-u.tlmAt>3*Math.max(1,+$('#sub-tlm').value||1)){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,44); ctx.fillStyle='#333'; ctx.fillRect(0,22,W,1); return; }
