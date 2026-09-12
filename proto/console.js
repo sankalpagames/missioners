@@ -380,6 +380,8 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   const el=$('#boot-text'); const sl=ms=>new Promise(r=>setTimeout(r,ms));
   const type=async s=>{ for(const ch of s){ el.textContent+=ch; await sl(12); } };
   const line=(s)=>{ el.textContent+=s+'\n'; };
+  // вращающийся индикатор ожидания: -\|/ на конце последней строки, пока обещание не разрешится
+  const spin=async p=>{ const f=['-','\\','|','/']; let i=0; el.textContent+=' '; const t=setInterval(()=>{ el.textContent=el.textContent.slice(0,-1)+f[i++%4]; },120); try{ return await p; } finally{ clearInterval(t); el.textContent=el.textContent.slice(0,-1)+'\n'; } };
   selectUnit(); drawSonar(null);
   el.textContent='$ '; await sl(200); await type('ares-tk --key ~/old/dse.key ping ARK-041'); el.textContent+='\n';
   line('resolve ARK-041 via DSE routing table… corp endpoint unreachable, using cached route');
@@ -396,14 +398,14 @@ const boot={onInfo:null,onHb:null,onTlm:null};
     } else { line('local session store: empty'); el.textContent+='[n] new  [i] import file  ';
       const k=await key(['n','i']); if(k==='n'){ line('new session'); break; } const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); }
   }
-  const t0=Date.now(), info0=totals.INFO||0; line('status request, 3 B'); link.sendUplink([11,0,0]);
-  const info=await new Promise(res=>{ boot.onInfo=(text,pkt)=>{ boot.onInfo=null; res({text,pkt}); }; });
+  const t0=Date.now(), info0=totals.INFO||0; el.textContent+='status request, 3 B'; link.sendUplink([11,0,0]);
+  const info=await spin(new Promise(res=>{ boot.onInfo=(text,pkt)=>{ boot.onInfo=null; res({text,pkt}); }; }));
   line(`ACK ARK-041  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${(link.deepCapBps()).toFixed(0)}bps  rx=${(totals.INFO||0)-info0}B`);
   for(const l of info.text.split('\n')) line('  '+l);
-  const hb=await Promise.race([new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; }), sl(8000).then(()=>null)]); boot.onHb=null;
+  el.textContent+='heartbeat'; const hb=await spin(Promise.race([new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; }), sl(8000).then(()=>null)])); boot.onHb=null; el.textContent=el.textContent.replace(/heartbeat\n$/,'');
   if(!hb) line('heartbeat: none within 8s'); else line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier '+(hb[10]-30)+'dB':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
   const anyAlive=[...units.values()].some(u=>u.alive);
-  const tlm=anyAlive?await Promise.race([new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; }), sl(6000).then(()=>null)]):null; boot.onTlm=null;
+  if(anyAlive) el.textContent+='telemetry'; const tlm=anyAlive?await spin(Promise.race([new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; }), sl(6000).then(()=>null)])):null; boot.onTlm=null; if(anyAlive) el.textContent=el.textContent.replace(/telemetry\n$/,'');
   if(tlm){ const T=units.get(tlm.unit).tlm; line(`telemetry M${tlm.unit} ${tlm.size}B  pulse=${T.pulse} charge=${T.charge.toFixed(0)}% pos=${T.x},${T.y}`); } else line(anyAlive?'telemetry: none within 6s':'telemetry: no live units');
   line(''); line('$ console'); await sl(250); $('#boot').classList.add('off');
   log('консоль открыта. ключ принят.','sys'); selectUnit(); renderUnits();
