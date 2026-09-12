@@ -20,6 +20,7 @@ const UCOL=['#7fe07f','#4a8fe0','#e0a94a','#d97fd9','#5cd0d0','#d9534f'];
 const bw={};                    // kind → массив {t,bytes} за 5 с
 const lastRx={};                // kind → последний принятый пакет
 const contents=new Map();       // id контейнера → предметы (по последнему CONT)
+const sonarSnaps=[];             // снимки сонара для карты: {x,y,t,b}
 const stcam={ id:0, img:{msg:null,buf:new Uint8Array(64*64),levels:{},skipped:0,at:-1e9,asm:{},state:'',prog:0}, subs:{img:0,level:2,delta:true}, camera:true };
 const totals={};
 
@@ -48,7 +49,7 @@ link.onDeliver=pkt=>{
     case 'TLM': decodeTlm(pkt); break;
     case 'HB': decodeHb(pkt.bytes); break;
     case 'DESC': decodeDesc(pkt); break;
-    case 'SONAR': { const u=U(pkt.unit); u.sonarData=pkt.bytes; u.sonarAt=tNow; if(pkt.unit===active) drawSonar(pkt.bytes); break; }
+    case 'SONAR': { const u=U(pkt.unit); u.sonarData=pkt.bytes; u.sonarAt=tNow; const p=pos(pkt.unit); sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...pkt.bytes]}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(pkt.unit===active) drawSonar(pkt.bytes); break; }
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
@@ -114,8 +115,16 @@ function decodeImd(pkt){ const u=holderOf(pkt.unit), im=u.img, lvl=+pkt.kind[3],
 
 // ---------- отрисовка ----------
 function drawGray(cv,buf,side){ const ctx=cv.getContext('2d'), im=ctx.createImageData(side,side); for(let i=0;i<side*side;i++){ im.data[i*4]=im.data[i*4+1]=im.data[i*4+2]=buf[i]; im.data[i*4+3]=255; } ctx.putImageData(im,0,0); }
-function drawSonar(b){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200); ctx.strokeStyle='#1e3a1e'; for(const r of [25,50,75,100]){ ctx.beginPath(); ctx.arc(c,c,r,0,7); ctx.stroke(); } if(!b) return; ctx.fillStyle='#7fe07f';
-  for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, r=b[i]/255*100; if(r>=99.5) continue; ctx.strokeStyle='rgba(127,224,127,0.18)'; ctx.beginPath(); ctx.moveTo(c,c); ctx.lineTo(c+Math.cos(a)*r,c+Math.sin(a)*r); ctx.stroke(); ctx.fillRect(c+Math.cos(a)*r-1.5,c+Math.sin(a)*r-1.5,3,3); }
+// сонар: 64 дальности по кругу. Соседние отсчёты с близкой дальностью — одна поверхность (линия), одиночные — точки
+function sonarSegments(b){ const pts=[]; for(let i=0;i<64;i++){ const r=b[i]/255*100; pts.push(r>=99.5?null:{a:i/64*Math.PI*2,r}); }
+  const joined=i=>{ const p=pts[i], q=pts[(i+1)%64]; return p&&q&&Math.abs(p.r-q.r)<Math.max(4,0.18*Math.min(p.r,q.r)); };
+  return {pts, joined}; }
+function drawSonar(b){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200); ctx.strokeStyle='#1e3a1e'; for(const r of [25,50,75,100]){ ctx.beginPath(); ctx.arc(c,c,r,0,7); ctx.stroke(); } if(!b) return;
+  const {pts,joined}=sonarSegments(b); const X=p=>c+Math.cos(p.a)*p.r, Y=p=>c+Math.sin(p.a)*p.r;
+  // свободное пространство
+  ctx.fillStyle='rgba(127,224,127,0.07)'; ctx.beginPath(); for(let i=0;i<64;i++){ const p=pts[i]||{a:i/64*Math.PI*2,r:100}; i?ctx.lineTo(X(p),Y(p)):ctx.moveTo(X(p),Y(p)); } ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#7fe07f'; ctx.lineWidth=1.5; for(let i=0;i<64;i++){ if(!joined(i)) continue; const p=pts[i], q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1;
+  ctx.fillStyle='#7fe07f'; for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; const lone=!joined(i)&&!joined((i+63)%64); ctx.fillRect(X(p)-(lone?2:1),Y(p)-(lone?2:1),lone?4:2,lone?4:2); }
   ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.font='9px monospace'; ctx.fillText('25',c+26,c-2); ctx.fillText('50',c+51,c-2); ctx.fillText('100 м',c+72,c-2); }
 let ecgPhase=0, ecgX=0;
 function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(active); const W=150;
@@ -170,6 +179,9 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   ctx.fillStyle='#aaa'; ctx.fillRect(W-16-step*sc,12,step*sc,2); ctx.fillText(step+' м',W-16-step*sc,10);
   // покрытие: где и когда снимались описания (радиус 100 м) — единственное, что консоль честно знает о «просмотренном»
   for(const u of units.values()) for(const q of u.descPts){ const age=tNow-q.t; ctx.fillStyle=`rgba(159,181,159,${Math.max(0.03,0.12-age/6000)})`; ctx.beginPath(); ctx.arc(sx(q.x),sy(q.y),100*sc,0,7); ctx.fill(); }
+  // геометрия с сонара: поверхности линиями, одиночные отражения точками; старые снимки тусклее
+  for(const s of sonarSnaps){ const age=tNow-s.t; const al=Math.max(0.15,0.7-age/3000); const {pts,joined}=sonarSegments(s.b); const X=p=>sx(s.x+Math.cos(p.a)*p.r), Y=p=>sy(s.y+Math.sin(p.a)*p.r);
+    ctx.strokeStyle=`rgba(92,208,208,${al})`; ctx.fillStyle=ctx.strokeStyle; for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; if(joined(i)){ const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } else if(!joined((i+63)%64)) ctx.fillRect(X(p)-1,Y(p)-1,2,2); } }
   ctx.strokeStyle='#555'; ctx.beginPath(); ctx.arc(sx(0),sy(0),14*sc,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(0)+16*sc,sy(0)-4);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); u.track.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
@@ -313,7 +325,7 @@ const SAVE_KEY='missioners.save';
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null}));
-  return { tNow, active, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
+  return { tNow, active, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], sonar:sonarSnaps.slice(-120), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
 }
 function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
 function requestSave(){ world.postMessage({t:'save'}); }
@@ -321,7 +333,7 @@ function restoreConsole(d){
   tNow=d.tNow; active=d.active||1; Object.assign(station,d.station); if(d.stcam) Object.assign(stcam.subs,d.stcam.subs); Object.assign(totals,d.totals||{}); units.clear();
   for(const su of d.units){ const u=U(su.id); Object.assign(u,su,{img:u.img, sonarData:su.sonarData?new Uint8Array(su.sonarData):null}); }
   known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
-  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v);
+  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v); sonarSnaps.length=0; sonarSnaps.push(...(d.sonar||[]));
   $('#log').innerHTML=''; logEntries.length=0; for(const e of d.log||[]) log(e.txt,e.cls,e.t); log('— сеанс восстановлен —','sys');
 }
 function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){ return null; } }
@@ -361,8 +373,9 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   for(const l of info.text.split('\n')) line('  '+l);
   const hb=await new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; });
   line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
-  const tlm=await new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; });
-  const T=units.get(tlm.unit).tlm; line(`telemetry M${tlm.unit} ${tlm.size}B  pulse=${T.pulse} charge=${T.charge.toFixed(0)}% pos=${T.x},${T.y}`);
+  const anyAlive=[...units.values()].some(u=>u.alive);
+  const tlm=anyAlive?await Promise.race([new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; }), sl(6000).then(()=>null)]):null; boot.onTlm=null;
+  if(tlm){ const T=units.get(tlm.unit).tlm; line(`telemetry M${tlm.unit} ${tlm.size}B  pulse=${T.pulse} charge=${T.charge.toFixed(0)}% pos=${T.x},${T.y}`); } else line(anyAlive?'telemetry: none within 6s':'telemetry: no live units');
   line(''); line('$ console'); await sl(250); $('#boot').classList.add('off');
   log('консоль открыта. ключ принят.','sys'); selectUnit(); renderUnits();
 })();
