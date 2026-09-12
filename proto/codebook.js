@@ -80,6 +80,8 @@ const EVENTS = {
   21:'положил',
   22:'взял',
   23:'путь перекрыт, тело остановилось',
+  24:'тело мертво: команда невозможна',
+  25:'станция: вне зоны приёма, команда не доставлена',
 };
 
 if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, EVENTS, encText, decText };

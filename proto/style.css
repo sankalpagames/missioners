@@ -142,3 +142,6 @@ button{white-space:nowrap}
 .snrbar i.weak{background:var(--acc)}.snrbar i.lost{background:var(--red)}
 #units button.weak{border-color:var(--acc);color:var(--acc)}
 #units button.lost{border-color:var(--red);color:var(--red)}
+/* данные старше порога — приглушены */
+.bb.stale{opacity:.45}
+.bb{transition:opacity .4s}

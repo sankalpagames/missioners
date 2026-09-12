@@ -313,6 +313,8 @@ setInterval(()=>{
     if(near){ const ts=$('#take-item'), ps=$('#put-item'); const carry=[...(u.camera?[42]:[]),...(u.items||[])];
       const fill=(sel,arr)=>{ const cur=sel.value; const html=[...new Set(arr)].map(i=>`<option value="${i}">${ITEMS[i]}</option>`).join(''); if(sel.dataset.h!==html){ sel.innerHTML=html; sel.dataset.h=html; if([...sel.options].some(o=>o.value===cur)) sel.value=cur; } sel.disabled=!arr.length; };
       fill(ts,cont); fill(ps,carry); $('#btn-take').disabled=!cont.length; $('#btn-put').disabled=!carry.length; } }
+  { const iv=Math.max(1,+$('#sub-tlm').value||1); const tAge=u&&u.tlm?tNow-u.tlmAt:Infinity; $('#blk-tlm .bb').classList.toggle('stale',tAge>3*iv);
+    $('#sonar-body').classList.toggle('stale',!u||tNow-u.sonarAt>120); $('#blk-desc .bb').classList.toggle('stale',!u||tNow-u.descAt>120); $('#img-body').classList.toggle('stale',!u||tNow-u.img.at>300); }
   $('#sonar-age').textContent=u&&u.sonarAt>-1e8?`снимок ${(tNow-u.sonarAt).toFixed(0)} с назад`:'нет данных';
   // расход по панелям
   const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };

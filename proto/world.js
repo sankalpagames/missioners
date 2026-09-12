@@ -257,6 +257,10 @@ onmessage = e => {
     emit('cmd','INFO',0,encText(info)); heartbeat(); return; }
   if(cmd===15){ hbInterval=arg; return; }
   const u=unit===0&&(cmd===3||cmd===16) ? stationCam : units.find(u=>u.id===unit); if(!u) return;
+  if(u!==stationCam){
+    if(!u.carrier){ evt(25,u.id); return; }                                              // станция не слышит тело — команда не дойдёт
+    if(!u.alive && [1,6,7,8,17,18,19,20,21,22,23].includes(cmd)){ evt(24,u.id); return; }  // мёртвому — только приборы
+  }
   switch(cmd){
     case 1: if(u.alive) describe(u); break;
     case 2: if(u.sensors.sonar && u.charge>0) sonar(u); break;
