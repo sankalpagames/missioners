@@ -305,6 +305,8 @@ function catchUp(sec){ const n=Math.min(sec,8*3600)/DT; muted=true; for(let i=0;
 // ---------- тик ----------
 function tick(){
   const dt=DT; t+=dt;
+  // тупик: живых нет, биоматериала нет, ничего не растёт — станция закрывает серию
+  if(station.taskOpen && !station.seriesClosed && units.length && !units.some(u=>u.alive) && station.bioStock<=0 && !station.growing){ station.seriesClosed=true; setTimeout(()=>evt(27),2000/speed); }
   if(station.growing){ station.growing.tLeft-=dt; if(station.growing.tLeft<=0){ const u=spawn(station.growing.sensors); station.growing=null; evt(6,u.id); } }
   // существо выбирает ближайшего живого
   let nearest=null, nd=1e9; for(const u of units){ if(!u.alive) continue; const d=dist(u,creature); if(d<nd){ nd=d; nearest=u; } }
