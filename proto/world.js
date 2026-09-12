@@ -340,6 +340,7 @@ function tick(){
       if(u.sub.tlm){ u.tlmTimer+=dt; if(u.tlmTimer>=u.sub.tlm){ u.tlmTimer=0; emit('bg','TLM',u.id,telemetry(u)); } }
       if(u.sub.desc){ u.subT.desc+=dt; if(u.subT.desc>=u.sub.desc){ u.subT.desc=0; describe(u,'bg'); } }
     } else {
+      u.cons=u.charge>0?(u.sub.img.interval?0.3:0.04):0; u.gen=0;
       u.charge=Math.max(0,u.charge-dt*(u.sub.img.interval?0.03:0.004));   // приборы на теле сидят на остатке заряда
     }
     if(u.sub.sonar && u.sensors.sonar && u.charge>0){ u.subT.sonar+=dt; if(u.subT.sonar>=u.sub.sonar){ u.subT.sonar=0; sonar(u,'bg'); } }
@@ -349,7 +350,7 @@ function tick(){
   if(hbInterval){ hbTimer+=dt; if(hbTimer>=hbInterval){ hbTimer=0; heartbeat(); } }
   if(muted) return;
   postMessage({ t:'phys', extraGain:antennaBoost,
-    units:units.map(u=>{ const tT=tunnelT(u.x,u.y); return {id:u.id, dist:Math.max(1,Math.hypot(u.x,u.y)), obstDb:tT>=0?8+22*tT:0, txDbm:u.txDbm, alive:u.alive}; }),
+    units:units.map(u=>{ const tT=tunnelT(u.x,u.y); return {id:u.id, dist:Math.max(1,Math.hypot(u.x,u.y)), obstDb:tT>=0?8+22*tT:0, txDbm:u.charge>0?u.txDbm:-99, alive:u.alive}; }),   // без заряда передатчик молчит
     dbg:{ units:units.map(u=>({id:u.id,x:u.x,y:u.y,alive:u.alive})), cx:creature.x, cy:creature.y, awake:creature.awake } });
 }
 let timer=null; function schedule(){ if(timer) clearInterval(timer); timer=setInterval(tick, DT*1000/speed); } schedule();
