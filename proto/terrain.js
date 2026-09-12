@@ -44,10 +44,10 @@ const TER = (()=>{
   function H(x,y,lod=0){ const c=canyon(x,y); let r=ridgeH(x,y); if(c.along<0 && c.along>-60){ const strip=(1-ss(6,11,Math.abs(c.perp)))*ss(-50,-25,c.along); r*=1-strip; }   // подход через осыпь расчищен
     const h=hills(x,y)+dunes(x,y)+(lod?0:micro(x,y))+r; if(c.d>c.w/2+4) return h;
     if(c.along>-6 && c.along<1 && Math.abs(c.perp)<5.5){ const k=ss(-6,-2,c.along)*(1-ss(4,5.5,Math.abs(c.perp))); return h*(1-k)+floorZ(c.along,c.perp)*k; }
-    const wall=c.w/2+0.9*(vnoise(c.along/3,c.perp>0?1:2)-0.5); const k=1-ss(wall,wall+2.2,c.d);   // стены почти отвесные, кромка неровная
+    const wall=c.w/2; const k=1-ss(wall,wall+1.6,c.d);   // стена начинается ровно на полуширине — там же, где явная стена для сонара и ходьбы
     if(k<=0) return h; return h*(1-k)+floorZ(c.along,c.perp)*k; }
-  // «стена»: перепад высот, который тело не берёт (для столкновений и сонара)
-  function wallAt(x,y,base){ return H(x,y)-base>1.2; }
+  // крутизна поверхности: tg угла наклона (для сонара — бит «сплошное», для ходьбы — непроходимый склон)
+  function slope(x,y){ const e=0.3; const dx=(H(x+e,y,1)-H(x-e,y,1))/(2*e), dy=(H(x,y+e,1)-H(x,y-e,1))/(2*e); return Math.hypot(dx,dy); }
 
   // ---- альбедо ----
   function groundTone(x,y,nz,inC){ const c=canyon(x,y);
@@ -95,5 +95,5 @@ const TER = (()=>{
   const SUN=(()=>{ const az=Math.PI*0.75, el=Math.PI/5; return {x:Math.cos(az)*Math.cos(el),y:Math.sin(az)*Math.cos(el),z:Math.sin(el),shx:-Math.cos(az),shy:-Math.sin(az),len:1/Math.tan(el)}; })();
   function mountains(bearing){ const b=bearing*3; return { far: 0.02+0.10*Math.pow(Math.abs(vnoise(b*1.1+40,1)*2-1),0.8)+0.025*vnoise(b*4+9,2), near: 0.005+0.035*vnoise(b*2.5+77,5)+0.012*vnoise(b*9+3,6) }; }   // угол возвышения по пеленгу
 
-  return { ss, hash, vnoise, CANYON, LEN, canyon, inside, corridor, canyonPoint, RIDGE, ridgeH, hills, dunes, landing, H, floorZ, wallAt, groundTone, rockTone, wallTone, DECAL, decor, SUN, mountains };
+  return { ss, hash, vnoise, CANYON, LEN, canyon, inside, corridor, canyonPoint, RIDGE, ridgeH, hills, dunes, landing, H, floorZ, slope, groundTone, rockTone, wallTone, DECAL, decor, SUN, mountains };
 })();

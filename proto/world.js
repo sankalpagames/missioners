@@ -17,7 +17,7 @@ const POIS = [
   { id:7, x:336, y:216,  subs:[[29,1.8,2.9],[30,-0.6,-1.8],[31,-4.4,-0.5],[32,0.8,0.1]] },   // на дне последнего колена расщелины
 ];
 const TUN_A = TER.CANYON.pts[0];                                             // вход в расщелину (ориентир 6)
-const CIRCLES = [ {x:0,y:0,r:10}, {x:-200,y:60,r:4} ];                        // корпус платформы, обломки: непроходимы и отражают сонар; остальное — рельеф
+const CIRCLES = [ {x:0,y:0,r:10,h:7}, {x:-200,y:60,r:4,h:4} ];                        // корпус платформы, обломки: непроходимы и отражают сонар; остальное — рельеф
 // t ∈ [0,1] — доля пути вглубь расщелины, −1 — снаружи. Дальше от входа — глубже, сильнее затухание радио
 function tunnelT(x,y){ const c=TER.inside(x,y); return c && c.along>0 ? Math.min(1,c.along/TER.LEN) : -1; }
 function inCorridor(x,y,margin=0){ return !!TER.inside(x,y,margin); }
@@ -56,16 +56,17 @@ function detectRadius(m){ return m===2?6 : m===4?35 : 70; }   // без фона
 
 // ---------- столкновения: тело не проходит сквозь корпус, скалы и стены тоннеля; вдоль препятствия скользит ----------
 const BODY_R = 0.6;
-function blocked(x,y,fromH){
-  if(TER.H(x,y)-fromH>1.0) return true;                                       // стена расщелины, обрыв, валун-выступ: шаг выше метра не берётся
+const MAX_SLOPE=0.84;   // tg 40°: круче тело не идёт — стены расщелины, обрыв; дюны, осыпь, завал проходимы
+function blocked(x,y,fromX,fromY){
+  const len=Math.hypot(x-fromX,y-fromY)||1; if((TER.H(x,y)-TER.H(fromX,fromY))/len>MAX_SLOPE) return true;
   for(const c of CIRCLES){ if(Math.hypot(x-c.x,y-c.y) < c.r+BODY_R) return true; }
   return false;
 }
 function stepBody(u,len){
-  const dx=Math.cos(u.heading)*len, dy=Math.sin(u.heading)*len; const h0=TER.H(u.x,u.y);
-  if(!blocked(u.x+dx,u.y+dy,h0)){ u.x+=dx; u.y+=dy; return true; }
+  const dx=Math.cos(u.heading)*len, dy=Math.sin(u.heading)*len;
+  if(!blocked(u.x+dx,u.y+dy,u.x,u.y)){ u.x+=dx; u.y+=dy; return true; }
   // скольжение: пробуем повернуть шаг на ±45°, ±90°
-  for(const a of [Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2]){ const h=u.heading+a, sx=Math.cos(h)*len, sy=Math.sin(h)*len; if(!blocked(u.x+sx,u.y+sy,h0)){ u.x+=sx; u.y+=sy; return true; } }
+  for(const a of [Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2]){ const h=u.heading+a, sx=Math.cos(h)*len, sy=Math.sin(h)*len; if(!blocked(u.x+sx,u.y+sy,u.x,u.y)){ u.x+=sx; u.y+=sy; return true; } }
   return false;
 }
 
@@ -130,16 +131,21 @@ function decPos(b,o){ return { x:(((b[o]<<8)|b[o+1])-32768)/10, y:(((b[o+2]<<8)|
 function rayCircle(ox,oy,dx,dy,c){ const fx=ox-c.x, fy=oy-c.y; const b=2*(fx*dx+fy*dy), cc=fx*fx+fy*fy-c.r*c.r; const D=b*b-4*cc; if(D<0) return Infinity; const s=Math.sqrt(D); const t1=(-b-s)/2, t2=(-b+s)/2; if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
 // что отражает сонар: только тела с объёмом (радиус, м); следы, надписи, кабели, вода — нет
 const SONAR_R={13:0.8,14:0.8,17:0.3,18:0.6,20:1.5,21:0.15,22:0.4,23:3,28:0.4,29:1.5,32:0.2,33:0.3};   // люки и прожектор — часть корпуса, он отражает сам
-// Сонар: 64 луча по кругу; на луч — байт дальности и бит «сплошное» (эхо по всей высоте: корпус, скалы, стены).
-// Низкие объекты (ящики, тела, существо) отражают, но бит не ставят. Пакет: [x,y съёмки (4), маска (8), дальности (64)]
+// Сонар (по поведению — плоский лидар): 64 луча по кругу под наклоном tilt° к горизонту с высоты 1,2 м над грунтом; на луч — байт
+// наклонной дальности и бит «сплошное»: поверхность в точке попадания круче 45° (стены, обрыв, корпус) — эхо по всей высоте.
+// Наклон вниз даёт эхо от грунта: подъём впереди укорачивает дальность, понижение удлиняет — профиль рельефа за те же байты.
+// Пакет: [x,y съёмки (4), наклон+90 (1), маска (8), дальности (64)] = 77 Б
+const OBJ_H={13:1,14:1,17:7,18:1.8,20:0.7,21:1.1,22:0.5,23:4,28:0.4,29:1.4,32:0.25,33:0.4};   // высота отражателя, м; тела и существо — 1,6 / 0,5
 function sonar(u, cls='cmd'){
-  const b=new Uint8Array(64), mask=new Uint8Array(8); const objs=objectsAround(u,100); const hu=TER.H(u.x,u.y);
-  for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, dx=Math.cos(a), dy=Math.sin(a); let best=100, solid=false;
-    for(const c of CIRCLES){ const t=rayCircle(u.x,u.y,dx,dy,c); if(t<best){ best=t; solid=true; } }
-    for(let t=0.5;t<best;t+=0.5){ if(TER.wallAt(u.x+dx*t,u.y+dy*t,hu)){ best=t; solid=true; break; } }   // стены расщелины, обрыв гряды — эхо по всей высоте
-    for(const o of objs){ if(o.landmark) continue; const r=o.creature?0.5:o.unit?0.5:(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,dx,dy,{x:o.x,y:o.y,r}); if(t<best){ best=t; solid=false; } }
+  const b=new Uint8Array(64), mask=new Uint8Array(8); const objs=objectsAround(u,100); const tilt=(u.sonarTilt||0)*Math.PI/180;
+  const z0=TER.H(u.x,u.y)+1.2, ch=Math.cos(tilt), sh=Math.sin(tilt); const hitZ=(t)=>z0+sh*t;
+  for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, ca=Math.cos(a), sa=Math.sin(a), dx=ca*ch, dy=sa*ch; let best=100, solid=false;   // dx,dy — шаг по горизонтали на метр наклонной дальности
+    for(const c of CIRCLES){ const t=rayCircle(u.x,u.y,ca,sa,c)/ch; if(t<best && hitZ(t)<TER.H(c.x,c.y)+c.h){ best=t; solid=true; } }
+    for(let t=0.5;t<best;t+=0.5){ const px=u.x+dx*t, py=u.y+dy*t; if(hitZ(t)<=TER.H(px,py)){ let lo=t-0.5, hi=t; for(let k=0;k<5;k++){ const m=(lo+hi)/2; if(hitZ(m)<=TER.H(u.x+dx*m,u.y+dy*m)) hi=m; else lo=m; } best=hi; solid=TER.slope(u.x+dx*hi,u.y+dy*hi)>1; break; } }   // рельеф: стена, если круто
+    for(const o of objs){ if(o.landmark) continue; const r=o.creature?0.5:o.unit?0.5:(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,ca,sa,{x:o.x,y:o.y,r})/ch; const oh=o.creature?(creature.awake?1.6:0.6):o.unit?(o.unit.alive?1.8:0.5):(OBJ_H[o.type]||1);
+      if(t<best && hitZ(t)<TER.H(o.x,o.y)+oh && hitZ(t)>TER.H(o.x,o.y)-0.5){ best=t; solid=false; } }
     b[i]=Math.round(Math.min(100,best)/100*255); if(solid&&best<100) mask[i>>3]|=1<<(i&7); }
-  emit(cls,'SONAR',u.id,new Uint8Array([...posBytes(u),...mask,...b]));
+  emit(cls,'SONAR',u.id,new Uint8Array([...posBytes(u),Math.round(u.sonarTilt||0)+90,...mask,...b]));
 }
 
 // ---------- камера ----------
@@ -241,7 +247,7 @@ onmessage = e => {
   }
   switch(cmd){
     case 1: if(u.alive) describe(u); break;
-    case 2: if(!u.sensors.sonar) evt(2,u.id); else if(u.charge<=0) evt(26,u.id); else sonar(u); break;
+    case 2: if(!u.sensors.sonar) evt(2,u.id); else if(u.charge<=0) evt(26,u.id); else { if(arg) u.sonarTilt=Math.max(-45,Math.min(45,arg-90)); sonar(u); } break;   // arg: наклон+90, 0 — горизонт (старый формат)
     case 3: if(u.sensors.camera && u.charge<=0) evt(26,u.id); else if(u.sensors.camera && u.charge>0){ if(m.bytes[3]) imageDelta(u,Math.min(3,arg),'cmd'); else imagePyramid(u,Math.min(3,arg),'cmd'); } break;
     case 16: if(u.sensors.camera){ u.sub.img={interval:arg,level:Math.min(3,m.bytes[3]),delta:!!m.bytes[4]}; u.subT.img=0; u.lastImg={}; } break;
     case 17: if(u.alive){ u.target=null; u.pending=null; evt(15,u.id); } break;

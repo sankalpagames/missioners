@@ -49,7 +49,7 @@ link.onDeliver=pkt=>{
     case 'TLM': decodeTlm(pkt); break;
     case 'HB': decodeHb(pkt.bytes); break;
     case 'DESC': decodeDesc(pkt); break;
-    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const mask=[...b.slice(4,12)], rays=b.slice(12); u.sonarData=rays; u.sonarMask=mask; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays],m:mask}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(pkt.unit===active) drawSonar(rays,mask); break; }
+    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const o=b.length>=77?1:0; const tilt=o?b[4]-90:0; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o); u.sonarData=rays; u.sonarMask=mask; u.sonarTilt=tilt; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays],m:mask,k:tilt}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(pkt.unit===active) drawSonar(rays,mask,tilt); break; }
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
@@ -118,16 +118,16 @@ function decodeImd(pkt){ const u=holderOf(pkt.unit), im=u.img, lvl=+pkt.kind[3],
 // ---------- отрисовка ----------
 function drawGray(cv,buf,side){ const ctx=cv.getContext('2d'), im=ctx.createImageData(side,side); for(let i=0;i<side*side;i++){ im.data[i*4]=im.data[i*4+1]=im.data[i*4+2]=buf[i]; im.data[i*4+3]=255; } ctx.putImageData(im,0,0); }
 // сонар: 64 дальности по кругу. Соседние отсчёты с близкой дальностью — одна поверхность (линия), одиночные — точки
-function sonarSegments(b,m){ const pts=[]; for(let i=0;i<64;i++){ const r=b[i]/255*100; const solid=m?!!(m[i>>3]&(1<<(i&7))):true; pts.push(r>=99.5?null:{a:i/64*Math.PI*2,r,solid}); }
+function sonarSegments(b,m,tilt=0){ const pts=[]; const ch=Math.cos(tilt*Math.PI/180); for(let i=0;i<64;i++){ const r=b[i]/255*100; const solid=m?!!(m[i>>3]&(1<<(i&7))):true; pts.push(r>=99.5?null:{a:i/64*Math.PI*2,r:r*ch,solid}); }   // r — горизонтальная проекция наклонной дальности
   // соединяем только сплошные отсчёты; допуск по дальности растёт с дальностью (лучи расходятся на 0,1·r; поверхность под углом до ~70° даёт Δr ≈ 0,27·r)
   const joined=i=>{ const p=pts[i], q=pts[(i+1)%64]; return p&&q&&p.solid&&q.solid&&Math.abs(p.r-q.r)<0.5+0.3*Math.min(p.r,q.r); };
   // цепочка: сколько подряд соединённых отсчётов, начиная с i
   const chainLen=i=>{ let n=1; while(n<64&&joined((i+n-1)%64)) n++; return n; };
   return {pts, joined, chainLen}; }
-function drawSonar(b,m){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200);
+function drawSonar(b,m,tilt=0){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200);
   // масштаб — по самому дальнему отражению: ближняя геометрия заполняет круг
   // масштаб: по 75-му процентилю дальностей (ближняя геометрия заполняет круг), колёсико — вручную
-  const {pts,joined}=b?sonarSegments(b,m):{pts:[],joined:()=>false}; const rs=pts.filter(Boolean).map(p=>p.r).sort((a,b)=>a-b); const q=rs.length?rs[Math.floor(rs.length*0.75)]:100;
+  const {pts,joined}=b?sonarSegments(b,m,tilt):{pts:[],joined:()=>false}; const rs=pts.filter(Boolean).map(p=>p.r).sort((a,b)=>a-b); const q=rs.length?rs[Math.floor(rs.length*0.75)]:100;
   const R=map.sonarR||Math.max(12,Math.min(100,q*1.25)); map.sonarAuto=R; const k=100/R;
   const step=[2,5,10,20,25,50].find(s=>s*k>=22)||50; ctx.strokeStyle='#1e3a1e'; ctx.fillStyle='#555'; ctx.font='9px monospace'; for(let r=step;r<=R;r+=step){ ctx.beginPath(); ctx.arc(c,c,r*k,0,7); ctx.stroke(); ctx.fillText(r,c+r*k+2,c-2); }
   if(!b) return; const X=p=>c+Math.cos(p.a)*p.r*k, Y=p=>c+Math.sin(p.a)*p.r*k;
@@ -135,7 +135,7 @@ function drawSonar(b,m){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; c
   ctx.fillStyle='rgba(127,224,127,0.07)'; ctx.beginPath(); for(let i=0;i<64;i++){ const p=pts[i]||{a:i/64*Math.PI*2,r:R}; i?ctx.lineTo(X(p),Y(p)):ctx.moveTo(X(p),Y(p)); } ctx.closePath(); ctx.fill();
   ctx.strokeStyle='#7fe07f'; ctx.lineWidth=1.5; for(let i=0;i<64;i++){ if(!joined(i)) continue; const p=pts[i], q=pts[(i+1)%64]; if(p.r>R||q.r>R) continue; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1;
   ctx.fillStyle='#7fe07f'; for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; if(p.r>R){ ctx.fillStyle='#2f5f2f'; ctx.fillRect(c+Math.cos(p.a)*99-1,c+Math.sin(p.a)*99-1,2,2); ctx.fillStyle='#7fe07f'; continue; } const lone=!p.solid||(!joined(i)&&!joined((i+63)%64)); ctx.fillStyle=p.solid?'#7fe07f':'#e0a94a'; ctx.fillRect(X(p)-(lone?2:1),Y(p)-(lone?2:1),lone?4:2,lone?4:2); }
-  ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.fillText(`до ${R.toFixed(0)} м${map.sonarR?' ·':''}`,4,196); }
+  ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.fillText(`до ${R.toFixed(0)} м${map.sonarR?' ·':''}${tilt?` · наклон ${tilt>0?'+':''}${tilt}°`:''}`,4,196); }
 let ecgPhase=0, ecgX=0;
 function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(active); const W=150;
   if(!u||!u.tlm||tNow-u.tlmAt>3*Math.max(1,+$('#sub-tlm').value||1)){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,44); ctx.fillStyle='#333'; ctx.fillRect(0,22,W,1); return; }
@@ -143,7 +143,7 @@ function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(a
   const y=28-v*20, x=ecgX; ecgX=(ecgX+dt*60)%W; ctx.fillStyle='rgba(0,0,0,0.06)'; ctx.fillRect(0,0,W,44); ctx.fillStyle='#000'; ctx.fillRect(x,0,8,44); ctx.fillStyle=bpm>150?'#ff5c5c':'#7fe07f'; ctx.fillRect(x,y,2,2); }
 
 function renderUnits(){ const el=$('#units'); el.innerHTML=''; [...units.values()].sort((a,b)=>a.id-b.id).forEach(u=>{ const b=document.createElement('button'); b.className=(u.id===active?'on ':'')+(u.alive?'':'dead ')+(u.alive&&u.hbAt>-1e8?(!u.carrier?'lost':(u.snr??99)<5?'weak':''):''); b.textContent=`${u.alive?(u.carrier?'●':'◌'):'○'} М${u.id}`; b.onclick=()=>{ active=u.id; selectUnit(); }; b.ondblclick=()=>{ map.focus=pos(u.id); if(map.zoom<3) map.zoom=3; $$('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.tab==='map')); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-map')); drawMap(); }; el.appendChild(b); }); }
-function selectUnit(){ const u=units.get(active); renderUnits(); renderDesc(); drawSonar(u.sonarData,u.sonarMask); showImg(u); updateTarget();
+function selectUnit(){ const u=units.get(active); renderUnits(); renderDesc(); drawSonar(u.sonarData,u.sonarMask,u.sonarTilt||0); showImg(u); updateTarget();
   $('#autonomy').value=u.autonomy; $('#sub-tlm').value=u.subs.tlm; $('#tx-pow').value=u.subs.tx||0; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta;
   $('#sonar-body').hidden=!u.sonar; $('#sonar-none').hidden=u.sonar; $('#img-body').hidden=!u.camera; $('#img-none').hidden=u.camera; $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }
 function renderDesc(){ const u=units.get(active), el=$('#desc'); el.innerHTML=''; $('#desc-unit').textContent='М'+active; if(!u||!u.desc.length){ el.innerHTML='<div class="dim small">нет данных</div>'; return; }
@@ -194,7 +194,8 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
     ctx.globalAlpha=0.07; ctx.drawImage(off,0,0); ctx.globalAlpha=1;
     for(const u of units.values()){ const q=u.descPts[u.descPts.length-1]; if(!q) continue; const age=tNow-q.t; const a=Math.max(0,0.12*(1-age/60)); if(a<=0) continue; ctx.fillStyle=`rgba(159,181,159,${a})`; ctx.beginPath(); ctx.arc(sx(q.x),sy(q.y),100*sc,0,7); ctx.fill(); } }
   // геометрия с сонара: поверхности линиями, одиночные отражения точками; старые снимки тусклее
-  for(const s of sonarSnaps){ const age=tNow-s.t; const al=Math.max(0.15,0.7-age/3000); const {pts,joined,chainLen}=sonarSegments(s.b,s.m); const X=p=>sx(s.x+Math.cos(p.a)*p.r), Y=p=>sy(s.y+Math.sin(p.a)*p.r);
+  for(const s of sonarSnaps){ const age=tNow-s.t; const al=Math.max(0.15,0.7-age/3000); const {pts,joined,chainLen}=sonarSegments(s.b,s.m,s.k||0); const X=p=>sx(s.x+Math.cos(p.a)*p.r), Y=p=>sy(s.y+Math.sin(p.a)*p.r);
+    if(s.k<0){ ctx.fillStyle=`rgba(92,208,208,${al*0.45})`; for(const p of pts){ if(p&&!p.solid) ctx.fillRect(X(p)-0.5,Y(p)-0.5,1.5,1.5); } }   // наклон вниз: эхо от грунта — рельеф тусклыми точками
     // на карту — только поверхности (цепочки отсчётов); одиночные отражения (ящики, столбики) остаются в панели сонара
     // на карту — цепочки от 4 отсчётов (стены, корпуса); короткие (ящики, столбики) остаются в панели
     const inChain=new Array(64).fill(false); for(let i=0;i<64;i++){ if(joined((i+63)%64)) continue; const n=chainLen(i); if(n>=(s.m?2:4)) for(let k=0;k<n;k++) inChain[(i+k)%64]=true; }
@@ -254,14 +255,14 @@ $$('button[data-cmd]').forEach(b=>b.onclick=()=>{ const c=+b.dataset.cmd, tg=T()
 $('#btn-desc').onclick=()=>{ const u=units.get(active); if(!u.alive) return log('М'+active+': тело мертво, описание недоступно','err'); send([1,0,active],`М${active} описание`); };
 $('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); moveTo(tg); };
 $('#btn-look').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); if(send([18,0,active,...coordBytes(tg)],`М${active} смотреть: ${tg.name}`)) setGoal(tg.name); };
-$('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log('М'+active+': сонар не установлен','err'); send([2,0,active],`М${active} сонар`); };
+$('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log('М'+active+': сонар не установлен','err'); const k=+$('#sonar-tilt').value; send([2,k+90,active],`М${active} сонар${k?` (наклон ${k>0?'+':''}${k}°)`:''}`); };
 $$('button[data-mode]').forEach(b=>b.onclick=()=>{ if(send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`) && b.dataset.mode==='3') setGoal('шлюз станции',{x:16,y:0}); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': камера не установлена','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
 $('#btn-take').onclick=()=>{ const tg=T(), item=+$('#take-item').value; if(!tg||!item) return; if(send([23,item,active,tg.id],`М${active} взять ${ITEMS[item]} из «${tg.name}»`)) setGoal(tg.name); };
 $('#btn-put').onclick=()=>{ const tg=T(), item=+$('#put-item').value; if(!tg||!item) return; if(send([22,item,active,tg.id],`М${active} положить ${ITEMS[item]} в «${tg.name}»`)) setGoal(tg.name); };
-$('#sonar').onwheel=e=>{ e.preventDefault(); const cur=map.sonarR||map.sonarAuto||50; map.sonarR=Math.max(5,Math.min(100,cur*(e.deltaY<0?1/1.15:1.15))); drawSonar(units.get(active).sonarData,units.get(active).sonarMask); };
-$('#sonar').ondblclick=()=>{ map.sonarR=null; drawSonar(units.get(active).sonarData,units.get(active).sonarMask); };
+$('#sonar').onwheel=e=>{ e.preventDefault(); const cur=map.sonarR||map.sonarAuto||50; map.sonarR=Math.max(5,Math.min(100,cur*(e.deltaY<0?1/1.15:1.15))); drawSonar(units.get(active).sonarData,units.get(active).sonarMask,units.get(active).sonarTilt||0); };
+$('#sonar').ondblclick=()=>{ map.sonarR=null; drawSonar(units.get(active).sonarData,units.get(active).sonarMask,units.get(active).sonarTilt||0); };
 $('#airlock').onclick=e=>{ const b=e.target.closest('[data-tr]'); if(!b) return; const [item,dir,unit]=b.dataset.tr.split(',').map(Number); send([21,item,unit,dir],`М${unit} ${dir?'взять со склада':'сдать на склад'}: ${ITEMS[item]}`); };
 { const sp=$('#splitter'), lw=$('#logwrap'); let drag=null;
   sp.onmousedown=e=>{ drag={y:e.clientY,h:lw.offsetHeight}; sp.classList.add('on'); e.preventDefault(); };
