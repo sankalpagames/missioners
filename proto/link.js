@@ -19,7 +19,7 @@ class Link {
       orbit: false, orbitPeriod: 420, orbitVisible: 300, orbitPhase0: 20,
     };
     this.phys = { units:{}, extraGain:0 };
-    this.t = 0; this.deepBudget = 0; this.localBudget = {}; this.secBg = 0;
+    this.t = 0; this.deepBudget = 0; this.localBudget = {}; this.secBg = 0; this.rr = 0;
     this.queues = { bg:{}, cmd:[] };   // bg: по одному свежему сообщению на источник и вид
     this.retry = [];
     this.stats = { sec:this.blankSec(), hist:[], dropped:0, delivered:0, retrans:0 };
@@ -79,7 +79,11 @@ class Link {
       // 1) фон (подписки) — раньше команд, но не больше 40 % полосы в секунду: команды не голодают;
       // 2) команды в порядке очереди, минуя те, чей миссионер вне зоны
       const bgAllowed = this.secBg < 0.4*dcap/8 || !this.queues.cmd.length;
-      if(bgAllowed) for(const key in this.queues.bg){ const arr=this.queues.bg[key]; if(!arr.length) continue; if(this.canSend(arr[0])){ pick=arr[0]; q=arr; break; } }
+      if(bgAllowed){ // пульс станции первым; остальной фон — по кругу, чтобы ни одна подписка не голодала
+        const keys=Object.keys(this.queues.bg).filter(k=>this.queues.bg[k].length); const hb=keys.filter(k=>k.startsWith('0:')), rest=keys.filter(k=>!k.startsWith('0:'));
+        const start=rest.length?this.rr%rest.length:0; const order=[...hb, ...rest.slice(start), ...rest.slice(0,start)];
+        for(const key of order){ const arr=this.queues.bg[key]; if(this.deepBudget<arr[0].size) break;   // ждём бюджета, а не обгоняем мелкими пакетами
+          if(this.canSend(arr[0])){ pick=arr[0]; q=arr; if(!key.startsWith('0:')) this.rr=(rest.indexOf(key)+1)%rest.length; break; } } }
       if(!pick){ const arr=this.queues.cmd;   // по порядку; пропускаем только пакеты миссионеров вне зоны, а не «маленькие, которые влезли»
         for(const p of arr){ if(this.deepBudget<p.size) break; if(p.unit && !(this.localCapBps(p.unit)>0 && (this.localBudget[p.unit]||0)>=p.size)) continue; pick=p; q=arr; break; } }
       if(!pick) break;

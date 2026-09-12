@@ -347,13 +347,13 @@ setInterval(()=>{
 },100);
 
 // ---------- сохранение: мир + знание консоли, хранилище браузера ----------
-const SAVE_KEY='missioners.save';
+const SAVE_KEY='missioners.save', SAVE_VERSION=5;   // поднимать при несовместимых изменениях формата мира или консоли
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));
   return { tNow, active, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], sonar:sonarSnaps.slice(-120), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
 }
-function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
+function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({v:SAVE_VERSION, savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
 function requestSave(){ world.postMessage({t:'save'}); }
 function restoreConsole(d){
   tNow=d.tNow; active=d.active||1; Object.assign(station,d.station); if(d.stcam) Object.assign(stcam.subs,d.stcam.subs); Object.assign(totals,d.totals||{}); units.clear();
@@ -367,7 +367,10 @@ function applySave(s){ const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSe
   world.postMessage({t:'load',data:s.world,elapsed:0}); restoreConsole(s.console); resumed=true; }   // игровое время стоит, пока консоль закрыта
 setInterval(()=>{ if(!$('#boot').classList.contains('off')) return; requestSave(); },10000);
 function exportSave(){ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'})); a.download='ark-041-session.json'; a.click(); return true; }
-function importSave(){ return new Promise(res=>{ const inp=$('#import-file'); inp.value=''; inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return res(null); f.text().then(txt=>{ const s=JSON.parse(txt); localStorage.setItem(SAVE_KEY,txt); res(s); }).catch(()=>res(null)); }; inp.click(); }); }
+function importSave(){ return new Promise(res=>{ const inp=$('#import-file'); inp.value=''; let done=false; const finish=v=>{ if(done) return; done=true; window.removeEventListener('focus',onFocus); res(v); };
+  inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return finish(null); f.text().then(txt=>{ const s=JSON.parse(txt); localStorage.setItem(SAVE_KEY,txt); finish(s); }).catch(()=>finish(null)); };
+  const onFocus=()=>setTimeout(()=>{ if(!inp.files.length) finish(null); },800);   // диалог закрыт без файла — отмена
+  setTimeout(()=>window.addEventListener('focus',onFocus),300); inp.click(); }); }
 let resumed=false;
 function fmtGap(s){ if(s<90) return `${s.toFixed(0)}s`; if(s<5400) return `${(s/60).toFixed(0)}m`; if(s<172800) return `${(s/3600).toFixed(1)}h`; return `${(s/86400).toFixed(1)}d`; }
 
@@ -384,7 +387,7 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   const key=async(keys)=>{ const cur=document.createElement('span'); cur.className='cur'; el.appendChild(cur); const k=await new Promise(res=>{ const h=e=>{ const k=e.key.toLowerCase(); if(keys.includes(k)){ document.removeEventListener('keydown',h); res(k); } }; document.addEventListener('keydown',h); }); cur.remove(); el.textContent+=k+'\n'; return k; };
   let s=readSave();
   for(;;){
-    if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); el.textContent+='[r] resume  [n] new  [i] import file  [e] export file  ';
+    if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); if((s.v||0)!==SAVE_VERSION) line(`  warning: session build v${s.v||0}, current v${SAVE_VERSION} — resume may misbehave, [n] recommended`); el.textContent+='[r] resume  [n] new  [i] import file  [e] export file  ';
       const k=await key(['r','n','i','e']);
       if(k==='r'){ applySave(s); line('session restored, world clock paused since'); break; }
       if(k==='e'){ exportSave(); line('exported'); continue; }
@@ -397,8 +400,8 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   const info=await new Promise(res=>{ boot.onInfo=(text,pkt)=>{ boot.onInfo=null; res({text,pkt}); }; });
   line(`ACK ARK-041  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${(link.deepCapBps()).toFixed(0)}bps  rx=${(totals.INFO||0)-info0}B`);
   for(const l of info.text.split('\n')) line('  '+l);
-  const hb=await new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; });
-  line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier '+(hb[10]-30)+'dB':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
+  const hb=await Promise.race([new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; }), sl(8000).then(()=>null)]); boot.onHb=null;
+  if(!hb) line('heartbeat: none within 8s'); else line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier '+(hb[10]-30)+'dB':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
   const anyAlive=[...units.values()].some(u=>u.alive);
   const tlm=anyAlive?await Promise.race([new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; }), sl(6000).then(()=>null)]):null; boot.onTlm=null;
   if(tlm){ const T=units.get(tlm.unit).tlm; line(`telemetry M${tlm.unit} ${tlm.size}B  pulse=${T.pulse} charge=${T.charge.toFixed(0)}% pos=${T.x},${T.y}`); } else line(anyAlive?'telemetry: none within 6s':'telemetry: no live units');
