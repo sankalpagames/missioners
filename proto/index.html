@@ -126,11 +126,8 @@
           <button id="btn-look" data-tip="Повернуть голову к выбранному, не двигаясь. 7 Б.">Смотреть</button>
                     <button data-cmd="19" data-tip="Изучить: подойти к объекту, осмотреть вблизи, передать текст состояния. Описание издалека даёт только имя.">Изучить</button>
           <button data-cmd="8" data-tip="Взаимодействовать: подойти и выполнить действие, доступное для текущего состояния объекта — вскрыть, забрать, прочитать, срастить, включить. Может требовать предмет или состояние другого объекта.">Взаимодействовать</button>
+          <span id="xfer" hidden data-tip="Обмен с контейнером рядом (в 4 м): взять из него или положить в него. Появляется, когда выбран контейнер с известным содержимым и тело стоит рядом."><select class="sub" id="take-item"></select><button id="btn-take">Взять ●</button> <select class="sub" id="put-item"></select><button id="btn-put">Положить ●</button></span>
           <span id="target-label" class="dim small"></span>
-        </div>
-        <div class="row" id="xfer" hidden data-tip="Обмен с контейнером рядом (в 4 м): взять из него или положить в него. Появляется, когда выбран контейнер с известным содержимым и тело стоит рядом.">
-          <label class="small">взять <select class="sub" id="take-item"></select></label><button id="btn-take">Взять ●</button>
-          <label class="small">положить <select class="sub" id="put-item"></select></label><button id="btn-put">Положить ●</button>
         </div>
         <div class="row modes" data-tip="Режимы тела. Исследование — фонарь, обычная скорость. Скрытность — без фонаря, медленно, обнаружение с 22 м вместо 70. Отступление — бегом к шлюзу. Отдых — стоя, восстановление психики и заряда. Бой — удар при контакте.">
           <label class="cg">режим</label><button data-mode="1">исследование</button><button data-mode="2">скрытность</button><button data-mode="3">отступление</button><button data-mode="4">отдых</button><button data-mode="5">бой</button>
