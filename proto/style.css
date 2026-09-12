@@ -43,7 +43,8 @@ h3{font-size:11px;letter-spacing:.1em;color:var(--dim);margin:8px 0 2px}
 .tabs button.on{background:var(--panel);color:var(--acc)}
 .tab{display:none;flex:1;min-height:0;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-top:none;padding:8px;overflow:auto}
 .tab.on{display:flex}
-#log{flex:1;overflow:auto;background:#000;border:1px solid var(--line);padding:8px;font-size:12px;min-height:120px}
+#logwrap{display:flex;flex-direction:column;height:220px;min-height:80px;max-height:60vh;resize:vertical;overflow:hidden;margin-top:6px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+#log{flex:1;overflow:auto;background:#000;border:1px solid var(--line);padding:6px 8px;font-size:12px;min-height:40px}
 #log div{padding:1px 0;white-space:pre-wrap}
 #log .t{color:var(--dim);margin-right:6px}
 #log .cmd{color:var(--blu)}#log .evt{color:var(--acc)}#log .err{color:var(--red)}#log .desc{color:#9fb59f}#log .sys{color:var(--dim)}

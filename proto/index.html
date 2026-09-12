@@ -61,13 +61,9 @@
 
   <section class="col center">
     <nav class="tabs">
-      <button data-tab="log" class="on">Лог</button><button data-tab="map" data-tip="Карта из принятых данных: координаты — из телеметрии, объекты — по пеленгу и дальности из описаний. Зелёные круги — зоны снятых описаний, радиус 100 м. Вне кругов данных нет.">Карта</button><button data-tab="charts" data-tip="История принятых значений по времени.">Графики</button><button data-tab="journal" data-tip="Лог записей по объектам с фильтрами по миссионеру, ориентиру и тексту. Описание показывает окружение миссионера; журнал — всё накопленное.">Журнал</button><button data-tab="station" data-tip="Консоль станции: биоматериал, склад датчиков, выращивание миссионеров.">Станция</button><button data-tab="channel" data-tip="Распределение полосы по видам данных. Реагирует на включение и выключение панелей. Лампа: зелёная — линия свободна; жёлтая — занята, ответы на команды встанут в очередь; красная — очередь больше 10 с, всё новое ждёт.">Канал <i id="lamp" class="lamp"></i></button>
+      <button data-tab="map" class="on" data-tip="Карта из принятых данных: координаты — из телеметрии, объекты — по пеленгу и дальности из описаний. Зелёные круги — зоны снятых описаний, радиус 100 м. Вне кругов данных нет.">Карта</button><button data-tab="charts" data-tip="История принятых значений по времени.">Графики</button><button data-tab="journal" data-tip="Лог записей по объектам с фильтрами по миссионеру, ориентиру и тексту. Описание показывает окружение миссионера; журнал — всё накопленное.">Журнал</button><button data-tab="station" data-tip="Консоль станции: биоматериал, склад датчиков, выращивание миссионеров.">Станция</button><button data-tab="channel" data-tip="Распределение полосы по видам данных. Реагирует на включение и выключение панелей. Лампа: зелёная — линия свободна; жёлтая — занята, ответы на команды встанут в очередь; красная — очередь больше 10 с, всё новое ждёт.">Канал <i id="lamp" class="lamp"></i></button>
     </nav>
-    <div class="tab on" id="tab-log">
-      <div id="task" class="small" data-tip="Открытая задача по протоколу станции. Приходит в паспорте станции при подключении; закрывается событием станции."></div>
-      <div id="log"></div>
-    </div>
-    <div class="tab" id="tab-map">
+    <div class="tab on" id="tab-map">
       <canvas id="map" width="720" height="460"></canvas>
       <div class="row small dim"><button class="mini" id="map-minus">−</button><button class="mini" id="map-plus">+</button><button class="mini" id="map-reset">сброс</button><span id="map-scale"></span><span class="grow"></span><span id="map-hint">колёсико/кнопки — масштаб · перетаскивание — сдвиг · клик — выбор объекта или точки (локально) · тусклые объекты — не в описаниях этого миссионера</span><span class="grow"></span><span id="map-count"></span></div>
     </div>
@@ -113,6 +109,10 @@
       <table id="ch-table"><thead><tr><th>панель</th><th>Б/с сейчас</th><th>Б всего</th></tr></thead><tbody></tbody></table>
       <h3>в очереди</h3>
       <table id="queue"><thead><tr><th>запрос</th><th>от</th><th>пакеты</th><th>байт</th><th>ETA</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div id="logwrap">
+      <div id="task" class="small" data-tip="Открытая задача по протоколу станции. Приходит в паспорте станции при подключении; закрывается событием станции."></div>
+      <div id="log"></div>
     </div>
       <div class="cmds">
         <div class="row"><label class="cg">команды</label>

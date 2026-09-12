@@ -209,7 +209,7 @@ onmessage = e => {
     case 17: if(u.alive){ u.target=null; u.pending=null; evt(15,u.id); } break;   // стоп: цель остаётся, тело стоит
     case 6: if(u.alive){ const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.target={x,y}; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
-    case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3) u.target={x:16,y:0}; if(arg===4) u.target=null; evt(7,u.id,arg); } break;
+    case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ u.target={x:16,y:0}; u.goal={x:16,y:0}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
     case 8: beginAction(u,'act',arg); break;
     case 19: beginAction(u,'exam',arg); break;
     case 9: u.txDbm=arg-20; evt(8,u.id,9); break;

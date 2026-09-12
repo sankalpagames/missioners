@@ -206,12 +206,12 @@ function coordBytes(p){ const X=p.x+32768, Y=p.y+32768; return [X>>8,X&255,Y>>8,
 function moveTo(tg){ const u=units.get(active); if(!u||!u.alive){ log('М'+active+': тело мертво, перемещение невозможно','err'); return; } if(send([6,0,active,...coordBytes(tg)],`М${active} идти: ${tg.name}`)) setGoal(tg.name); }
 $$('button[data-cmd]').forEach(b=>b.onclick=()=>{ const c=+b.dataset.cmd, tg=T();
   if(c===8){ if(!tg||!tg.id) return log('объект не выбран','err'); if(send([8,tg.id,active],`М${active} взаимодействовать: ${tg.name}`)) setGoal(tg.name); }
-  if(c===19){ if(!tg||!tg.id) return log('объект не выбран','err'); send([19,tg.id,active],`М${active} изучить: ${tg.name}`); } });
+  if(c===19){ if(!tg||!tg.id) return log('объект не выбран','err'); if(send([19,tg.id,active],`М${active} изучить: ${tg.name}`)) setGoal(tg.name); } });
 $('#btn-desc').onclick=()=>{ const u=units.get(active); if(!u.alive) return log('М'+active+': тело мертво, описание недоступно','err'); send([1,0,active],`М${active} описание`); };
 $('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); moveTo(tg); };
 $('#btn-look').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); if(send([18,0,active,...coordBytes(tg)],`М${active} смотреть: ${tg.name}`)) setGoal(tg.name); };
 $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log('М'+active+': сонар не установлен','err'); send([2,0,active],`М${active} сонар`); };
-$$('button[data-mode]').forEach(b=>b.onclick=()=>{ send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`); });
+$$('button[data-mode]').forEach(b=>b.onclick=()=>{ if(send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`) && b.dataset.mode==='3') setGoal('шлюз станции',{x:16,y:0}); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': камера не установлена','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
 $('#st-btn-img').onclick=()=>{ const lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; send([3,lvl,0,d],`камера шлюза: кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
