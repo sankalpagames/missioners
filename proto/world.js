@@ -108,8 +108,9 @@ function classOf(o){ return o.creature?2 : o.unit?(o.unit.alive?4:3) : o.landmar
 function describe(u, cls='cmd'){
   const objs=objectsAround(u,100); const parts=[];
   for(const o of objs){ const t=encText(nameOf(o)); parts.push([o.id&255, classOf(o), Math.round(bearingDeg(u,o)/2), Math.min(255,Math.round(dist(u,o))), t.length, ...t]); }
-  emit(cls,'DESC',u.id,new Uint8Array(parts.flat()));
+  emit(cls,'DESC',u.id,new Uint8Array([...posBytes(u),...parts.flat()]));   // первые 4 байта — где снято
 }
+function posBytes(u){ const x=Math.round(u.x)+32768, y=Math.round(u.y)+32768; return [x>>8,x&255,y>>8,y&255]; }
 function rayCircle(ox,oy,dx,dy,c){ const fx=ox-c.x, fy=oy-c.y; const b=2*(fx*dx+fy*dy), cc=fx*fx+fy*fy-c.r*c.r; const D=b*b-4*cc; if(D<0) return Infinity; const s=Math.sqrt(D); const t1=(-b-s)/2, t2=(-b+s)/2; if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
 function raySeg(ox,oy,dx,dy,s){ const ex=s.x2-s.x1, ey=s.y2-s.y1; const den=dx*ey-dy*ex; if(Math.abs(den)<1e-9) return Infinity; const tt=((s.x1-ox)*ey-(s.y1-oy)*ex)/den; const uu=((s.x1-ox)*dy-(s.y1-oy)*dx)/den; return (tt>0&&uu>=0&&uu<=1)?tt:Infinity; }
 // что отражает сонар: только тела с объёмом (радиус, м); следы, надписи, кабели, вода — нет
@@ -121,7 +122,7 @@ function sonar(u, cls='cmd'){
     for(const s of SEGS) best=Math.min(best,raySeg(u.x,u.y,dx,dy,s));
     for(const o of objs){ if(o.landmark) continue; const r=o.creature?0.5:o.unit?0.5:(SONAR_R[o.type]||0); if(!r) continue; best=Math.min(best,rayCircle(u.x,u.y,dx,dy,{x:o.x,y:o.y,r})); }
     b[i]=Math.round(Math.min(100,best)/100*255); }
-  emit(cls,'SONAR',u.id,b);
+  emit(cls,'SONAR',u.id,new Uint8Array([...posBytes(u),...b]));   // первые 4 байта — где снято
 }
 
 // ---------- камера ----------
