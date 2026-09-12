@@ -20,6 +20,7 @@ GitHub Pages из корня (`.github/workflows/static.yml`). Корневой 
 Чистый JS, без сборки. Запуск: `python3 proto/serve.py` (есть конфиг `proto` в `.claude/launch.json`).
 
 - `world.js` — мир, Web Worker. Не знает о консоли.
+- `terrain.js` — рельеф, расщелина, декорации (объект `TER`); `camera.js` — рендер кадра (объект `CAM`); `sprites.png` + `sprites.json` — атлас спрайтов, собирается `tools/sprites-build.js` из `tools/raw/` (не в репозитории; id ассетов — `tools/spritecook-assets.json`). Всё это — часть мира.
 - `link.js` — канал. Единственный путь мир → консоль.
 - `console.js` — консоль оператора. Видит только `link.onDeliver`.
 - `codebook.js` — кодовая книга типов; подключается и в мир, и в консоль.
@@ -40,5 +41,5 @@ GitHub Pages из корня (`.github/workflows/static.yml`). Корневой 
 
 ## Проверка
 
-Синтаксис: `node -e "for(const f of ['proto/world.js','proto/link.js','proto/console.js','proto/codebook.js']) new Function(require('fs').readFileSync(f,'utf8'))"`.
+Синтаксис: `node -e "for(const f of ['proto/world.js','proto/link.js','proto/console.js','proto/codebook.js','proto/terrain.js','proto/camera.js']) new Function(require('fs').readFileSync(f,'utf8'))"`.
 Поведение проверяется в браузере; в отладочной шторке есть телепорт (клик по карте «правда о мире») — ускоряет сценарии. Ускорение времени ×4 — в шапке.

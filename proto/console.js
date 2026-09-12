@@ -239,8 +239,8 @@ function drawChartCh(){ const cv=$('#chart-ch'); fitCanvas(cv); const ctx=cv.get
   h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd; let y=H; for(const k of kinds){ const hh=s[k]/max*H; ctx.fillStyle=KIND_COL[k]; ctx.fillRect(x,y-hh,bwd-1,hh); y-=hh; } });
   ctx.strokeStyle='#fff'; ctx.beginPath(); h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd+bwd/2, y=H-s.cap/max*H; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.fillStyle='#888'; ctx.font='10px monospace'; ctx.fillText(Math.round(max)+' Б/с',4,10); ctx.fillText('90 с',W-30,H-4); }
 function bwRate(k){ const arr=bw[k]||[]; while(arr.length&&tNow-arr[0].t>5) arr.shift(); return arr.reduce((a,p)=>a+p.b,0)/5; }
-function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.arc(sx(0),sy(0),7,0,7); ctx.stroke(); ctx.strokeStyle='#444'; ctx.beginPath(); ctx.moveTo(sx(260),sy(150)); ctx.lineTo(sx(340),sy(218)); ctx.stroke();
-  ctx.fillStyle='#666'; ctx.font='10px monospace'; for(const [id,x,y] of [[1,16,0],[2,40,14],[3,120,-80],[4,90,140],[5,-200,60],[6,260,150],[7,330,210]]){ ctx.fillRect(sx(x)-1,sy(y)-1,3,3); ctx.fillText(id,sx(x)+4,sy(y)+3); }
+function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.arc(sx(0),sy(0),7,0,7); ctx.stroke(); ctx.strokeStyle='#444'; ctx.beginPath(); [[260,150],[284,158],[300,184],[321,191],[326,213],[341,219]].forEach(([x,y],i)=>i?ctx.lineTo(sx(x),sy(y)):ctx.moveTo(sx(x),sy(y))); ctx.moveTo(sx(300),sy(184)); ctx.lineTo(sx(291),sy(198)); ctx.lineTo(sx(286),sy(214)); ctx.stroke();   // расщелина с отростком — как в terrain.js
+  ctx.fillStyle='#666'; ctx.font='10px monospace'; for(const [id,x,y] of [[1,16,0],[2,40,14],[3,120,-80],[4,90,140],[5,-200,60],[6,260,150],[7,336,216]]){ ctx.fillRect(sx(x)-1,sy(y)-1,3,3); ctx.fillText(id,sx(x)+4,sy(y)+3); }
   if(dbg){ for(const u of dbg.units){ ctx.fillStyle=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666'; ctx.fillRect(sx(u.x)-2,sy(u.y)-2,5,5); ctx.fillText('М'+u.id,sx(u.x)+5,sy(u.y)+3); } ctx.fillStyle=dbg.awake?'#ff5c5c':'#663'; ctx.fillRect(sx(dbg.cx)-2,sy(dbg.cy)-2,5,5); } }
 $('#truth').onclick=e=>{ const r=$('#truth').getBoundingClientRect(); const x=((e.clientX-r.left)*(360/r.width)-180)/0.5, y=((e.clientY-r.top)*(200/r.height)-100)/0.5; world.postMessage({t:'tp',unit:active,x,y}); log(`[отладка] телепорт М${active} в ${x.toFixed(0)}, ${y.toFixed(0)}`,'sys'); };
 
@@ -352,7 +352,7 @@ setInterval(()=>{
 },100);
 
 // ---------- сохранение: мир + знание консоли, хранилище браузера ----------
-const SAVE_KEY='missioners.save', SAVE_VERSION=5;   // поднимать при несовместимых изменениях формата мира или консоли
+const SAVE_KEY='missioners.save', SAVE_VERSION=6;   // поднимать при несовместимых изменениях формата мира или консоли
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));

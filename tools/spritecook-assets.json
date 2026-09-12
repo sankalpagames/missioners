@@ -1,0 +1,164 @@
+{
+ "crate": {
+  "asset_id": "2aeda8e5-3506-4ad0-b171-14a63a306dae"
+ },
+ "creature": {
+  "asset_id": "a7173664-533d-49c0-af5a-98de114564e5"
+ },
+ "crate_open": {
+  "asset_id": "e75dced4-43bb-456a-834b-28c8e6beebd6"
+ },
+ "mound": {
+  "asset_id": "bdccacf0-08e8-4b4c-a0b4-50d7a472a15a"
+ },
+ "marker": {
+  "asset_id": "3b5848d6-fb84-4255-a172-a25acb6ec32b"
+ },
+ "body": {
+  "asset_id": "8cf70a3d-143c-428c-b4b7-32f55f5b1354"
+ },
+ "missionary": {
+  "asset_id": "03429d47-d000-494b-876e-0636d0c541eb"
+ },
+ "cabinet": {
+  "asset_id": "3725eb9c-d720-49ea-a081-99d8017bb9d4"
+ },
+ "pile": {
+  "asset_id": "fe995d86-42c3-415e-af2a-1bc4fb9568ec"
+ },
+ "hatch": {
+  "asset_id": "a0889ece-b1c6-498a-881e-4347db04158f"
+ },
+ "floodlight": {
+  "asset_id": "91502279-fd81-4067-bdef-1a45f408f7d3"
+ },
+ "bones": {
+  "asset_id": "8b31c10d-b69e-4625-b0f1-ed110b3a8406"
+ },
+ "stone": {
+  "asset_id": "661b979d-8739-4b4a-9689-19a5b5444bca"
+ },
+ "mast": {
+  "asset_id": "779ed1dd-2803-4f94-8c22-32e6ab2cad25"
+ },
+ "glyphs": {
+  "asset_id": "1856b646-5ef6-412e-9de1-98e5d18e03dd"
+ },
+ "hull": {
+  "asset_id": "e6d02a82-962c-4b28-b7b2-efc80d8c8705"
+ },
+ "crates_sheet": {
+  "asset_id": "1f89ca34-43cc-4019-b7f5-ba9581f54227"
+ },
+ "wreck_sheet": {
+  "asset_id": "d0892637-b73d-471d-a7b7-64791509b50f"
+ },
+ "creature_sheet": {
+  "asset_id": "89546f38-1192-48c7-a2fc-e1567025e79b"
+ },
+ "missionary_sheet": {
+  "asset_id": "a16e9070-bb63-4cce-a7e4-ef6bb1b3645d"
+ },
+ "body_sheet": {
+  "asset_id": "b4df9726-a987-4c51-b518-9ccfecd55d82"
+ },
+ "mound_sheet": {
+  "asset_id": "06194774-d909-41f4-a378-30fd775ba3d4"
+ },
+ "marker_sheet": {
+  "asset_id": "176c0566-f0c3-4686-b141-ad579521dd58"
+ },
+ "bones_sheet": {
+  "asset_id": "c95b6e2b-8b43-4ba7-98e9-aff49453606b"
+ },
+ "pile_sheet": {
+  "asset_id": "660482f3-ada3-4496-9f78-d9956519b1da"
+ },
+ "stone_sheet": {
+  "asset_id": "e919872a-f239-4917-8d54-d8e65037e10c"
+ },
+ "cabinet_sheet": {
+  "asset_id": "50b7865c-6271-4cf1-ab60-762718733729"
+ },
+ "hatch_sheet": {
+  "asset_id": "96753428-5b1a-4bec-9476-4b08277a0a76"
+ },
+ "floodlight_sheet": {
+  "asset_id": "d34a9f6d-dc75-4a86-b6f4-f7e33807dad2"
+ },
+ "mast_sheet": {
+  "asset_id": "c5e908d3-5a9e-4332-a13d-c548ebb4908b"
+ },
+ "glyphs_hd": {
+  "asset_id": "aecdf413-1107-49b2-962e-e8a666522b93"
+ },
+ "small_sheet": {
+  "asset_id": "89442b8e-9929-4d41-bf9e-321e07c52115"
+ },
+ "station_sheet": {
+  "asset_id": "07296195-b5d8-4423-ba79-aa64651e58e1"
+ },
+ "creature_alert_sheet": {
+  "asset_id": "d53d32fc-9fde-4c81-9dad-89f45cf3cfe1"
+ },
+ "boulder_sheet": {
+  "asset_id": "294d163f-23be-4f84-bc60-aafe8513b6ff"
+ },
+ "rocks_sheet": {
+  "asset_id": "4264b0c9-4418-4e96-9830-d2c236f7ec9e"
+ },
+ "stalks_sheet": {
+  "asset_id": "4eec1b8c-01a7-4057-973b-a0375bb64a56"
+ },
+ "platform_sheet": {
+  "asset_id": "73d54784-7b17-4933-baf8-76f5ca877ddd"
+ },
+ "platform2_sheet": {
+  "asset_id": "f6a89f46-7a85-4cf7-8aa8-d660d37db739"
+ },
+ "creature_feral_sheet": {
+  "asset_id": "ce55a53b-8ed7-4bc2-b04f-2cac85d3f563"
+ },
+ "missionary2_sheet": {
+  "asset_id": "6d3870e6-c236-43c9-ba27-2914f1abc87b"
+ },
+ "missionary3_sheet": {
+  "asset_id": "25c31a1b-5be0-445e-9d9a-e286c8c0b716"
+ },
+ "missionary4_sheet": {
+  "asset_id": "abcaa859-4edf-4229-8a74-a2a679a554e9"
+ },
+ "missionary5_sheet": {
+  "asset_id": "a7c8d142-fb14-41e1-9f2a-286f60e954d3"
+ },
+ "missionary_walk_sheet": {
+  "asset_id": "2e002a76-efae-4005-aca5-4c8c04e94046"
+ },
+ "body2_sheet": {
+  "asset_id": "a749a6ba-1b5c-45b2-beed-d42093a5cd90"
+ },
+ "creature2_sheet": {
+  "asset_id": "cec4086b-0081-4ae6-905e-102f4664ba12"
+ },
+ "creature_sleep_sheet": {
+  "asset_id": "527a3067-eb64-4640-96d0-92050b66b75f"
+ },
+ "outcrop_sheet": {
+  "asset_id": "cbd27017-6550-4ebd-8d69-daa96f62e19e"
+ },
+ "hoodoo_sheet": {
+  "asset_id": "68d33573-fac7-40e3-b0e0-8f88fc567a64"
+ },
+ "debris_sheet": {
+  "asset_id": "0ba340e9-aeb4-4ea5-986f-5a5b9a0615f1"
+ },
+ "cairn_sheet": {
+  "asset_id": "a3353b95-39c4-48b0-99bc-605b26f710fd"
+ },
+ "post_sheet": {
+  "asset_id": "ab9c74be-1d9f-48b9-869e-d579d244c056"
+ },
+ "boulder2_sheet": {
+  "asset_id": "204721af-9e46-4021-9e8d-faab3ae60e98"
+ }
+}
