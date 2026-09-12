@@ -26,7 +26,7 @@ function log(txt,cls='sys'){ const d=document.createElement('div'); d.innerHTML=
 function fmtT(t){ if(!isFinite(t)) return '—'; const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 
 // ---------- мир → канал → консоль ----------
-world.onmessage=e=>{ const m=e.data; if(m.t==='msg') link.enqueue(m); else if(m.t==='phys'){ link.setPhys(m); dbg=m.dbg; } };
+world.onmessage=e=>{ const m=e.data; if(m.t==='msg') link.enqueue(m); else if(m.t==='phys'){ link.setPhys(m); dbg=m.dbg; } else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data); };
 link.onUplink=bytes=>world.postMessage({t:'cmd',bytes});
 link.onFrame=(msg,ok)=>world.postMessage({t:'imgAck',unit:msg.unit,level:+msg.kind[3],ok});
 // Сборка многопакетных текстовых сообщений: декодируем, когда пришли все пакеты
@@ -261,8 +261,34 @@ setInterval(()=>{
     for(const id in groups){ const g=groups[id]; const eta=g.cls==='cmd'?link.etaFor(+id):g.bytes/(link.deepCapBps()/8||1e-9); qb.insertAdjacentHTML('beforeend',`<tr><td>${KIND_RU[link.kindOf(g.kind)]}${/^IM/.test(g.kind)?' '+[8,16,32,64][+g.kind[3]]+'px'+(g.kind[2]==='D'?' Δ':''):''}</td><td>М${g.unit}</td><td>${g.total-g.n}/${g.total}</td><td>${g.bytes}</td><td>${isFinite(eta)?eta.toFixed(1)+' с':'∞ (нет несущей)'}</td></tr>`); } }
   // отладка
   if(!$('#drawer').hidden){ const id=active; $('#i-dist').textContent=(link.phys.units[id]||{dist:0}).dist.toFixed(0)+' м'; $('#i-fspl').textContent=link.fsplDb(id).toFixed(1)+' дБ'; $('#i-obst').textContent=(link.phys.units[id]||{obstDb:0}).obstDb.toFixed(1)+' дБ'; $('#i-snr').textContent=link.snrDb(id).toFixed(1)+' дБ'+(link.phys.extraGain?' (+'+link.phys.extraGain+')':''); $('#i-local').textContent=(link.localCapBps(id)/1000).toFixed(2)+' кбит/с'; $('#i-ber').textContent=link.ber(id).toExponential(1); $('#i-per').textContent=(link.per(id,72)*100).toFixed(1)+'%'; $('#i-deep').textContent=(link.deepCapBps()/1000).toFixed(2)+' кбит/с = '+(link.deepCapBps()/8).toFixed(0)+' Б/с'; $('#i-cnt').textContent=`${link.stats.delivered}/${link.stats.dropped}/${link.stats.retrans}`;
+    if((tNow*10|0)%10===0) world.postMessage({t:'peek',unit:active});
     $('#i-queue').textContent=`фон: ${link.queueBytes('bg')} Б · команды: ${link.queueBytes('cmd')} Б (${link.queues.cmd.length} пкт) · повторы: ${link.retry.length}`; drawTruth(); }
 },100);
+
+// ---------- сохранение: мир + знание консоли, хранилище браузера ----------
+const SAVE_KEY='missioners.save';
+let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
+function consoleSnapshot(){
+  const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null}));
+  return { tNow, active, station, totals, units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
+}
+function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
+function requestSave(){ world.postMessage({t:'save'}); }
+function restoreConsole(d){
+  tNow=d.tNow; active=d.active||1; Object.assign(station,d.station); Object.assign(totals,d.totals||{}); units.clear();
+  for(const su of d.units){ const u=U(su.id); Object.assign(u,su,{img:u.img, sonarData:su.sonarData?new Uint8Array(su.sonarData):null}); }
+  known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
+  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v);
+}
+function loadSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const s=JSON.parse(raw); const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap;
+  world.postMessage({t:'load',data:s.world,elapsed:gap}); restoreConsole(s.console); tNow+=Math.min(gap,8*3600); return true; }catch(e){ console.warn('save load failed',e); return false; } }
+setInterval(()=>{ if(!$('#boot').classList.contains('off')) return; requestSave(); },10000);
+$('#btn-export').onclick=()=>{ world.postMessage({t:'save'}); setTimeout(()=>{ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'})); a.download='арк-041-сеанс.json'; a.click(); },300); };
+$('#btn-import').onclick=()=>$('#import-file').click();
+$('#import-file').onchange=e=>{ const f=e.target.files[0]; if(!f) return; f.text().then(txt=>{ JSON.parse(txt); localStorage.setItem(SAVE_KEY,txt); location.reload(); }).catch(()=>log('файл сеанса не распознан','err')); };
+$('#btn-wipe').onclick=()=>{ if(!confirm('Стереть сохранение и начать заново?')) return; localStorage.removeItem(SAVE_KEY); location.reload(); };
+const resumed=loadSave();
+function fmtGap(s){ if(s<90) return `${s.toFixed(0)} с`; if(s<5400) return `${(s/60).toFixed(0)} мин`; if(s<172800) return `${(s/3600).toFixed(1).replace('.',',')} ч`; return `${(s/86400).toFixed(1).replace('.',',')} сут`; }
 
 // ---------- заставка: ведётся настоящими пакетами ----------
 const boot={onInfo:null,onHb:null,onTlm:null};
@@ -273,6 +299,7 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   selectUnit(); drawSonar(null);
   el.textContent='> '; await sl(700); await type('арес-инструментарий --ключ ~/старое/дсэ.ключ  зонд АРК-041'); await sl(300); el.textContent+='\n';
   await sl(400); line('разрешение адреса АРК-041 по таблице маршрутов ДСЭ (узел корпорации недоступен, кэш)…');
+  if(resumed) line(`сеанс восстановлен из хранилища; с прошлого подключения ${fmtGap(prevSessionGap)}${prevSessionGap>8*3600?' (досчитано 8 ч)':''}`);
   await sl(800); const t0=Date.now(); line('запрос статуса, 3 байта'); link.sendUplink([11,0,0]);
   // ответ станции — текстом, когда дойдёт
   const info=await new Promise(res=>{ boot.onInfo=(text,pkt)=>{ boot.onInfo=null; res({text,pkt}); }; });
@@ -283,5 +310,5 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   const tlm=await new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; });
   const T=units.get(tlm.unit).tlm; line(`телеметрия М${tlm.unit}  ${tlm.size} Б: пульс ${T.pulse}, заряд ${T.charge.toFixed(0)} %, координаты ${T.x}, ${T.y}`);
   await sl(600); line(''); line('> консоль открыта'); await sl(900); $('#boot').classList.add('off');
-  log('консоль открыта. ключ принят.','sys');
+  log('консоль открыта. ключ принят.','sys'); selectUnit(); renderUnits();
 })();

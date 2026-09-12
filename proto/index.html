@@ -16,6 +16,11 @@
   <div id="units" data-tip="Миссионеры. Команды и панели относятся к выбранному. ● живой · ○ мёртвый · ◌ несущая не принимается станцией. Приборы на мёртвом теле работают на остатке заряда."></div>
   <span class="grow"></span>
   <label class="small" data-tip="Ускорение симуляции. Мир и канал ускоряются вместе, соотношения сохраняются.">время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
+  <span id="save-state" class="dim small" data-tip="Сеанс сохраняется в хранилище браузера каждые 10 с: мир и знание консоли. Пока вкладка закрыта, мир досчитывает прошедшее время при следующем открытии (не больше 8 часов)."></span>
+  <button id="btn-export" class="ghost" data-tip="Скачать сеанс файлом (.json): мир + консоль.">экспорт</button>
+  <button id="btn-import" class="ghost" data-tip="Загрузить сеанс из файла. Текущий будет заменён.">импорт</button>
+  <button id="btn-wipe" class="ghost" data-tip="Стереть сохранение и начать заново.">стереть</button>
+  <input type="file" id="import-file" accept=".json" hidden>
   <button id="btn-debug" class="ghost" data-tip="Отладочная шторка: физика канала и состояние мира напрямую. В игре недоступна.">⚙ отладка</button>
 </header>
 
@@ -170,6 +175,8 @@
       <canvas id="truth" width="360" height="200"></canvas>
       <h3>очередь пакетов</h3>
       <div id="i-queue" class="small dim"></div>
+      <h3>чистый рендер выбранного <span class="dim">— из мира напрямую, мимо канала, 64×64</span></h3>
+      <canvas id="peek" width="64" height="64" style="width:192px;height:192px;image-rendering:pixelated;background:#000;border:1px solid var(--line)"></canvas>
     </div>
   </div>
 </div>

@@ -46,7 +46,7 @@ function speedFor(m){ return m===2?0.6 : m===3?2.6 : m===4?0 : m===5?1.0 : 1.4; 
 function detectRadius(m){ return m===2?22 : m===4?35 : 70; }
 
 // ---------- сообщения наружу ----------
-function emit(cls, kind, unit, payload){ postMessage({ t:'msg', id:msgId++, cls, kind, unit, payload }); }
+function emit(cls, kind, unit, payload){ if(muted){ msgId++; return; } postMessage({ t:'msg', id:msgId++, cls, kind, unit, payload }); }
 function evt(code, unit=0, arg=0){ emit('cmd','EVT', unit, new Uint8Array([code,arg])); }
 function emitAuto(kind, unit, payload){ emit('bg', kind, unit, payload); }   // периодические подписки идут фоном
 
@@ -182,6 +182,9 @@ onmessage = e => {
   if(m.t==='imgAck'){ const u=units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='autonomy'){ const u=units.find(u=>u.id===m.unit); if(u) u.autonomy=m.v; return; }
   if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; } return; }
+  if(m.t==='peek'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u) postMessage({t:'peekImg',unit:u.id,img:render(u,64)}); return; }   // отладка: чистый рендер мимо канала
+  if(m.t==='save'){ postMessage({t:'state',data:snapshot()}); return; }
+  if(m.t==='load'){ restore(m.data); catchUp(m.elapsed||0); return; }
   if(m.t!=='cmd') return;
   const [cmd,arg,unit]=m.bytes;
   if(cmd===10){ // вырастить: arg = маска датчиков
@@ -212,6 +215,20 @@ onmessage = e => {
     case 14: u.sub.desc=arg; u.subT.desc=0; break;
   }
 };
+
+// ---------- сохранение мира ----------
+function snapshot(){
+  const su=units.map(u=>{ const o={...u}; delete o.lastImg; delete o.pendingImg; return o; });
+  return { t, nextUnit, msgId, station, objState, creature, antennaBoost, hbInterval, units:su };
+}
+function restore(d){
+  t=d.t; nextUnit=d.nextUnit; msgId=d.msgId; Object.assign(station,d.station); for(const k in objState) delete objState[k]; Object.assign(objState,d.objState);
+  Object.assign(creature,d.creature); antennaBoost=d.antennaBoost; hbInterval=d.hbInterval;
+  units.length=0; for(const su of d.units){ units.push({...su, lastImg:{}, pendingImg:null}); }
+}
+// Мир жил без оператора: досчитываем прошедшее время (не больше 8 часов), ничего не передавая
+let muted=false;
+function catchUp(sec){ const n=Math.min(sec,8*3600)/DT; muted=true; for(let i=0;i<n;i++) tick(); muted=false; }
 
 // ---------- тик ----------
 function tick(){
@@ -251,6 +268,7 @@ function tick(){
     if(u.sub.img.interval && u.sensors.camera && u.charge>0){ u.subT.img+=dt; if(u.subT.img>=u.sub.img.interval){ u.subT.img=0; if(u.sub.img.delta) imageDelta(u,u.sub.img.level); else imagePyramid(u,u.sub.img.level,'bg'); } }
   }
   if(hbInterval){ hbTimer+=dt; if(hbTimer>=hbInterval){ hbTimer=0; heartbeat(); } }
+  if(muted) return;
   postMessage({ t:'phys', extraGain:antennaBoost,
     units:units.map(u=>{ const tT=tunnelT(u.x,u.y); return {id:u.id, dist:Math.max(1,Math.hypot(u.x,u.y)), obstDb:tT>=0?8+22*tT:0, txDbm:u.txDbm, alive:u.alive}; }),
     dbg:{ units:units.map(u=>({id:u.id,x:u.x,y:u.y,alive:u.alive})), cx:creature.x, cy:creature.y, awake:creature.awake } });
