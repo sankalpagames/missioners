@@ -292,7 +292,10 @@ document.addEventListener('mousemove',e=>{ if(tip.style.display!=='block') retur
 
 // ---------- главный цикл ----------
 let lastUp=true;
+let paused=false;
+document.addEventListener('visibilitychange',()=>{ paused=document.hidden; world.postMessage({t:paused?'pause':'resume'}); });
 setInterval(()=>{
+  if(paused) return;
   const dt=0.1*speed; tNow+=dt; link.tick(dt);
   world.postMessage({t:'link',carriers:Object.fromEntries([...units.keys()].map(id=>[id,link.carrier(id)]))});
   drawEcg(dt);
@@ -356,7 +359,7 @@ function restoreConsole(d){
 }
 function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){ return null; } }
 function applySave(s){ const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap; link.reset();
-  world.postMessage({t:'load',data:s.world,elapsed:gap}); restoreConsole(s.console); tNow+=Math.min(gap,8*3600); resumed=true; }
+  world.postMessage({t:'load',data:s.world,elapsed:0}); restoreConsole(s.console); resumed=true; }   // игровое время стоит, пока консоль закрыта
 setInterval(()=>{ if(!$('#boot').classList.contains('off')) return; requestSave(); },10000);
 function exportSave(){ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'})); a.download='ark-041-session.json'; a.click(); return true; }
 function importSave(){ return new Promise(res=>{ const inp=$('#import-file'); inp.value=''; inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return res(null); f.text().then(txt=>{ const s=JSON.parse(txt); localStorage.setItem(SAVE_KEY,txt); res(s); }).catch(()=>res(null)); }; inp.click(); }); }
@@ -378,7 +381,7 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   for(;;){
     if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); el.textContent+='[r] resume  [n] new  [i] import file  [e] export file  ';
       const k=await key(['r','n','i','e']);
-      if(k==='r'){ applySave(s); line(`session restored${gap>8*3600?' (world time capped at 8h)':''}`); break; }
+      if(k==='r'){ applySave(s); line('session restored, world clock paused since'); break; }
       if(k==='e'){ exportSave(); line('exported'); continue; }
       if(k==='i'){ const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); continue; }
       if(k==='n'){ el.textContent+='overwrite stored session? [y/n] '; const y=await key(['y','n']); if(y==='y'){ localStorage.removeItem(SAVE_KEY); line('new session'); break; } continue; }

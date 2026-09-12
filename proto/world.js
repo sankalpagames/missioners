@@ -229,6 +229,8 @@ function doPending(u){
 onmessage = e => {
   const m=e.data;
   if(m.t==='speed'){ speed=m.v; schedule(); return; }
+  if(m.t==='pause'){ if(timer) clearInterval(timer); timer=null; return; }   // вкладка скрыта — мир стоит
+  if(m.t==='resume'){ schedule(); return; }
   if(m.t==='link'){ for(const u of units) if(u.id in m.carriers) u.carrier=!!m.carriers[u.id]; return; }   // миссионер сам слышит несущую станции — физика, не данные
   if(m.t==='imgAck'){ const u=m.unit===0?stationCam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='autonomy'){ const u=units.find(u=>u.id===m.unit); if(u) u.autonomy=m.v; return; }
