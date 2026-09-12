@@ -250,7 +250,8 @@ $('#btn-st').onclick=()=>send([11,0,0],'станция: статус');
 $('#speed').onchange=e=>{ speed=+e.target.value; world.postMessage({t:'speed',v:speed}); };
 $$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab)); if(b.dataset.tab==='journal') renderJournal(); });
 $('#fin-close').onclick=()=>$('#finale').hidden=true;
-{ let clicks=[]; $('#btn-debug').onclick=()=>{ const now=Date.now(); clicks=clicks.filter(t=>now-t<800); clicks.push(now); if(clicks.length>=3){ clicks=[]; $('#drawer').hidden=false; } }; }   // три быстрых нажатия $('#btn-debug-close').onclick=()=>$('#drawer').hidden=true;
+{ let clicks=[]; $('#btn-debug').onclick=()=>{ const now=Date.now(); clicks=clicks.filter(t=>now-t<800); clicks.push(now); if(clicks.length>=3){ clicks=[]; $('#drawer').hidden=false; } }; }   // три быстрых нажатия
+$('#btn-debug-close').onclick=()=>$('#drawer').hidden=true;
 const bind=(id,key,fmt,tx)=>{ const el=$(id); el.oninput=()=>{ const v=+el.value; if(tx) send([9,v+20,active],`М${active} TX ${v} dBm`); else link.cfg[key]=v; $(id+'-v').textContent=fmt(v); }; };
 bind('#c-tx',null,v=>v+' dBm',true); bind('#c-noise','noiseDbm',v=>v+' dBm'); bind('#c-bw','bwHz',v=>v+' Hz'); bind('#c-deep','deepCapBps',v=>v+' bps');
 $('#c-fec').onchange=e=>link.cfg.fec=e.target.checked; $('#c-arq').onchange=e=>link.cfg.arq=e.target.checked; $('#c-orbit').onchange=e=>link.cfg.orbit=e.target.checked;
