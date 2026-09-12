@@ -26,7 +26,7 @@ class Link {
     this._secAcc = 0; this.uplinkPending = [];
     this.onDeliver=()=>{}; this.onDrop=()=>{}; this.onUplink=()=>{}; this.onFrame=()=>{};
   }
-  blankSec(){ return {TLM:0,HB:0,SONAR:0,DESC:0,IMG:0,EVT:0,drop:0,cap:0}; }
+  blankSec(){ return {TLM:0,HB:0,SONAR:0,DESC:0,IMG:0,EVT:0,EXAM:0,ACT:0,INFO:0,CONT:0,drop:0,cap:0}; }
   kindOf(k){ return /^IM[GD]/.test(k)?'IMG':k; }
   reset(){ this.queues={bg:{},cmd:[]}; this.retry=[]; this.uplinkPending=[]; this.deepBudget=0; this.localBudget={}; }
   setPhys(p){ this.phys.extraGain=p.extraGain; for(const u of p.units) this.phys.units[u.id]=u; }

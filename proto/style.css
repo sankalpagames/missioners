@@ -133,3 +133,4 @@ button{white-space:nowrap}
 *::-webkit-scrollbar-track{background:transparent}
 *::-webkit-scrollbar-thumb{background:#2e3642;border-radius:4px;border:2px solid var(--panel)}
 *::-webkit-scrollbar-thumb:hover{background:#3d4756}
+#desc .cont{margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;align-items:center}

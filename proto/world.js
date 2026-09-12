@@ -29,6 +29,12 @@ const station = { bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:nu
 function atAirlock(u){ return u.alive && dist(u,POIS[0])<12; }
 const objState = {};                       // id объекта → состояние (по умолчанию 0)
 function stateOf(id){ return objState[id]||0; }
+const contents = { 20:[40], 21:[40], 62:[41], 70:[42] };   // содержимое контейнеров: id объекта → предметы
+const ground = [];                          // свёртки на грунте: {id, x, y}; id 100…199
+let nextGround = 100;
+function isContainer(o){ if(o.unit) return !o.unit.alive; const cb=CODEBOOK[o.type]; return !!cb && cb.container!==undefined; }
+function containerOpen(o){ if(o.unit) return true; const cb=CODEBOOK[o.type]; return stateOf(o.id)>=cb.container; }
+function contentsOf(o){ if(o.unit){ const v=o.unit; return [...(v.sensors.camera?[42]:[]), ...v.items]; } return contents[o.id]||[]; }
 const units = []; let nextUnit = 1;
 function spawn(sensors){
   const u = { id:nextUnit++, alive:true, x:16, y:0, heading:0, target:null, mode:1, lightOn:true,
@@ -81,6 +87,7 @@ function objectsAround(u, maxR){
     for(let i=0;i<p.subs.length;i++){ const s=p.subs[i]; const o={id:p.id*10+i,type:s[0],x:p.x+s[1],y:p.y+s[2]}; if(dist(u,o)<=maxR) out.push(o); }
   }
   for(const v of units){ if(v===u) continue; if(dist(u,v)<=maxR) out.push({id:200+v.id,type:v.alive?252:251,x:v.x,y:v.y,unit:v}); }
+  for(const g of ground){ if(dist(u,g)<=maxR) out.push({id:g.id,type:33,x:g.x,y:g.y}); }
   if(dist(u,creature)<=Math.min(maxR,60)) out.push({id:250,type:250,x:creature.x,y:creature.y,creature:true});
   return out;
 }
@@ -88,13 +95,15 @@ function objectsAround(u, maxR){
 function nameOf(o){
   if(o.creature) return creature.awake ? 'существо, класс не определён' : 'объект, класс не определён';
   if(o.unit) return o.unit.alive ? `миссионер М${o.unit.id}` : `тело М${o.unit.id}`;
+  if(o.type===28) return (contents[o.id]||[]).length ? 'резак на камне' : 'плоский камень';
   return (CODEBOOK[o.type]||CODEBOOK[250]).name;
 }
 function examText(o){
   if(o.creature) return creature.awake ? 'Двуногое. Кожа с тем же рисунком пор, что у миссионера. Смотрит.' : 'Двуногое, лежит. Дышит. Кожа с тем же рисунком пор, что у миссионера.';
-  if(o.unit){ const v=o.unit; if(v.alive) return `Наш. ${v.target?'Идёт.':'Стоит.'} Пульс на вид ${v.pulse<100?'ровный':'частый'}.`; return `Не двигается. ${v.sensors.camera?'Камера на месте.':'Камеры нет.'}${v.items.length?' При нём: '+v.items.map(i=>ITEMS[i]).join(', ')+'.':''}`; }
-  const cb=CODEBOOK[o.type]||CODEBOOK[250]; return (cb.states||[])[stateOf(o.id)]||'';
+  if(o.unit){ const v=o.unit; if(v.alive) return `Наш. ${v.target?'Идёт.':'Стоит.'} Пульс на вид ${v.pulse<100?'ровный':'частый'}.`; return withContents(o,'Не двигается.'); }
+  const cb=CODEBOOK[o.type]||CODEBOOK[250]; return withContents(o,(cb.states||[])[stateOf(o.id)]||'');
 }
+function withContents(o,text){ if(!isContainer(o)||!containerOpen(o)) return text; const c=contentsOf(o); return text+(c.length?' Здесь: '+c.map(i=>ITEMS[i]).join(', ')+'.':' Пусто.'); }
 function classOf(o){ return o.creature?2 : o.unit?(o.unit.alive?4:3) : o.landmark?1 : 0; }
 function describe(u, cls='cmd'){
   const objs=objectsAround(u,100); const parts=[];
@@ -155,26 +164,44 @@ function imageDelta(u, level, cls='bg'){
 // ---------- изучить / взаимодействовать ----------
 // Обе команды — «подойди к объекту и сделай». Тело идёт к объекту; по прибытии выполняет и докладывает.
 function findObj(u,id){ return objectsAround(u,100).find(o=>o.id===id); }
-function beginAction(u,kind,id){
-  if(!u.alive) return; const o=findObj(u,id); if(!o){ evt(16,u.id,id); return; }
-  u.pending={kind,id}; u.goal={x:o.x,y:o.y};
+function beginAction(u,kind,id,item){
+  if(!u.alive) return;
+  if(kind==='put'&&id===0){ // сбросить на грунт: свёрток под ногами
+    const has = item===42 ? u.sensors.camera : u.items.includes(item); if(!has){ evt(2,u.id); return; }
+    if(item===42){ u.sensors.camera=false; u.sub.img.interval=0; } else u.items.splice(u.items.indexOf(item),1);
+    const g={id:nextGround++, x:Math.round(u.x), y:Math.round(u.y)}; if(nextGround>199) nextGround=100; ground.push(g); contents[g.id]=[item];
+    const t=encText(`сбросил: ${ITEMS[item]}.`); emit('cmd','ACT',u.id,new Uint8Array([g.id,0,t.length>>8,t.length&255,...t])); emit('cmd','CONT',u.id,new Uint8Array([g.id,1,item])); return; }
+  const o=findObj(u,id); if(!o){ evt(16,u.id,id); return; }
+  u.pending={kind,id,item}; u.goal={x:o.x,y:o.y};
   if(dist(u,o)>3){ u.target={x:o.x,y:o.y}; evt(8,u.id); } else doPending(u);
 }
 function doPending(u){
   const p=u.pending; u.pending=null; if(!p) return; const o=findObj(u,p.id); if(!o){ evt(16,u.id,p.id); return; }
   const st=stateOf(o.id), cb=CODEBOOK[o.type]||CODEBOOK[250];
   const textReply=(kind,code,text)=>{ const t=encText(text); emit('cmd',kind,u.id,new Uint8Array([o.id,code,t.length>>8,t.length&255,...t])); };   // длина — 2 байта
-  if(p.kind==='exam'){ textReply('EXAM',0,examText(o)); return; }
+  const sendCont=()=>{ if(isContainer(o)&&containerOpen(o)){ const c=contentsOf(o); emit('cmd','CONT',u.id,new Uint8Array([o.id,c.length,...c])); } };
+  if(p.kind==='exam'){ textReply('EXAM',0,examText(o)); sendCont(); return; }
+  if(p.kind==='take'||p.kind==='put'){
+    if(!isContainer(o)||!containerOpen(o)){ textReply('ACT',1,'это не контейнер.'); return; }
+    const item=p.item;
+    if(p.kind==='take'){ const c=contentsOf(o); if(!c.includes(item)){ textReply('ACT',1,`здесь нет: ${ITEMS[item]}.`); return; }
+      if(o.unit){ const v=o.unit; if(item===42){ v.sensors.camera=false; v.sub.img.interval=0; } else v.items.splice(v.items.indexOf(item),1); } else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ ground.splice(ground.findIndex(g=>g.id===o.id),1); delete contents[o.id]; } }
+      if(item===42){ u.sensors.camera=true; u.lastImg={}; } else u.items.push(item);
+      textReply('ACT',0,`взял: ${ITEMS[item]}.`); sendCont(); return; }
+    // put
+    const has = item===42 ? u.sensors.camera : u.items.includes(item); if(!has){ textReply('ACT',1,`нечего положить: ${ITEMS[item]}.`); return; }
+    if(item===42){ u.sensors.camera=false; u.sub.img.interval=0; } else u.items.splice(u.items.indexOf(item),1);
+    if(o.unit){ const v=o.unit; if(item===42) v.sensors.camera=true; else v.items.push(item); } else (contents[o.id]=contents[o.id]||[]).push(item);
+    textReply('ACT',0,`положил: ${ITEMS[item]}.`); sendCont(); return; }
   // взаимодействие: действие из текущего состояния; ответ — текст, составленный станцией
   const acts=cb.actions||[]; const a=acts.find(a=>a.from===st);
   if(!a){ textReply('ACT',1,'осмотрел: сделать здесь нечего.'); return; }
   if(a.needs && !u.items.includes(a.needs)){ textReply('ACT',2,`не смог: ${a.fail||'нужен предмет'}`); return; }
   if(a.req && stateOf(a.req.obj)!==a.req.state){ textReply('ACT',3,`не смог: ${a.fail||'условие не выполнено'}`); return; }
-  if(a.special==='strip'){ const v=o.unit; let got='датчиков на теле нет.'; if(v&&v.sensors.camera){ v.sensors.camera=false; v.sub.img.interval=0; u.sensors.camera=true; u.lastImg={}; got='снял камеру. Теперь она на М'+u.id+'.'; } objState[o.id]=a.to; textReply('ACT',0,got); return; }
   if(a.special==='boost') antennaBoost=6;
   if(a.special==='finale' && station.taskOpen){ station.taskOpen=false; setTimeout(()=>evt(17,u.id),1500/speed); }
   if(a.item===42){ u.sensors.camera=true; u.lastImg={}; } else if(a.item) u.items.push(a.item);
-  objState[o.id]=a.to; textReply('ACT',0,`${a.verb}. ${(cb.states||[])[a.to]||''}${a.item&&a.item!==42?' ['+ITEMS[a.item]+']':''}`);
+  objState[o.id]=a.to; textReply('ACT',0,withContents(o,`${a.verb}. ${(cb.states||[])[a.to]||''}`)); sendCont();
 }
 
 // ---------- команды (uplink) ----------
@@ -211,6 +238,8 @@ onmessage = e => {
       if(item===42){ if(toUnit){ if(station.camInv>0&&!u.sensors.camera){ station.camInv--; u.sensors.camera=true; u.lastImg={}; evt(20,u.id,42); } else evt(2,u.id); } else { if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; station.camInv++; evt(19,u.id,42); } else evt(2,u.id); } }
       else { if(toUnit){ if(station.store[item]>0){ station.store[item]--; u.items.push(item); evt(20,u.id,item); } else evt(2,u.id); } else { const i=u.items.indexOf(item); if(i>=0){ u.items.splice(i,1); station.store[item]++; evt(19,u.id,item); } else evt(2,u.id); } }
       heartbeat(); break; }
+    case 22: beginAction(u,'put',m.bytes[3],arg); break;    // положить: [22,item,unit,objId] (objId 0 — на грунт)
+    case 23: beginAction(u,'take',m.bytes[3],arg); break;   // взять:    [23,item,unit,objId]
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
     case 6: if(u.alive){ const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.target={x,y}; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
@@ -227,13 +256,14 @@ onmessage = e => {
 // ---------- сохранение мира ----------
 function snapshot(){
   const su=units.map(u=>{ const o={...u}; delete o.lastImg; delete o.pendingImg; return o; });
-  return { t, nextUnit, msgId, station, objState, creature, antennaBoost, hbInterval, units:su, stcam:{sub:stationCam.sub} };
+  return { t, nextUnit, msgId, station, objState, contents, ground, nextGround, creature, antennaBoost, hbInterval, units:su, stcam:{sub:stationCam.sub} };
 }
 function restore(d){
   t=d.t; nextUnit=d.nextUnit; msgId=d.msgId; Object.assign(station,d.station); for(const k in objState) delete objState[k]; Object.assign(objState,d.objState);
   Object.assign(creature,d.creature); antennaBoost=d.antennaBoost; hbInterval=d.hbInterval;
   units.length=0; for(const su of d.units){ units.push({...su, lastImg:{}, pendingImg:null}); }
   if(d.stcam) stationCam.sub=d.stcam.sub;
+  if(d.contents){ for(const k in contents) delete contents[k]; Object.assign(contents,d.contents); } if(d.ground){ ground.length=0; ground.push(...d.ground); nextGround=d.nextGround||100; }
 }
 // Мир жил без оператора: досчитываем прошедшее время (не больше 8 часов), ничего не передавая
 let muted=false;
