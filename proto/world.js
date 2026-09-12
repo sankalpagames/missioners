@@ -25,7 +25,8 @@ function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
 function bearingDeg(from,to){ return (Math.atan2(to.y-from.y,to.x-from.x)*180/Math.PI+360)%360; }
 
 // ---------- состояние ----------
-const station = { bioStock:4, camInv:0, power:100, growing:null, taskOpen:true };
+const station = { bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:null, taskOpen:true };
+function atAirlock(u){ return u.alive && dist(u,POIS[0])<12; }
 const objState = {};                       // id объекта → состояние (по умолчанию 0)
 function stateOf(id){ return objState[id]||0; }
 const units = []; let nextUnit = 1;
@@ -61,10 +62,10 @@ function telemetry(u){
   const x=Math.round(u.x)+32768, y=Math.round(u.y)+32768; b[11]=x>>8; b[12]=x&255; b[13]=y>>8; b[14]=y&255; b[15]=u.mode;
   return b;
 }
-// ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), n, (id, флаги, заряд, предметы)*] ----------
+// ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), склад брикетов, склад резаков, n, (id, флаги, заряд, предметы)*] ----------
 function heartbeat(){
-  const b=[station.bioStock, station.camInv, station.growing?Math.ceil(station.growing.tLeft):255, units.length];
-  for(const u of units){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)); }
+  const b=[station.bioStock, station.camInv, station.growing?Math.ceil(station.growing.tLeft):255, station.store[40], station.store[41], units.length];
+  for(const u of units){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)); }
   emit('bg','HB',0,new Uint8Array(b));
 }
 
@@ -169,7 +170,6 @@ function doPending(u){
   if(!a){ textReply('ACT',1,'осмотрел: сделать здесь нечего.'); return; }
   if(a.needs && !u.items.includes(a.needs)){ textReply('ACT',2,`не смог: ${a.fail||'нужен предмет'}`); return; }
   if(a.req && stateOf(a.req.obj)!==a.req.state){ textReply('ACT',3,`не смог: ${a.fail||'условие не выполнено'}`); return; }
-  if(a.special==='return_camera'){ if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; station.camInv++; textReply('ACT',0,'сдал камеру на склад. На складе: '+station.camInv+'.'); } else textReply('ACT',1,'осмотрел: сдавать нечего.'); return; }
   if(a.special==='strip'){ const v=o.unit; let got='датчиков на теле нет.'; if(v&&v.sensors.camera){ v.sensors.camera=false; v.sub.img.interval=0; u.sensors.camera=true; u.lastImg={}; got='снял камеру. Теперь она на М'+u.id+'.'; } objState[o.id]=a.to; textReply('ACT',0,got); return; }
   if(a.special==='boost') antennaBoost=6;
   if(a.special==='finale' && station.taskOpen){ station.taskOpen=false; setTimeout(()=>evt(17,u.id),1500/speed); }
@@ -207,6 +207,10 @@ onmessage = e => {
     case 3: if(u.sensors.camera && u.charge>0){ if(m.bytes[3]) imageDelta(u,Math.min(3,arg),'cmd'); else imagePyramid(u,Math.min(3,arg),'cmd'); } break;
     case 16: if(u.sensors.camera){ u.sub.img={interval:arg,level:Math.min(3,m.bytes[3]),delta:!!m.bytes[4]}; u.subT.img=0; u.lastImg={}; } break;
     case 17: if(u.alive){ u.target=null; u.pending=null; evt(15,u.id); } break;
+    case 21: { const item=arg, toUnit=!!m.bytes[3]; if(!atAirlock(u)){ evt(2,u.id); break; }
+      if(item===42){ if(toUnit){ if(station.camInv>0&&!u.sensors.camera){ station.camInv--; u.sensors.camera=true; u.lastImg={}; evt(20,u.id,42); } else evt(2,u.id); } else { if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; station.camInv++; evt(19,u.id,42); } else evt(2,u.id); } }
+      else { if(toUnit){ if(station.store[item]>0){ station.store[item]--; u.items.push(item); evt(20,u.id,item); } else evt(2,u.id); } else { const i=u.items.indexOf(item); if(i>=0){ u.items.splice(i,1); station.store[item]++; evt(19,u.id,item); } else evt(2,u.id); } }
+      heartbeat(); break; }
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
     case 6: if(u.alive){ const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.target={x,y}; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const x=((m.bytes[3]<<8)|m.bytes[4])-32768, y=((m.bytes[5]<<8)|m.bytes[6])-32768; u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя

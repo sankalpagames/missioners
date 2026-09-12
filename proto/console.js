@@ -4,7 +4,7 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const link=new Link(); const world=new Worker('world.js?v='+window.__v);
 let speed=1, tNow=0, active=1, dbg=null;
 const units=new Map();          // id → знание о миссионере
-const station={bio:null,cam:null,grow:null,at:-1e9};
+const station={bio:null,cam:null,grow:null,brik:0,cut:0,at:-1e9};
 const known=new Map();          // ключ → объект с координатами (только из полученных данных)
 const journal=new Map();        // id объекта → [{t, unit, text}] — что узнали, изучив или взаимодействуя
 function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push({t:tNow,unit,text}); if($('.tabs button.on').dataset.tab==='journal') renderJournal(); }
@@ -60,9 +60,9 @@ function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit); if(boot.onTlm) boot.o
   u.tlmAt=tNow; u.hist.push({t:tNow,...u.tlm}); if(u.hist.length>3000) u.hist.shift();
   const last=u.track[u.track.length-1]; if(!last||Math.hypot(last.x-u.tlm.x,last.y-u.tlm.y)>2) u.track.push({x:u.tlm.x,y:u.tlm.y,t:tNow});
 }
-function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.at=tNow; const n=b[3];
-  for(let i=0;i<n;i++){ const id=b[4+i*4], f=b[5+i*4], ch=b[6+i*4]/2.55, it=b[7+i*4]; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[])];
-    u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.charge=ch; u.hbAt=tNow;
+function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.brik=b[3]; station.cut=b[4]; station.at=tNow; const n=b[5];
+  for(let i=0;i<n;i++){ const id=b[6+i*4], f=b[7+i*4], ch=b[8+i*4]/2.55, it=b[9+i*4]; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[])];
+    u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.atAirlock=!!(f&32); u.charge=ch; u.hbAt=tNow;
     if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err');
     if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} не принимается`,'err');
     if(!wasCarrier&&u.carrier) log(`станция: несущая М${id} восстановлена`,'sys'); }
@@ -79,7 +79,7 @@ function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit), p=pos(pkt.unit); con
 function decodeExam(pkt){ const b=pkt.bytes, id=b[0], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); jadd(id,pkt.unit,`подошёл, посмотрел: ${text}`); log(`М${pkt.unit} изучил «${oname(id)}»: ${text}`,'desc'); renderDesc(); }
 function decodeAct(pkt){ const b=pkt.bytes, id=b[0], code=b[1], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,code===0?'evt':'err'); renderDesc(); }
 function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М${pkt.unit} `:''; const txt=EVENTS[code]||('событие '+code);
-  if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}); требуется новое описание`,'err'); else log(`${un}${txt}`,'evt');
+  if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}); требуется новое описание`,'err'); else if(code===19||code===20) log(`${un}${txt}: ${ITEMS[arg]||arg}`,'evt'); else log(`${un}${txt}`,'evt');
   if(code===5){ const u=U(pkt.unit); u.alive=false; renderUnits(); }
   if(code===6){ U(pkt.unit); renderUnits(); }
   if(code===3) log('усиление тракта +6 дБ на всех линиях','sys');
@@ -217,6 +217,7 @@ $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log
 $$('button[data-mode]').forEach(b=>b.onclick=()=>{ if(send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`) && b.dataset.mode==='3') setGoal('шлюз станции',{x:16,y:0}); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': камера не установлена','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
+$('#airlock').onclick=e=>{ const b=e.target.closest('[data-tr]'); if(!b) return; const [item,dir,unit]=b.dataset.tr.split(',').map(Number); send([21,item,unit,dir],`М${unit} ${dir?'взять со склада':'сдать на склад'}: ${ITEMS[item]}`); };
 { const sp=$('#splitter'), lw=$('#logwrap'); let drag=null;
   sp.onmousedown=e=>{ drag={y:e.clientY,h:lw.offsetHeight}; sp.classList.add('on'); e.preventDefault(); };
   window.addEventListener('mousemove',e=>{ if(!drag) return; const h=Math.max(60,Math.min(innerHeight*0.6,drag.h-(e.clientY-drag.y))); lw.style.height=h+'px'; });
@@ -272,6 +273,13 @@ setInterval(()=>{
   const last=link.stats.hist[link.stats.hist.length-1]; const used=last?['TLM','HB','SONAR','DESC','IMG','EVT'].reduce((a,k)=>a+last[k],0):0; $('#rate').textContent=`${used.toFixed(0)} / ${(link.deepCapBps()/8).toFixed(0)} Б/с`+(link.cfg.orbit?` · окно ${fmtT(link.orbit().tLeft)}`:'');
   if(up!==lastUp){ log(up?'дальняя линия: связь установлена':'дальняя линия: связь потеряна','sys'); lastUp=up; }
   // станция
+  { const at=[...units.values()].filter(v=>v.alive&&v.atAirlock).sort((a,b)=>a.id-b.id); const el=$('#airlock'); let html=`<div class="small dim">склад: камер ${station.cam??'—'} · брикетов ${station.brik} · резаков ${station.cut}</div>`;
+    if(!at.length) html+='<div class="small dim">у шлюза никого</div>';
+    for(const v of at){ const n40=v.items.filter(i=>i===40).length, has41=v.items.includes(41);
+      const give=[v.camera?`<button class="mini" data-tr="42,0,${v.id}">камера → склад ●</button>`:'', n40?`<button class="mini" data-tr="40,0,${v.id}">брикет${n40>1?' ×'+n40:''} → склад ●</button>`:'', has41?`<button class="mini" data-tr="41,0,${v.id}">резак → склад ●</button>`:''].filter(Boolean).join(' ');
+      const take=[station.cam&&!v.camera?`<button class="mini" data-tr="42,1,${v.id}">← камера ●</button>`:'', station.brik?`<button class="mini" data-tr="40,1,${v.id}">← брикет ●</button>`:'', station.cut&&!has41?`<button class="mini" data-tr="41,1,${v.id}">← резак ●</button>`:''].filter(Boolean).join(' ');
+      html+=`<div class="row small" style="margin:3px 0"><b>М${v.id}</b> <span class="dim">${[v.camera?'камера':'',v.sonar?'сонар':''].filter(Boolean).join(', ')||'без датчиков'}${n40||has41?' · '+[n40?'брикет'+(n40>1?' ×'+n40:''):'',has41?'резак':''].filter(Boolean).join(', '):''}</span> ${give} ${take}</div>`; }
+    if(el.dataset.html!==html){ el.innerHTML=html; el.dataset.html=html; } }
   $('#st-bio').textContent=station.bio??'—'; $('#st-cam').textContent=station.cam??'—'; $('#st-grow').textContent=station.grow==null?'нет':`${Math.floor(station.grow/60)}:${String(station.grow%60).padStart(2,'0')}`;
   { const growing=station.grow!=null; $('#btn-grow').disabled=growing||station.bio===0; $('#g-cam').disabled=!station.cam; $('#g-cam-l').classList.toggle('dim',!station.cam); if(!station.cam) $('#g-cam').checked=false;
     $('#grow-state').textContent=growing?`идёт выращивание: готовность через ${Math.floor(station.grow/60)}:${String(station.grow%60).padStart(2,'0')}`:station.bio===0?'биоматериала нет':`готово к запуску · биоматериал ${station.bio??'—'} ед.`;
@@ -341,7 +349,7 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   line(`ACK ARK-041  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${(link.deepCapBps()).toFixed(0)}bps  rx=${totals.INFO||0}B`);
   for(const l of info.text.split('\n')){ await sl(120); line('  '+l); }
   const hb=await new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; });
-  line(`heartbeat ${hb.length}B  units=${hb[3]}` + (hb[3]?`  M${hb[4]}[${[hb[5]&1?'alive':'dead',hb[5]&2?'carrier':'nocarrier',hb[5]&4?'cam':'',hb[5]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
+  line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
   const tlm=await new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; });
   const T=units.get(tlm.unit).tlm; line(`telemetry M${tlm.unit} ${tlm.size}B  pulse=${T.pulse} charge=${T.charge.toFixed(0)}% pos=${T.x},${T.y}`);
   await sl(400); line(''); line('$ console'); await sl(500); $('#boot').classList.add('off');
