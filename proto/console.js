@@ -391,16 +391,17 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   el.textContent='$ '; await sl(200); await type('ares-tk --key ~/old/dse.key ping ARK-041'); el.textContent+='\n';
   line('resolve ARK-041 via DSE routing table… corp endpoint unreachable, using cached route');
   // сеанс: меню в терминале, одна клавиша
-  const key=async(keys)=>{ const cur=document.createElement('span'); cur.className='cur'; el.appendChild(cur); const k=await new Promise(res=>{ const h=e=>{ const k=e.key.toLowerCase(); if(keys.includes(k)){ document.removeEventListener('keydown',h); res(k); } }; document.addEventListener('keydown',h); }); cur.remove(); el.textContent+=k+'\n'; return k; };
+  // Enter = первый вариант в списке
+  const key=async(keys)=>{ const cur=document.createElement('span'); cur.className='cur'; el.appendChild(cur); const k=await new Promise(res=>{ const h=e=>{ let k=e.key.toLowerCase(); if(k==='enter') k=keys[0]; if(keys.includes(k)){ document.removeEventListener('keydown',h); res(k); } }; document.addEventListener('keydown',h); }); cur.remove(); el.textContent+=k+'\n'; return k; };
   let s=readSave();
   for(;;){
-    if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); if((s.v||0)!==SAVE_VERSION) line(`  warning: session build v${s.v||0}, current v${SAVE_VERSION} — resume may misbehave, [n] recommended`); el.textContent+='[r] resume  [n] new  [i] import file  [e] export file  ';
+    if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); if((s.v||0)!==SAVE_VERSION) line(`  warning: session build v${s.v||0}, current v${SAVE_VERSION} — resume may misbehave, [n] recommended`); el.textContent+='[r/enter] resume  [n] new  [i] import file  [e] export file  ';
       const k=await key(['r','n','i','e']);
       if(k==='r'){ applySave(s); line('session restored, world clock paused since'); break; }
       if(k==='e'){ exportSave(); line('exported'); continue; }
       if(k==='i'){ const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); continue; }
       if(k==='n'){ el.textContent+='overwrite stored session? [y/n] '; const y=await key(['y','n']); if(y==='y'){ localStorage.removeItem(SAVE_KEY); line('new session'); break; } continue; }
-    } else { line('local session store: empty'); el.textContent+='[n] new  [i] import file  ';
+    } else { line('local session store: empty'); el.textContent+='[n/enter] new  [i] import file  ';
       const k=await key(['n','i']); if(k==='n'){ line('new session'); break; } const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); }
   }
   const t0=Date.now(), info0=totals.INFO||0; el.textContent+='status request, 3 B'; link.sendUplink([11,0,0]);
