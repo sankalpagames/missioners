@@ -208,7 +208,7 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
       const R=80*sc, f=52*Math.PI/180; ctx.fillStyle='rgba(224,169,74,0.10)'; ctx.beginPath(); ctx.moveTo(sx(p.x),sy(p.y)); ctx.arc(sx(p.x),sy(p.y),R,ang-f,ang+f); ctx.closePath(); ctx.fill(); } }
   ctx.globalAlpha=1; if(gp){ ctx.strokeStyle='#e0a94a'; ctx.beginPath(); ctx.arc(sx(gp.x),sy(gp.y),5,0,7); ctx.stroke(); } if(tg){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(sx(tg.x),sy(tg.y),7,0,7); ctx.stroke(); ctx.fillStyle='#fff'; ctx.fillText('выбрано',sx(tg.x)+9,sy(tg.y)-8); }
   ctx.globalAlpha=1;
-  for(const u of units.values()){ const p=pos(u.id); const col=UCOL[(u.id-1)%UCOL.length]; ctx.fillStyle=u.alive?col:'#666'; ctx.beginPath(); ctx.arc(sx(p.x),sy(p.y),u.id===active?5:3.5,0,7); ctx.fill(); ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?'':' †'}${u.tlm?'':' ?'}`,sx(p.x)+7,sy(p.y)-6); if(u.tlm&&tNow-u.tlmAt>10){ ctx.fillStyle='#888'; ctx.fillText(`${(tNow-u.tlmAt).toFixed(0)} с назад`,sx(p.x)+7,sy(p.y)+6); } }
+  for(const u of units.values()){ const p=pos(u.id); const col=UCOL[(u.id-1)%UCOL.length]; ctx.fillStyle=u.alive?col:'#666'; ctx.beginPath(); ctx.arc(sx(p.x),sy(p.y),u.id===active?5:3.5,0,7); ctx.fill(); ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?'':' †'}`,sx(p.x)+7,sy(p.y)-6); if(u.tlm&&tNow-u.tlmAt>10){ ctx.fillStyle='#888'; ctx.fillText(`${(tNow-u.tlmAt).toFixed(0)} с назад`,sx(p.x)+7,sy(p.y)+6); } }
   $('#map-count').textContent=`объектов: ${known.size}`; $('#map-scale').textContent=`1 px = ${(1/sc).toFixed(2)} м · ×${map.zoom.toFixed(1)}`; }
 const map={tf:null,zoom:1,panX:0,panY:0,drag:null};
 { const cv=$('#map');
