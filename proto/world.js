@@ -194,7 +194,7 @@ onmessage = e => {
     if(station.growing) { evt(2); return; }
     if(station.bioStock<=0){ evt(14); return; }
     const cam=!!(arg&1); if(cam && station.camInv<1){ evt(10); return; }
-    if(cam) station.camInv--; station.bioStock--; station.growing={sensors:{camera:cam,sonar:!!(arg&2)},tLeft:30}; evt(11); return;
+    if(cam) station.camInv--; station.bioStock--; station.growing={sensors:{camera:cam,sonar:!!(arg&2)},tLeft:180}; evt(11); return;
   }
   if(cmd===11){ // статус: паспорт станции текстом + пульс
     const info=`ARK-041, автономная посадочная платформа\nсостояние: штатное\nвозраст миссии: 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nбиоматериал: ${station.bioStock} ед.; камер на складе: ${station.camInv}; развёрнуто: ${units.length}\nзадача: ${station.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся с выхода. Серия 0 исчерпана (7 ед.)':'ПС-7 закрыта'}`;

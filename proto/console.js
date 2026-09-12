@@ -262,10 +262,10 @@ setInterval(()=>{
   const last=link.stats.hist[link.stats.hist.length-1]; const used=last?['TLM','HB','SONAR','DESC','IMG','EVT'].reduce((a,k)=>a+last[k],0):0; $('#rate').textContent=`${used.toFixed(0)} / ${(link.deepCapBps()/8).toFixed(0)} Б/с`+(link.cfg.orbit?` · окно ${fmtT(link.orbit().tLeft)}`:'');
   if(up!==lastUp){ log(up?'дальняя линия: связь установлена':'дальняя линия: связь потеряна','sys'); lastUp=up; }
   // станция
-  $('#st-bio').textContent=station.bio??'—'; $('#st-cam').textContent=station.cam??'—'; $('#st-grow').textContent=station.grow==null?'нет':station.grow+' с';
+  $('#st-bio').textContent=station.bio??'—'; $('#st-cam').textContent=station.cam??'—'; $('#st-grow').textContent=station.grow==null?'нет':`${Math.floor(station.grow/60)}:${String(station.grow%60).padStart(2,'0')}`;
   { const growing=station.grow!=null; $('#btn-grow').disabled=growing||station.bio===0; $('#g-cam').disabled=!station.cam; $('#g-cam-l').classList.toggle('dim',!station.cam); if(!station.cam) $('#g-cam').checked=false;
-    $('#grow-state').textContent=growing?`идёт выращивание: готовность через ${station.grow} с`:station.bio===0?'биоматериала нет':`готово к запуску · биоматериал ${station.bio??'—'} ед.${station.cam?'':' · камер на складе нет'}`;
-    $('#grow-prog').style.width=growing?((30-station.grow)/30*100)+'%':'0%'; }
+    $('#grow-state').textContent=growing?`идёт выращивание: готовность через ${Math.floor(station.grow/60)}:${String(station.grow%60).padStart(2,'0')}`:station.bio===0?'биоматериала нет':`готово к запуску · биоматериал ${station.bio??'—'} ед.`;
+    $('#grow-prog').style.width=growing?((180-station.grow)/180*100)+'%':'0%'; }
   const tb=$('#roster tbody'); tb.innerHTML=''; for(const v of [...units.values()].sort((a,b)=>a.id-b.id)) tb.insertAdjacentHTML('beforeend',`<tr><td>М${v.id}</td><td>${v.alive?'жив':'мёртв'}</td><td>${v.carrier?'есть':'<span style="color:#d9534f">нет</span>'}</td><td>${[v.camera?'камера':'',v.sonar?'сонар':''].filter(Boolean).join(', ')||'—'}</td><td>${v.charge==null?'—':v.charge.toFixed(0)+'%'}</td><td>${(v.items||[]).map(i=>ITEMS[i]).join(', ')||'—'}</td><td>${v.streaming?'да':''}</td></tr>`);
   // вкладки
   const tab=$('.tabs button.on').dataset.tab;

@@ -81,6 +81,7 @@
       <div id="journal" class="small"></div>
     </div>
     <div class="tab" id="tab-station">
+      <div class="row"><span class="grow"></span><button class="ghost" id="btn-st" data-tip="Запросить статус станции вне очереди пульса.">статус ●</button></div>
       <div class="kv two">
         <div data-tip="Единиц биоматериала. Один миссионер — одна единица. Пополнения нет."><label>биоматериал</label><b id="st-bio">—</b></div>
         <div data-tip="Камер на складе. Камера не производится; возврат — снять с тела и доставить к шлюзу."><label>камеры на складе</label><b id="st-cam">—</b></div>
@@ -91,12 +92,11 @@
       <div class="row">
         <label class="small" id="g-cam-l"><input type="checkbox" id="g-cam"> камера</label>
         <label class="small"><input type="checkbox" id="g-sonar" checked> сонар</label>
-        <button id="btn-grow" data-tip="Вырастить миссионера с выбранными датчиками. 30 с, одна единица биоматериала. Пока идёт выращивание, следующее не начать.">Подготовить</button>
-        <button class="ghost" id="btn-st" data-tip="Запросить статус станции вне очереди пульса.">статус</button>
+        <button id="btn-grow" data-tip="Вырастить миссионера с выбранными датчиками. 3 минуты, одна единица биоматериала. Пока идёт выращивание, следующее не начать.">Подготовить</button>
       </div>
       <div id="grow-state" class="small dim"></div>
       <div class="pbar" style="width:100%"><i id="grow-prog"></i></div>
-      <h3 class="cg">камера шлюза <span class="dim">— стационарная, смотрит от люка наружу</span></h3>
+      <h3 class="cg">камера шлюза</h3>
       <div class="row small">
         <select class="sub" id="st-sub-img" data-tip="Автосъёмка камеры шлюза."><option value="0">по запросу</option><option value="30">каждые 30 с</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
         <select class="sub" id="st-img-level"><option value="0">8×8</option><option value="1">16×16</option><option value="2" selected>32×32</option><option value="3">64×64</option></select>
