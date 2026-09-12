@@ -318,7 +318,8 @@ function tick(){
       const dc=dist(u,creature);
       const fearT=creature.awake&&!creature.fleeing?Math.max(0,1-dc/80):0; u.fear+=(fearT-u.fear)*dt/2; u.pain=Math.max(0,u.pain-dt/8);
       const rest=u.mode===4; const pulseT=60+55*u.exertion+95*u.fear+45*u.pain-(rest?8:0); u.pulse+=(pulseT-u.pulse)*dt/3;
-      u.glucose-=dt*0.025*(1+2*u.exertion+u.fear); u.electro-=dt*0.012*(1+u.exertion);
+      u.glucose-=dt*0.003*(1+2*u.exertion+u.fear);   // покой ~9 ч, ходьба ~3 ч
+      u.electro-=dt*0.002*(1+u.exertion);
       const inT=tunnelT(u.x,u.y)>=0; u.toxin=Math.max(0,u.toxin+dt*(inT?0.06:-0.02));
       u.psyche=Math.max(0,Math.min(100,u.psyche+dt*(rest?0.05:-(0.01+0.15*u.fear+(inT&&!u.lightOn?0.04:0)))));
       u.cons=0.6+0.8*u.exertion+Math.pow(10,u.txDbm/10)*0.4+(u.lightOn?0.2:0)+(u.sub.img.interval?0.3:0)-(rest?0.4:0); u.gen=0.8-0.3*u.fear;
