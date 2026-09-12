@@ -414,5 +414,5 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   if(anyAlive) el.textContent+='telemetry'; const tlm=anyAlive?await spin(Promise.race([new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; }), sl(6000).then(()=>null)])):null; boot.onTlm=null; if(anyAlive) el.textContent=el.textContent.replace(/telemetry\n$/,'');
   if(tlm){ const T=units.get(tlm.unit).tlm; line(`telemetry M${tlm.unit} ${tlm.size}B  pulse=${T.pulse} charge=${T.charge.toFixed(0)}% pos=${T.x},${T.y}`); } else line(anyAlive?'telemetry: none within 6s':'telemetry: no live units');
   line(''); line('$ console'); await sl(250); $('#boot').classList.add('off');
-  log('консоль открыта. ключ принят.','sys'); selectUnit(); renderUnits();
+  log('консоль открыта. ключ принят.','sys'); if(!resumed) log('первый шаг: описание окружения — «снять ●» в панели «Описание» справа.','sys'); selectUnit(); renderUnits();
 })();
