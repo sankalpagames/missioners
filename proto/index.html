@@ -19,7 +19,7 @@
   <label class="small" data-tip="Ускорение симуляции. Мир и канал ускоряются вместе, соотношения сохраняются.">время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
   <span id="save-state" class="dim small" data-tip="Сеанс сохраняется в хранилище браузера каждые 10 с: мир и знание консоли. Управление сеансом (продолжить, новый, импорт, экспорт) — в терминале при подключении. Пока вкладка закрыта, мир не живёт; при следующем открытии досчитывает прошедшее время, не больше 8 часов."></span>
   <input type="file" id="import-file" accept=".json" hidden>
-  <button id="btn-debug" class="ghost" data-tip="Отладочная шторка: физика канала и состояние мира напрямую. В игре недоступна.">⚙ отладка</button>
+  <button id="btn-debug" class="ghost" data-tip="Отладка: физика канала и состояние мира.">⚙ отладка</button>
 </header>
 
 <div id="app">
@@ -160,10 +160,10 @@
 </div>
 
 <div id="drawer" hidden>
-  <div class="dh"><b>ОТЛАДКА</b> <span class="dim small">физика канала и правда о мире — игрок этого не видит</span><span class="grow"></span><button class="ghost" id="btn-debug-close">закрыть</button></div>
+  <div class="dh"><b>ОТЛАДКА</b><span class="grow"></span><button class="ghost" id="btn-debug-close">закрыть</button></div>
   <div class="dgrid">
     <div>
-      <h3>линия выбранного миссионера</h3>
+      <h3>линия</h3>
       <div class="kv two">
         <div data-tip="Расстояние миссионера от станции по прямой."><label>расстояние</label><b id="i-dist"></b></div>
         <div data-tip="Free-space path loss: 20·log10(d) + 20·log10(f) − 27,55 дБ. Удвоение расстояния — −6 дБ."><label>FSPL</label><b id="i-fspl"></b></div>
@@ -187,11 +187,11 @@
       </div>
     </div>
     <div>
-      <h3>правда о мире <span class="dim">— клик = телепорт выбранного</span></h3>
+      <h3>мир <span class="dim">клик — телепорт</span></h3>
       <canvas id="truth" width="360" height="200"></canvas>
       <h3>очередь пакетов</h3>
       <div id="i-queue" class="small dim"></div>
-      <h3>чистый рендер выбранного <span class="dim">— из мира напрямую, мимо канала, 64×64</span></h3>
+      <h3>рендер</h3>
       <canvas id="peek" width="64" height="64" style="width:192px;height:192px;image-rendering:pixelated;background:#000;border:1px solid var(--line)"></canvas>
     </div>
   </div>
