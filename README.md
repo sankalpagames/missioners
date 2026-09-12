@@ -16,5 +16,5 @@ python3 -m http.server 8765 --directory proto
 
 ## Документы
 
-- `docs/milanote-ui-gameplay.md` — конспект доски UI/геймплей
-- `docs/milanote-narrative.md` — конспект доски нарратива
+- `docs/design.md` — дизайн-спецификация
+- `docs/tech.md` — техническая спецификация канала и движка
