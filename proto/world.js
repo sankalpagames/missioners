@@ -54,6 +54,21 @@ let antennaBoost = 0, hbTimer = 0, hbInterval = 2;
 function speedFor(m){ return m===2?0.6 : m===3?2.6 : m===4?0 : m===5?1.0 : 1.4; }
 function detectRadius(m){ return m===2?22 : m===4?35 : 70; }
 
+// ---------- столкновения: тело не проходит сквозь корпус, скалы и стены тоннеля; вдоль препятствия скользит ----------
+const BODY_R = 0.6;
+function blocked(x,y){
+  for(const c of CIRCLES){ if(Math.hypot(x-c.x,y-c.y) < c.r+BODY_R) return true; }
+  for(const s of SEGS){ const ex=s.x2-s.x1, ey=s.y2-s.y1, L2=ex*ex+ey*ey; let t=((x-s.x1)*ex+(y-s.y1)*ey)/L2; t=Math.max(0,Math.min(1,t)); if(Math.hypot(x-(s.x1+t*ex),y-(s.y1+t*ey)) < BODY_R) return true; }
+  return false;
+}
+function stepBody(u,len){
+  const dx=Math.cos(u.heading)*len, dy=Math.sin(u.heading)*len;
+  if(!blocked(u.x+dx,u.y+dy)){ u.x+=dx; u.y+=dy; return true; }
+  // скольжение: пробуем повернуть шаг на ±45°, ±90°
+  for(const a of [Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2]){ const h=u.heading+a, sx=Math.cos(h)*len, sy=Math.sin(h)*len; if(!blocked(u.x+sx,u.y+sy)){ u.x+=sx; u.y+=sy; return true; } }
+  return false;
+}
+
 // ---------- сообщения наружу ----------
 function emit(cls, kind, unit, payload){ if(muted){ msgId++; return; } postMessage({ t:'msg', id:msgId++, cls, kind, unit, payload }); }
 function evt(code, unit=0, arg=0){ emit('cmd','EVT', unit, new Uint8Array([code,arg])); }
@@ -294,7 +309,9 @@ function tick(){
       if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; if(u.autonomy===1) u.target=null; if(u.autonomy===2){ u.target={x:16,y:0}; u.mode=3; } } }
       else { u.linkLostFor=0; u.autoDone=false; }
       const sp=speedFor(u.mode);
-      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:1.5)){ u.target=null; u.exertion=0; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); } else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); u.x+=Math.cos(u.heading)*sp*dt; u.y+=Math.sin(u.heading)*sp*dt; u.exertion=Math.min(1,sp/1.4); } } else u.exertion=0;
+      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:1.5)){ u.target=null; u.exertion=0; u.stuck=0; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); }
+        else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); const moved=stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
+          if(!moved){ u.stuck=(u.stuck||0)+dt; if(u.stuck>4){ u.stuck=0; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); } } else u.stuck=0; } } else u.exertion=0;
       const dc=dist(u,creature);
       const fearT=creature.awake&&!creature.fleeing?Math.max(0,1-dc/80):0; u.fear+=(fearT-u.fear)*dt/2; u.pain=Math.max(0,u.pain-dt/8);
       const rest=u.mode===4; const pulseT=60+55*u.exertion+95*u.fear+45*u.pain-(rest?8:0); u.pulse+=(pulseT-u.pulse)*dt/3;

@@ -79,6 +79,7 @@ const EVENTS = {
   20:'взял со склада',
   21:'положил',
   22:'взял',
+  23:'путь перекрыт, тело остановилось',
 };
 
 if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, EVENTS, encText, decText };
