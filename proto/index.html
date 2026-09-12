@@ -64,14 +64,17 @@
     </div>
     <div class="tab" id="tab-map">
       <canvas id="map" width="720" height="460"></canvas>
-      <div class="row small dim"><button class="mini" id="map-minus">−</button><button class="mini" id="map-plus">+</button><button class="mini" id="map-reset">сброс</button><span id="map-scale"></span><span class="grow"></span><span id="map-hint">колёсико/кнопки — зум, тянуть — панорама. клик — задать цель. тусклые объекты этот миссионер сам не видел.</span><span class="grow"></span><span id="map-count"></span></div>
+      <div class="row small dim"><button class="mini" id="map-minus">−</button><button class="mini" id="map-plus">+</button><button class="mini" id="map-reset">сброс</button><span id="map-scale"></span><span class="grow"></span><span id="map-hint">колёсико/кнопки — зум, тянуть — панорама. клик — выбрать объект или точку (локально, ничего не уходит). тусклые объекты этот миссионер сам не видел.</span><span class="grow"></span><span id="map-count"></span></div>
     </div>
     <div class="tab" id="tab-charts">
       <div class="row"><label class="small">миссионер <select id="ch-unit"></select></label><label class="small">величина <select id="ch-field"><option value="pulse">пульс</option><option value="glucose">глюкоза</option><option value="electro">электролиты</option><option value="toxin">токсины</option><option value="skin">кожа</option><option value="bone">опорно-двиг.</option><option value="psyche">психика</option><option value="charge">заряд</option><option value="cons">потребление</option></select></label></div>
       <canvas id="chart-tlm" width="720" height="300"></canvas>
       <div class="small dim">точки — принятые пакеты телеметрии; разрывы — то, чего ты не получил</div>
     </div>
-    <div class="tab" id="tab-journal"><div id="journal" class="small"></div></div>
+    <div class="tab" id="tab-journal">
+      <div class="row small"><label>миссионер <select class="sub" id="jf-unit"><option value="">все</option></select></label><label>ориентир <select class="sub" id="jf-lm"><option value="">все</option></select></label><input class="sub" id="jf-q" placeholder="поиск по тексту" style="flex:1"><span id="jf-count" class="dim"></span></div>
+      <div id="journal" class="small"></div>
+    </div>
     <div class="tab" id="tab-station">
       <div class="kv two">
         <div data-tip="Единиц биоматериала на станции. Один миссионер = одна единица. Пополнения нет."><label>биоматериал</label><b id="st-bio">—</b></div>
@@ -96,8 +99,9 @@
     </div>
       <div class="cmds">
         <div class="row">
-          <button id="btn-stop" data-tip="Остановиться: сбросить цель движения. Тело стоит там, где стоит.">Стоп</button>
-          <button id="btn-move" data-tip="Идти к цели. Цель уже в миссионере (ушла 7 байтами, когда ты её выбрал), поэтому сама команда — 3 байта. Тело идёт само, путь виден по телеметрии.">Перемещение</button>
+          <button id="btn-stop" data-tip="Остановиться. Тело стоит там, где стоит; куда смотрело — туда и смотрит.">Стоп</button>
+          <button id="btn-move" data-tip="Идти к выбранному (объект или точка на карте). Координаты уходят с командой, 7 байт. Тело идёт само и смотрит туда, куда идёт.">Перемещение</button>
+          <button id="btn-look" data-tip="Повернуть голову к выбранному, не идя. Единственный способ смотреть не туда, куда идёшь или что трогаешь. 7 байт.">Смотреть</button>
                     <button data-cmd="19" data-tip="Изучить цель: тело подходит, смотрит вблизи и докладывает состояние объекта (3 байта). Из описания издалека видно только, что это; подробности — отсюда.">Изучить</button>
           <button data-cmd="8" data-tip="Взаимодействовать с целью: тело подходит и делает то единственное, что можно сделать с объектом в его нынешнем состоянии — вскрыть, забрать, прочитать, срастить, включить. Иногда нужен предмет или другой объект в нужном состоянии.">Взаимодействовать</button>
           <span id="target-label" class="dim small"></span>
@@ -119,9 +123,9 @@
           <select class="sub" id="sub-img" data-tip="Автосъёмка — это просто «нажимать кнопку снять каждые N с» с текущими настройками. Ничего другого она не делает."><option value="0">по запросу</option><option value="30">каждые 30 с</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
           <select class="sub" id="img-level" data-tip="Разрешение. Размер полного кадра: 8×8 — 64 Б, 16×16 — 320 Б (с нижними уровнями), 32×32 — 1,3 КБ, 64×64 — 5,4 КБ."><option value="0">8×8</option><option value="1">16×16</option><option value="2" selected>32×32</option><option value="3">64×64</option></select>
           <label data-tip="Дельта: слать только блоки (из 64), изменившиеся с прошлого кадра того же разрешения. Первый кадр — полный (ключевой). Дёшево, пока ничего не движется; движение — сразу видно по расходу."><input type="checkbox" id="img-delta" checked> дельта</label>
-          <button class="mini" id="btn-img" data-tip="Один кадр выбранного разрешения. Камера смотрит на цель миссионера (голова поворачивается); если цели нет — вперёд по ходу.">снять</button>
+          <button class="mini" id="btn-img" data-tip="Один кадр выбранного разрешения. Камера смотрит туда, куда тело идёт или на что оно направлено последней командой (перемещение, изучить, взаимодействовать, смотреть); иначе — вперёд по ходу.">снять</button>
         </div>
-        <canvas id="img" width="64" height="64"></canvas><div class="pbar"><i id="img-prog"></i></div><div id="img-state" class="dim small"></div><div id="img-est" class="dim small"></div>
+        <div id="img-look" class="dim small"></div><canvas id="img" width="64" height="64"></canvas><div class="pbar"><i id="img-prog"></i></div><div id="img-state" class="dim small"></div><div id="img-est" class="dim small"></div>
       </div>
     </div>
     <div class="block grow" id="blk-desc">

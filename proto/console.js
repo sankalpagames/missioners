@@ -17,7 +17,7 @@ const bw={};                    // kind → массив {t,bytes} за 5 с
 const totals={};
 
 function U(id){ if(!units.has(id)) units.set(id,{id,alive:true,carrier:true,camera:false,sonar:false,streaming:false,charge:null,tlm:null,tlmAt:-1e9,hist:[],track:[],sonarAt:-1e9,desc:[],descAt:-1e9,autonomy:0,target:null,subs:{tlm:1,sonar:0,desc:0,img:0,level:2,delta:true},img:{msg:null,buf:new Uint8Array(64*64),levels:{},skipped:0,at:-1e9,asm:{},state:'',prog:0}}); return units.get(id); }
-function T(){ const u=units.get(active); return u?u.target:null; }
+function T(){ const u=units.get(active); return u?u.sel:null; }
 U(1); units.get(1).camera=true; units.get(1).sonar=true;
 function pos(id){ const u=units.get(id); if(u&&u.tlm) return {x:u.tlm.x,y:u.tlm.y}; if(u&&u.track.length) return u.track[u.track.length-1]; return {x:16,y:0}; }
 
@@ -109,22 +109,29 @@ function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(a
 function renderUnits(){ const el=$('#units'); el.innerHTML=''; [...units.values()].sort((a,b)=>a.id-b.id).forEach(u=>{ const b=document.createElement('button'); b.className=(u.id===active?'on ':'')+(u.alive?'':'dead'); b.textContent=`${u.alive?(u.carrier?'●':'◌'):'○'} М${u.id}`; b.onclick=()=>{ active=u.id; selectUnit(); }; el.appendChild(b); }); }
 function selectUnit(){ const u=units.get(active); renderUnits(); renderDesc(); drawSonar(u.sonarData); showImg(u); updateTarget();
   $('#autonomy').value=u.autonomy; $('#sub-tlm').value=u.subs.tlm; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta;
-  $('#sonar-body').hidden=!u.sonar; $('#sonar-none').hidden=u.sonar; $('#img-body').hidden=!u.camera; $('#img-none').hidden=u.camera; }
+  $('#sonar-body').hidden=!u.sonar; $('#sonar-none').hidden=u.sonar; $('#img-body').hidden=!u.camera; $('#img-none').hidden=u.camera; $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }
 function renderDesc(){ const u=units.get(active), el=$('#desc'); el.innerHTML=''; $('#desc-unit').textContent='М'+active; if(!u||!u.desc.length){ el.innerHTML='<div class="dim small">нет данных</div>'; return; }
   el.insertAdjacentHTML('beforeend',`<div class="dim small">${(tNow-u.descAt).toFixed(0)} с назад</div>`); const tg=T();
   for(const it of u.desc){ const name=oname(it.id,it.type); const d=document.createElement('div'); d.className='it'+(tg&&tg.id===it.id?' sel':''); const j=jlast(it.id);
-    d.innerHTML=`<span class="${it.type===250?'u':'n'}">${name}</span> <span class="dim">${it.bearing}° · ${it.range} м</span>`+(j?`<br><span class="j">М${j.unit}: ${j.text}</span>`:'');
-    d.onclick=()=>setTarget({id:it.id,type:it.type,x:it.x,y:it.y,name}); el.appendChild(d); } }
+    const js=journal.get(it.id)||[]; const open=expanded.has(it.id);
+    d.innerHTML=`<span class="${it.type===250?'u':'n'}">${name}</span> <span class="dim">${it.bearing}° · ${it.range} м</span>`+(j?`<br><span class="j">М${j.unit}: ${j.text}</span>`:'')+(js.length>1?` <span class="jt">${open?'▾':'▸'} ${js.length} записей</span>`:'')+(open?js.slice(0,-1).map(e=>`<div class="jl">${fmtT(e.t)} М${e.unit}: ${e.text}</div>`).join(''):'');
+    d.onclick=e=>{ if(e.target.classList.contains('jt')){ expanded.has(it.id)?expanded.delete(it.id):expanded.add(it.id); renderDesc(); return; } setTarget({id:it.id,type:it.type,x:it.x,y:it.y,name}); }; el.appendChild(d); } }
+const expanded=new Set();
 function nearestLandmark(x,y){ let best=null, bd=1e9; for(const o of known.values()){ if(o.type>7) continue; const d=Math.hypot(o.x-x,o.y-y); if(d<bd){ bd=d; best=o; } } return best?best.name:'станция'; }
-function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const groups={};
-  for(const [id,entries] of journal){ const o=[...known.values()].find(k=>k.id===id); const grp=o?nearestLandmark(o.x,o.y):'без координат'; (groups[grp]=groups[grp]||[]).push({id,o,entries}); }
-  if(!Object.keys(groups).length){ el.innerHTML='<div class="dim">пока ничего не изучено. выбери объект и нажми «Изучить».</div>'; return; }
-  for(const g in groups){ el.insertAdjacentHTML('beforeend',`<div class="grp">${g.toUpperCase()}</div>`);
-    for(const {id,o,entries} of groups[g]){ const d=document.createElement('div'); d.className='obj'; const name=o?o.name:('объект '+id);
-      d.innerHTML=`<span class="n">${name}</span>${o?` <span class="dim">(${o.x}, ${o.y})</span>`:''}`+entries.map(e=>`<div class="e">${fmtT(e.t)} <b>М${e.unit}</b> ${e.text}</div>`).join('');
-      if(o) d.onclick=()=>setTarget({id:o.id,type:o.type,x:o.x,y:o.y,name}); el.appendChild(d); } } }
-function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`цель М${active}: ${tg.name} (${tg.x}, ${tg.y})`:'цель не выбрана'; }
-function setTarget(tg){ const u=units.get(active); const X=tg.x+32768, Y=tg.y+32768; if(send([18,0,active,X>>8,X&255,Y>>8,Y&255],`М${active} цель: ${tg.name}`)) u.target=tg; renderDesc(); updateTarget(); }
+function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const fu=$('#jf-unit').value, flm=$('#jf-lm').value, q=$('#jf-q').value.trim().toLowerCase();
+  const rows=[]; const lms=new Set();
+  for(const [id,entries] of journal){ const o=[...known.values()].find(k=>k.id===id); const lm=o?nearestLandmark(o.x,o.y):'без координат'; lms.add(lm); const name=o?o.name:('объект '+id);
+    for(const e of entries) rows.push({t:e.t,unit:e.unit,text:e.text,name,lm,o}); }
+  const ju=$('#jf-unit'); if(ju.options.length!==units.size+1){ const cur=ju.value; ju.innerHTML='<option value="">все</option>'; for(const v of units.values()) ju.insertAdjacentHTML('beforeend',`<option value="${v.id}">М${v.id}</option>`); ju.value=cur; }
+  const jl=$('#jf-lm'); if(jl.options.length!==lms.size+1){ const cur=jl.value; jl.innerHTML='<option value="">все</option>'; for(const l of lms) jl.insertAdjacentHTML('beforeend',`<option value="${l}">${l}</option>`); jl.value=cur; }
+  const f=rows.filter(r=>(!fu||r.unit===+fu)&&(!flm||r.lm===flm)&&(!q||(r.name+' '+r.text).toLowerCase().includes(q))).sort((a,b)=>b.t-a.t);
+  $('#jf-count').textContent=`${f.length} из ${rows.length}`;
+  if(!rows.length){ el.innerHTML='<div class="dim">пока ничего не изучено. выбери объект и нажми «Изучить».</div>'; return; }
+  for(const r of f){ const d=document.createElement('div'); d.className='row-e'; d.innerHTML=`<span class="t">${fmtT(r.t)}</span><span class="u">М${r.unit}</span><span class="n">${r.name}</span>${r.text} <span class="lm">· ${r.lm}</span>`; if(r.o) d.onclick=()=>setTarget({id:r.o.id,type:r.o.type,x:r.o.x,y:r.o.y,name:r.name}); el.appendChild(d); } }
+['#jf-unit','#jf-lm'].forEach(s=>$(s).onchange=renderJournal); $('#jf-q').oninput=renderJournal;
+function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`выбрано: ${tg.name} (${tg.x}, ${tg.y})`:'ничего не выбрано'; }
+function setTarget(tg){ units.get(active).sel=tg; renderDesc(); updateTarget(); }   // выбор — локальный, ничего не уходит
+function setGoal(name,p){ const u=units.get(active); u.goalName=name; if(p) u.goalPos={x:p.x,y:p.y}; else if(T()) u.goalPos={x:T().x,y:T().y}; $('#img-look').textContent=`смотрит: ${name?'на «'+name+'»':'вперёд'}`; }
 
 function drawMap(){ const cv=$('#map'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   const pts=[{x:0,y:0}]; for(const o of known.values()) pts.push(o); for(const u of units.values()){ pts.push(...u.track); }
@@ -140,11 +147,11 @@ function drawMap(){ const cv=$('#map'), ctx=cv.getContext('2d'), W=cv.width, H=c
   ctx.strokeStyle='#555'; ctx.beginPath(); ctx.arc(sx(0),sy(0),14*sc,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(0)+16*sc,sy(0)-4);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); u.track.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
-  const tg=T();
+  const tg=T(), au0=units.get(active), gp=au0&&au0.goalPos;
   for(const o of known.values()){ const age=tNow-o.at, mine=o.seenBy.has(active); ctx.globalAlpha=(mine?Math.max(0.4,1-age/600):0.22); const col=o.type===250?'#ff5c5c':o.type===251?'#888':o.type<=7?'#e0a94a':'#9fb59f'; const r=o.type<=7?3:2; if(mine){ ctx.fillStyle=col; ctx.fillRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } else { ctx.strokeStyle=col; ctx.strokeRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } if(mine&&(o.type<=7||o.type>=250||sc>1.2)) ctx.fillText(o.name,sx(o.x)+5,sy(o.y)+3); }
-  { const au=units.get(active); if(au){ const p=pos(active); let ang=null; if(tg) ang=Math.atan2(tg.y-p.y,tg.x-p.x); else if(au.track.length>1){ const a=au.track[au.track.length-2], b=au.track[au.track.length-1]; ang=Math.atan2(b.y-a.y,b.x-a.x); } else ang=0;
+  { const au=units.get(active); if(au){ const p=pos(active); let ang=null; if(gp&&Math.hypot(gp.x-p.x,gp.y-p.y)>1.5) ang=Math.atan2(gp.y-p.y,gp.x-p.x); else if(au.track.length>1){ const a=au.track[au.track.length-2], b=au.track[au.track.length-1]; ang=Math.atan2(b.y-a.y,b.x-a.x); } else ang=0;
       const R=80*sc, f=52*Math.PI/180; ctx.fillStyle='rgba(224,169,74,0.10)'; ctx.beginPath(); ctx.moveTo(sx(p.x),sy(p.y)); ctx.arc(sx(p.x),sy(p.y),R,ang-f,ang+f); ctx.closePath(); ctx.fill(); } }
-  ctx.globalAlpha=1; if(tg){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(sx(tg.x),sy(tg.y),7,0,7); ctx.stroke(); ctx.fillStyle='#fff'; ctx.fillText('цель',sx(tg.x)+9,sy(tg.y)-8); }
+  ctx.globalAlpha=1; if(gp){ ctx.strokeStyle='#e0a94a'; ctx.beginPath(); ctx.arc(sx(gp.x),sy(gp.y),5,0,7); ctx.stroke(); } if(tg){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(sx(tg.x),sy(tg.y),7,0,7); ctx.stroke(); ctx.fillStyle='#fff'; ctx.fillText('выбрано',sx(tg.x)+9,sy(tg.y)-8); }
   ctx.globalAlpha=1;
   for(const u of units.values()){ const p=pos(u.id); const col=UCOL[(u.id-1)%UCOL.length]; ctx.fillStyle=u.alive?col:'#666'; ctx.beginPath(); ctx.arc(sx(p.x),sy(p.y),u.id===active?5:3.5,0,7); ctx.fill(); ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?'':' †'}${u.tlm?'':' ?'}`,sx(p.x)+7,sy(p.y)-6); if(u.tlm&&tNow-u.tlmAt>10){ ctx.fillStyle='#888'; ctx.fillText(`${(tNow-u.tlmAt).toFixed(0)} с назад`,sx(p.x)+7,sy(p.y)+6); } }
   $('#map-count').textContent=`объектов: ${known.size}`; $('#map-scale').textContent=`1 px = ${(1/sc).toFixed(2)} м · ×${map.zoom.toFixed(1)}`; }
@@ -182,12 +189,14 @@ $('#truth').onclick=e=>{ const r=$('#truth').getBoundingClientRect(); const x=((
 
 // ---------- команды ----------
 function send(bytes,label){ if(!link.sendUplink(bytes)){ log(`${label}: нет связи со станцией`,'err'); return false; } if(label) log(`→ ${label}`,'cmd'); return true; }
-function moveTo(name){ const u=units.get(active); if(!u||!u.alive){ log('М'+active+' не может идти: нет живого тела','err'); return; } send([6,0,active],`М${active} идти к цели: ${name}`); }
+function coordBytes(p){ const X=p.x+32768, Y=p.y+32768; return [X>>8,X&255,Y>>8,Y&255]; }
+function moveTo(tg){ const u=units.get(active); if(!u||!u.alive){ log('М'+active+' не может идти: нет живого тела','err'); return; } if(send([6,0,active,...coordBytes(tg)],`М${active} идти: ${tg.name}`)) setGoal(tg.name); }
 $$('button[data-cmd]').forEach(b=>b.onclick=()=>{ const c=+b.dataset.cmd, tg=T();
-  if(c===8){ if(!tg||!tg.id) return log('выбери объект (из описания или на карте)','err'); send([8,tg.id,active],`М${active} взаимодействовать: ${tg.name}`); }
+  if(c===8){ if(!tg||!tg.id) return log('выбери объект (из описания или на карте)','err'); if(send([8,tg.id,active],`М${active} взаимодействовать: ${tg.name}`)) setGoal(tg.name); }
   if(c===19){ if(!tg||!tg.id) return log('выбери объект (из описания или на карте)','err'); send([19,tg.id,active],`М${active} изучить: ${tg.name}`); } });
 $('#btn-desc').onclick=()=>{ const u=units.get(active); if(!u.alive) return log('М'+active+': описание требует живого тела (глаза)','err'); send([1,0,active],`М${active} описание`); };
-$('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана: кликни объект в описании или точку на карте','err'); moveTo(tg.name); };
+$('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('ничего не выбрано: кликни объект в описании или точку на карте','err'); moveTo(tg); };
+$('#btn-look').onclick=()=>{ const tg=T(); if(!tg) return log('ничего не выбрано','err'); if(send([18,0,active,...coordBytes(tg)],`М${active} смотреть: ${tg.name}`)) setGoal(tg.name); };
 $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log('М'+active+': нет сонара','err'); send([2,0,active],`М${active} сонар`); };
 $$('button[data-mode]').forEach(b=>b.onclick=()=>{ send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': нет камеры','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };

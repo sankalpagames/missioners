@@ -87,3 +87,12 @@ td{padding:1px 4px;border-bottom:1px solid #1a1e25}
 #journal .obj .n{color:#9fb59f}
 #journal .e{color:var(--dim);padding-left:10px}
 #journal .e b{color:var(--fg);font-weight:normal}
+
+#desc .jt{color:var(--acc);font-size:10px;cursor:pointer}
+#desc .jl{color:var(--dim);font-size:10px;padding-left:8px}
+#journal .row-e{padding:2px 4px;border-bottom:1px dotted var(--line);cursor:pointer}
+#journal .row-e:hover{background:#1a1e25}
+#journal .row-e .t{color:var(--dim);margin-right:6px}
+#journal .row-e .u{color:var(--acc);margin-right:6px}
+#journal .row-e .n{color:#9fb59f;margin-right:6px}
+#journal .row-e .lm{color:var(--dim);font-size:10px}
