@@ -14,7 +14,7 @@
   <span id="link-state" class="badge" data-tip="Дальнее плечо канала: станция ↔ оператор. Линия СВС, задержка не зависит от расстояния, полоса фиксированная и делится между всеми подписками и запросами.">—</span>
   <span id="rate" class="dim small" data-tip="Принято за последнюю секунду / ёмкость дальней линии, Б/с."></span>
   <span class="grow"></span>
-  <div id="units" data-tip="Миссионеры. Команды и панели относятся к выбранному. ● живой · ○ мёртвый · ◌ несущая не принимается станцией. Приборы на мёртвом теле работают на остатке заряда."></div>
+  <div id="units" data-tip="Миссионеры. Команды и панели относятся к выбранному. ● живой · ○ мёртвый · ◌ сигнал не принимается станцией. Приборы на мёртвом теле работают на остатке заряда."></div>
   <span class="grow"></span>
   <label class="small" data-tip="Ускорение симуляции. Мир и канал ускоряются вместе, соотношения сохраняются.">время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
   <span id="save-state" class="dim small" data-tip="Сеанс сохраняется в хранилище браузера каждые 10 с: мир и знание консоли. Управление сеансом (продолжить, новый, импорт, экспорт) — в терминале при подключении. Пока вкладка закрыта, мир не живёт; при следующем открытии досчитывает прошедшее время, не больше 8 часов."></span>
@@ -27,7 +27,7 @@
     <div class="block" id="blk-tlm">
       <div class="bh"><span class="bt" data-tip="Фоновая телеметрия тела: 16 Б данных + 8 Б заголовка = 24 Б на пакет, по подписке с заданным интервалом.">ТЕЛО <span id="tlm-unit" class="dim"></span></span>
         <select class="sub" id="sub-tlm" data-tip="Интервал телеметрии. Между отсчётами данных о теле нет."><option value="1">каждую 1 с</option><option value="5">каждые 5 с</option><option value="15">каждые 15 с</option><option value="0">выкл</option></select>
-        <select class="sub" id="tx-pow" data-tip="Мощность нательного передатчика. +10 дБ к отношению сигнал/шум на линии со станцией — дальше и глубже держится несущая; расход заряда выше. −10 дБ — экономия."><option value="-10">−10 дБм</option><option value="0" selected>0 дБм</option><option value="10">+10 дБм</option></select>
+        <select class="sub" id="tx-pow" data-tip="Мощность нательного передатчика. +10 дБ к отношению сигнал/шум на линии со станцией — сигнал держится дальше и глубже; расход заряда выше. −10 дБ — экономия."><option value="-10">−10 дБм</option><option value="0" selected>0 дБм</option><option value="10">+10 дБм</option></select>
         <span class="bw" id="bw-tlm" data-tip="Расход полосы панели за последние 5 с."></span></div>
       <div class="bb">
         <div class="pulse-row"><canvas id="ecg" width="150" height="44" data-tip="Форма ЭКГ синтезируется из одного байта частоты пульса. Передаётся только частота."></canvas><div><div id="pulse-val" class="big">—</div><div id="pulse-cls" class="dim small">пульс</div></div><span id="tlm-age" class="dim small"></span></div>
@@ -51,7 +51,7 @@
       </div>
     </div>
     <div class="block" id="blk-sonar">
-      <div class="bh"><span class="bt" data-tip="Сонар, базовый датчик. 64 луча × 8 бит дальности, шаг 0,4 м, до 100 м = 64 Б + заголовок. Различает препятствия, не различает объекты.">СОНАР</span>
+      <div class="bh"><span class="bt" data-tip="Сонар, базовый датчик. 64 луча по кругу, по байту дальности на луч (шаг 0,4 м, до 100 м) = 72 Б с заголовком. Центр — тело; кольца — 25, 50, 75, 100 м; ориентация как на карте (0° — вправо). Точка на луче — первое препятствие в этом направлении: стены, корпус станции, скалы, крупные предметы, тела. Луч без точки — до 100 м пусто. Что именно найдено, сонар не различает; для этого — описание.">СОНАР</span>
         <select class="sub" id="sub-sonar" data-tip="Автообновление сонара. Снимок — 72 Б."><option value="0">по запросу</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
         <button class="mini" id="btn-sonar" data-tip="Снимок сонара, 72 Б.">снять</button>
         <span class="bw" id="bw-sonar"></span></div>
@@ -61,7 +61,7 @@
 
   <section class="col center">
     <nav class="tabs">
-      <button data-tab="log" class="on">Лог</button><button data-tab="map" data-tip="Карта из принятых данных: координаты — из телеметрии, объекты — по пеленгу и дальности из описаний. Зелёные круги — зоны снятых описаний, радиус 100 м. Вне кругов данных нет.">Карта</button><button data-tab="charts" data-tip="История принятых значений по времени.">Графики</button><button data-tab="journal" data-tip="Лог записей по объектам с фильтрами по миссионеру, ориентиру и тексту. Описание показывает окружение миссионера; журнал — всё накопленное.">Журнал</button><button data-tab="station" data-tip="Консоль станции: биоматериал, склад датчиков, выращивание миссионеров.">Станция</button><button data-tab="channel" data-tip="Распределение полосы по видам данных. Реагирует на включение и выключение панелей.">Канал</button>
+      <button data-tab="log" class="on">Лог</button><button data-tab="map" data-tip="Карта из принятых данных: координаты — из телеметрии, объекты — по пеленгу и дальности из описаний. Зелёные круги — зоны снятых описаний, радиус 100 м. Вне кругов данных нет.">Карта</button><button data-tab="charts" data-tip="История принятых значений по времени.">Графики</button><button data-tab="journal" data-tip="Лог записей по объектам с фильтрами по миссионеру, ориентиру и тексту. Описание показывает окружение миссионера; журнал — всё накопленное.">Журнал</button><button data-tab="station" data-tip="Консоль станции: биоматериал, склад датчиков, выращивание миссионеров.">Станция</button><button data-tab="channel" data-tip="Распределение полосы по видам данных. Реагирует на включение и выключение панелей. Лампа: зелёная — линия свободна; жёлтая — занята, ответы на команды встанут в очередь; красная — очередь больше 10 с, всё новое ждёт.">Канал <i id="lamp" class="lamp"></i></button>
     </nav>
     <div class="tab on" id="tab-log">
       <div id="task" class="small" data-tip="Открытая задача по протоколу станции. Приходит в паспорте станции при подключении; закрывается событием станции."></div>
@@ -77,7 +77,7 @@
       <div class="small dim">точки — принятые пакеты телеметрии; разрывы — периоды без данных</div>
     </div>
     <div class="tab" id="tab-journal">
-      <div class="row small"><label>миссионер <select class="sub" id="jf-unit"><option value="">все</option></select></label><label>ориентир <select class="sub" id="jf-lm"><option value="">все</option></select></label><input class="sub" id="jf-q" placeholder="поиск по тексту" style="flex:1"><span id="jf-count" class="dim"></span></div>
+      <div class="row small"><label>миссионер <select class="sub" id="jf-unit"><option value="">все</option></select></label><label>ориентир <select class="sub" id="jf-lm"><option value="">все</option></select></label><span id="jf-count" class="dim"></span></div>
       <div id="journal" class="small"></div>
     </div>
     <div class="tab" id="tab-station">
@@ -86,7 +86,7 @@
         <div data-tip="Камер на складе. Камера не производится; возврат — снять с тела и доставить к шлюзу."><label>камеры на складе</label><b id="st-cam">—</b></div>
         <div data-tip="Выращивание: секунд до готовности."><label>выращивание</label><b id="st-grow">—</b></div>
       </div>
-      <table id="roster"><thead><tr><th>№</th><th>состояние</th><th>несущая</th><th>датчики</th><th>заряд</th><th>предметы</th><th>автосъёмка</th></tr></thead><tbody></tbody></table>
+      <table id="roster"><thead><tr><th>№</th><th>состояние</th><th>сигнал</th><th>датчики</th><th>заряд</th><th>предметы</th><th>автосъёмка</th></tr></thead><tbody></tbody></table>
       <div class="row" style="margin-top:8px">
         <label class="small"><input type="checkbox" id="g-cam"> камера</label>
         <label class="small"><input type="checkbox" id="g-sonar" checked> сонар</label>
@@ -114,7 +114,7 @@
         <div class="row modes" data-tip="Режимы тела. Исследование — фонарь, обычная скорость. Скрытность — без фонаря, медленно, обнаружение с 22 м вместо 70. Отступление — бегом к шлюзу. Отдых — стоя, восстановление психики и заряда. Бой — удар при контакте.">
           <label>режим</label><button data-mode="1">исследование</button><button data-mode="2">скрытность</button><button data-mode="3">отступление</button><button data-mode="4">отдых</button><button data-mode="5">бой</button>
         </div>
-        <div class="row"><label class="small" data-tip="Инструкция на случай потери несущей более 20 с. Задаётся до выхода.">при потере несущей &gt;20 с <select id="autonomy"><option value="0">продолжать</option><option value="1">остановиться и ждать</option><option value="2">вернуться к шлюзу</option></select></label></div>
+        <div class="row"><label class="small" data-tip="Инструкция на случай потери сигнала со станцией более 20 с. Задаётся до выхода.">при потере сигнала &gt;20 с <select id="autonomy"><option value="0">продолжать</option><option value="1">остановиться и ждать</option><option value="2">вернуться к шлюзу</option></select></label></div>
       </div>
   </section>
 
@@ -152,7 +152,7 @@
         <div data-tip="Расстояние миссионера от станции по прямой."><label>расстояние</label><b id="i-dist"></b></div>
         <div data-tip="Free-space path loss: 20·log10(d) + 20·log10(f) − 27,55 дБ. Удвоение расстояния — −6 дБ."><label>FSPL</label><b id="i-fspl"></b></div>
         <div data-tip="Затухание в препятствиях. Тоннель: 8 дБ у входа + до 22 дБ по глубине."><label>препятствия</label><b id="i-obst"></b></div>
-        <div data-tip="SNR = Pпередатчика + усиления антенн − FSPL − препятствия − шум приёмника. Ниже −5 дБ несущая не захватывается."><label>SNR</label><b id="i-snr"></b></div>
+        <div data-tip="SNR = Pпередатчика + усиления антенн − FSPL − препятствия − шум приёмника. Ниже −5 дБ приёмник не захватывает сигнал."><label>SNR</label><b id="i-snr"></b></div>
         <div data-tip="Шеннон: C = B·log2(1+SNR) × 0,5 (реализация). С FEC ещё × 0,5."><label>лок. ёмкость</label><b id="i-local"></b></div>
         <div data-tip="Вероятность ошибки бита: 0,5·erfc(√SNR). FEC даёт +5 дБ."><label>BER</label><b id="i-ber"></b></div>
         <div data-tip="Вероятность потери пакета 72 Б = 1 − (1−BER)^576."><label>PER (72 Б)</label><b id="i-per"></b></div>

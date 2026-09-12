@@ -14,6 +14,7 @@ const KIND_RU={TLM:'телеметрия',HB:'пульс станции',SONAR:'
 const KIND_COL={TLM:'#5cb85c',HB:'#2f6f3a',SONAR:'#4a8fe0',DESC:'#9fb59f',IMG:'#e0a94a',EVT:'#8a7fd0',EXAM:'#8a7fd0',ACT:'#8a7fd0',INFO:'#2f6f3a',drop:'#d9534f'};
 const UCOL=['#7fe07f','#4a8fe0','#e0a94a','#d97fd9','#5cd0d0','#d9534f'];
 const bw={};                    // kind → массив {t,bytes} за 5 с
+const lastRx={};                // kind → последний принятый пакет
 const totals={};
 
 function U(id){ if(!units.has(id)) units.set(id,{id,alive:true,carrier:true,camera:false,sonar:false,streaming:false,charge:null,tlm:null,tlmAt:-1e9,hist:[],track:[],sonarAt:-1e9,desc:[],descAt:-1e9,autonomy:0,target:null,descPts:[],subs:{tlm:1,sonar:0,desc:0,img:0,level:2,delta:true},img:{msg:null,buf:new Uint8Array(64*64),levels:{},skipped:0,at:-1e9,asm:{},state:'',prog:0}}); return units.get(id); }
@@ -34,7 +35,7 @@ const asm={};
 function assemble(pkt){ if(pkt.total===1) return pkt.bytes; const a=asm[pkt.msgId]=asm[pkt.msgId]||{parts:{},total:pkt.total,at:tNow}; a.parts[pkt.seq]=pkt.bytes; a.at=tNow;
   if(Object.keys(a.parts).length<a.total) return null; const out=[]; for(let i=0;i<a.total;i++) out.push(...a.parts[i]); delete asm[pkt.msgId]; return new Uint8Array(out); }
 link.onDeliver=pkt=>{
-  const k=link.kindOf(pkt.kind); (bw[k]=bw[k]||[]).push({t:tNow,b:pkt.size}); totals[k]=(totals[k]||0)+pkt.size;
+  const k=link.kindOf(pkt.kind); (bw[k]=bw[k]||[]).push({t:tNow,b:pkt.size}); totals[k]=(totals[k]||0)+pkt.size; lastRx[k]={t:tNow,b:pkt.size,msg:pkt.msgId};
   if(pkt.kind==='DESC'||pkt.kind==='EXAM'||pkt.kind==='ACT'||pkt.kind==='INFO'){ const full=assemble(pkt); if(!full) return; pkt={...pkt,bytes:full}; }
   switch(pkt.kind){
     case 'TLM': decodeTlm(pkt); break;
@@ -61,8 +62,8 @@ function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.c
   for(let i=0;i<n;i++){ const id=b[4+i*4], f=b[5+i*4], ch=b[6+i*4]/2.55, it=b[7+i*4]; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[it&1?40:0,it&2?41:0].filter(Boolean);
     u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.charge=ch; u.hbAt=tNow;
     if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err');
-    if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} не принимается`,'err');
-    if(!wasCarrier&&u.carrier) log(`станция: несущая М${id} восстановлена`,'sys'); }
+    if(wasCarrier&&!u.carrier) log(`станция: сигнал М${id} не принимается`,'err');
+    if(!wasCarrier&&u.carrier) log(`станция: сигнал М${id} восстановлен`,'sys'); }
   renderUnits(); const au=units.get(active); if(au){ $('#sonar-body').hidden=!au.sonar; $('#sonar-none').hidden=au.sonar; $('#img-body').hidden=!au.camera; $('#img-none').hidden=au.camera; } }
 // Описание: [id, класс, пеленг/2, дальность, длина, текст]*. Класс: 0 объект, 1 ориентир, 2 неопознанное, 3 тело, 4 миссионер.
 function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit), p=pos(pkt.unit); const items=[];
@@ -105,7 +106,8 @@ function decodeImd(pkt){ const u=U(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[
 // ---------- отрисовка ----------
 function drawGray(cv,buf,side){ const ctx=cv.getContext('2d'), im=ctx.createImageData(side,side); for(let i=0;i<side*side;i++){ im.data[i*4]=im.data[i*4+1]=im.data[i*4+2]=buf[i]; im.data[i*4+3]=255; } ctx.putImageData(im,0,0); }
 function drawSonar(b){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200); ctx.strokeStyle='#1e3a1e'; for(const r of [25,50,75,100]){ ctx.beginPath(); ctx.arc(c,c,r,0,7); ctx.stroke(); } if(!b) return; ctx.fillStyle='#7fe07f';
-  for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, r=b[i]/255*100; if(r>=99.5) continue; ctx.fillRect(c+Math.cos(a)*r-1.5,c+Math.sin(a)*r-1.5,3,3); } ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); }
+  for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, r=b[i]/255*100; if(r>=99.5) continue; ctx.strokeStyle='rgba(127,224,127,0.18)'; ctx.beginPath(); ctx.moveTo(c,c); ctx.lineTo(c+Math.cos(a)*r,c+Math.sin(a)*r); ctx.stroke(); ctx.fillRect(c+Math.cos(a)*r-1.5,c+Math.sin(a)*r-1.5,3,3); }
+  ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.font='9px monospace'; ctx.fillText('25',c+26,c-2); ctx.fillText('50',c+51,c-2); ctx.fillText('100 м',c+72,c-2); }
 let ecgPhase=0, ecgX=0;
 function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(active); const W=150;
   if(!u||!u.tlm||tNow-u.tlmAt>3*Math.max(1,+$('#sub-tlm').value||1)){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,44); ctx.fillStyle='#333'; ctx.fillRect(0,22,W,1); return; }
@@ -124,17 +126,17 @@ function renderDesc(){ const u=units.get(active), el=$('#desc'); el.innerHTML=''
     d.onclick=e=>{ if(e.target.classList.contains('jt')){ expanded.has(it.id)?expanded.delete(it.id):expanded.add(it.id); renderDesc(); return; } setTarget({id:it.id,cls:it.cls,x:it.x,y:it.y,name}); }; el.appendChild(d); } }
 const expanded=new Set();
 function nearestLandmark(x,y){ let best=null, bd=1e9; for(const o of known.values()){ if(o.cls!==1) continue; const d=Math.hypot(o.x-x,o.y-y); if(d<bd){ bd=d; best=o; } } return best?best.name:'станция'; }
-function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const fu=$('#jf-unit').value, flm=$('#jf-lm').value, q=$('#jf-q').value.trim().toLowerCase();
+function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const fu=$('#jf-unit').value, flm=$('#jf-lm').value;
   const rows=[]; const lms=new Set();
   for(const [id,entries] of journal){ const o=[...known.values()].find(k=>k.id===id); const lm=o?nearestLandmark(o.x,o.y):'без координат'; lms.add(lm); const name=o?o.name:('объект '+id);
     for(const e of entries) rows.push({t:e.t,unit:e.unit,text:e.text,name,lm,o}); }
   const ju=$('#jf-unit'); if(ju.options.length!==units.size+1){ const cur=ju.value; ju.innerHTML='<option value="">все</option>'; for(const v of units.values()) ju.insertAdjacentHTML('beforeend',`<option value="${v.id}">М${v.id}</option>`); ju.value=cur; }
   const jl=$('#jf-lm'); if(jl.options.length!==lms.size+1){ const cur=jl.value; jl.innerHTML='<option value="">все</option>'; for(const l of lms) jl.insertAdjacentHTML('beforeend',`<option value="${l}">${l}</option>`); jl.value=cur; }
-  const f=rows.filter(r=>(!fu||r.unit===+fu)&&(!flm||r.lm===flm)&&(!q||(r.name+' '+r.text).toLowerCase().includes(q))).sort((a,b)=>b.t-a.t);
+  const f=rows.filter(r=>(!fu||r.unit===+fu)&&(!flm||r.lm===flm)).sort((a,b)=>b.t-a.t);
   $('#jf-count').textContent=`${f.length} из ${rows.length}`;
   if(!rows.length){ el.innerHTML='<div class="dim">записей нет</div>'; return; }
   for(const r of f){ const d=document.createElement('div'); d.className='row-e'; d.innerHTML=`<span class="t">${fmtT(r.t)}</span><span class="u">М${r.unit}</span><span class="n">${r.name}</span>${r.text} <span class="lm">· ${r.lm}</span>`; if(r.o) d.onclick=()=>setTarget({id:r.o.id,cls:r.o.cls,x:r.o.x,y:r.o.y,name:r.name}); el.appendChild(d); } }
-['#jf-unit','#jf-lm'].forEach(s=>$(s).onchange=renderJournal); $('#jf-q').oninput=renderJournal;
+['#jf-unit','#jf-lm'].forEach(s=>$(s).onchange=renderJournal);
 function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`выбрано: ${tg.name} (${tg.x}, ${tg.y})`:'выбор: нет'; }
 function setTarget(tg){ units.get(active).sel=tg; renderDesc(); updateTarget(); }   // выбор — локальный, ничего не уходит
 function setGoal(name,p){ const u=units.get(active); u.goalName=name; if(p) u.goalPos={x:p.x,y:p.y}; else if(T()) u.goalPos={x:T().x,y:T().y}; $('#img-look').textContent=`смотрит: ${name?'на «'+name+'»':'вперёд'}`; }
@@ -246,11 +248,12 @@ setInterval(()=>{
   $('#v-items').textContent=u&&u.items&&u.items.length?u.items.map(i=>ITEMS[i]).join(', '):'—';
   $('#sonar-age').textContent=u&&u.sonarAt>-1e8?`снимок ${(tNow-u.sonarAt).toFixed(0)} с назад`:'нет данных';
   // расход по панелям
-  const setBw=(id,k)=>{ const r=bwRate(k); const el=$(id); el.textContent=r?r.toFixed(0)+' Б/с':'0 Б/с'; el.classList.toggle('hot',r>0); };
+  const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} Б · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };
   setBw('#bw-tlm','TLM'); setBw('#bw-sonar','SONAR'); setBw('#bw-desc','DESC'); setBw('#bw-img','IMG'); setBw('#bw-hb','HB');
   { const lvl=+$('#img-level').value, iv=+$('#sub-img').value, full=[72,72+264,72+264+1040,72+264+1040+4160][lvl]; const keyD=[2+64*2+8, 2+64*5+8*6, 2+64*17+8*18, 2+64*65+8*66][lvl]; const cap=link.deepCapBps()/8; const est=$('#img-est'); if(iv){ const per=$('#img-delta').checked?`ключевой ${keyD} Б, дальше по движению`:`${full} Б`; const rate=($('#img-delta').checked?keyD:full)/iv; est.textContent=`подписка: ${per} · до ${rate.toFixed(0)} Б/с из ${cap.toFixed(0)}`; est.style.color=rate>cap*0.8?'#d9534f':''; } else est.textContent=`один кадр: ${full} Б ≈ ${cap?(full/cap).toFixed(1):'∞'} с`; }
   // связь
   const up=link.up(); const st=$('#link-state'); st.textContent=up?'СВЯЗЬ':'НЕТ СВЯЗИ'; st.className='badge '+(up?'up':'down');
+  { const capB=link.deepCapBps()/8||1e-9; const qb=link.queueBytes('cmd')+link.queueBytes('bg'); const eta=qb/capB; $('#lamp').className='lamp'+(eta>10?' full':qb>0?' busy':''); }
   const last=link.stats.hist[link.stats.hist.length-1]; const used=last?['TLM','HB','SONAR','DESC','IMG','EVT'].reduce((a,k)=>a+last[k],0):0; $('#rate').textContent=`${used.toFixed(0)} / ${(link.deepCapBps()/8).toFixed(0)} Б/с`+(link.cfg.orbit?` · окно ${fmtT(link.orbit().tLeft)}`:'');
   if(up!==lastUp){ log(up?'дальняя линия: связь установлена':'дальняя линия: связь потеряна','sys'); lastUp=up; }
   // станция
@@ -261,7 +264,7 @@ setInterval(()=>{
   if(tab==='map') drawMap(); if(tab==='charts'){ const cu=$('#ch-unit'); if(cu.options.length!==units.size){ const cur=cu.value; cu.innerHTML=''; for(const v of units.values()){ const o=document.createElement('option'); o.value=v.id; o.textContent='М'+v.id; cu.appendChild(o); } cu.value=cur||active; } drawChartTlm(); }
   if(tab==='channel'){ drawChartCh(); const ct=$('#ch-table tbody'); ct.innerHTML=''; for(const k of ['TLM','HB','SONAR','DESC','IMG','EVT']) ct.insertAdjacentHTML('beforeend',`<tr><td><i class="k-${k}" style="display:inline-block;width:8px;height:8px;margin-right:6px"></i>${KIND_RU[k]}</td><td>${bwRate(k).toFixed(0)}</td><td>${totals[k]||0}</td></tr>`);
     const qb=$('#queue tbody'); qb.innerHTML=''; const groups={}; for(const p of [...link.queues.cmd,...Object.values(link.queues.bg).flat().filter(p=>/^IM/.test(p.kind))]){ const g=groups[p.msgId]=groups[p.msgId]||{kind:p.kind,unit:p.unit,n:0,bytes:0,total:p.total,cls:p.cls}; g.n++; g.bytes+=p.size; }
-    for(const id in groups){ const g=groups[id]; const eta=g.cls==='cmd'?link.etaFor(+id):g.bytes/(link.deepCapBps()/8||1e-9); qb.insertAdjacentHTML('beforeend',`<tr><td>${KIND_RU[link.kindOf(g.kind)]}${/^IM/.test(g.kind)?' '+[8,16,32,64][+g.kind[3]]+'px'+(g.kind[2]==='D'?' Δ':''):''}</td><td>М${g.unit}</td><td>${g.total-g.n}/${g.total}</td><td>${g.bytes}</td><td>${isFinite(eta)?eta.toFixed(1)+' с':'∞ (нет несущей)'}</td></tr>`); } }
+    for(const id in groups){ const g=groups[id]; const eta=g.cls==='cmd'?link.etaFor(+id):g.bytes/(link.deepCapBps()/8||1e-9); qb.insertAdjacentHTML('beforeend',`<tr><td>${KIND_RU[link.kindOf(g.kind)]}${/^IM/.test(g.kind)?' '+[8,16,32,64][+g.kind[3]]+'px'+(g.kind[2]==='D'?' Δ':''):''}</td><td>М${g.unit}</td><td>${g.total-g.n}/${g.total}</td><td>${g.bytes}</td><td>${isFinite(eta)?eta.toFixed(1)+' с':'∞ (нет сигнала)'}</td></tr>`); } }
   // отладка
   if(!$('#drawer').hidden){ const id=active; $('#i-dist').textContent=(link.phys.units[id]||{dist:0}).dist.toFixed(0)+' м'; $('#i-fspl').textContent=link.fsplDb(id).toFixed(1)+' дБ'; $('#i-obst').textContent=(link.phys.units[id]||{obstDb:0}).obstDb.toFixed(1)+' дБ'; $('#i-snr').textContent=link.snrDb(id).toFixed(1)+' дБ'+(link.phys.extraGain?' (+'+link.phys.extraGain+')':''); $('#i-local').textContent=(link.localCapBps(id)/1000).toFixed(2)+' кбит/с'; $('#i-ber').textContent=link.ber(id).toExponential(1); $('#i-per').textContent=(link.per(id,72)*100).toFixed(1)+'%'; $('#i-deep').textContent=(link.deepCapBps()/1000).toFixed(2)+' кбит/с = '+(link.deepCapBps()/8).toFixed(0)+' Б/с'; $('#i-cnt').textContent=`${link.stats.delivered}/${link.stats.dropped}/${link.stats.retrans}`;
     if((tNow*10|0)%10===0) world.postMessage({t:'peek',unit:active});

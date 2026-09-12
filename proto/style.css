@@ -105,3 +105,8 @@ td{padding:1px 4px;border-bottom:1px solid #1a1e25}
 .fin pre{white-space:pre-wrap;font:13px/1.6 ui-monospace,Menlo,monospace;color:#9fb59f;margin:0 0 16px}
 #boot .cur{display:inline-block;width:8px;height:14px;background:#9fb59f;vertical-align:-2px;animation:bl 1s steps(1) infinite}
 @keyframes bl{50%{opacity:0}}
+
+.lamp{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2f6f3a;margin-left:6px;vertical-align:middle;box-shadow:0 0 4px #2f6f3a}
+.lamp.busy{background:#e0a94a;box-shadow:0 0 6px #e0a94a}
+.lamp.full{background:#d9534f;box-shadow:0 0 8px #d9534f}
+.bw.hot{color:var(--acc)}
