@@ -44,7 +44,7 @@ link.onDeliver=pkt=>{
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
-    case 'INFO': { const text=decText(pkt.bytes); if(boot.onInfo) boot.onInfo(text,pkt); else log('станция: '+text.replace(/\n/g,' · '),'sys'); break; }
+    case 'INFO': { const text=decText(pkt.bytes); const tl=text.split('\n').find(l=>l.startsWith('задача:')); if(tl) $('#task').textContent=tl; if(boot.onInfo) boot.onInfo(text,pkt); else log('станция: '+text.replace(/\n/g,' · '),'sys'); break; }
     case 'EXAM': decodeExam(pkt); break;
     case 'ACT': decodeAct(pkt); break;
   }
@@ -73,13 +73,14 @@ function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit), p=pos(pkt.unit); con
   u.desc=items; u.descAt=tNow; u.descPts.push({x:p.x,y:p.y,t:tNow}); if(pkt.unit===active) renderDesc();
   log(`М${pkt.unit} описание: ${items.length} — ${items.map(i=>i.name).join(', ')}`,'desc'); }
 // Осмотр и действие: [id, код, длина, текст] — текст составила станция, консоль его только печатает.
-function decodeExam(pkt){ const b=pkt.bytes, id=b[0], text=decText(b.slice(3,3+b[2])); jadd(id,pkt.unit,`подошёл, посмотрел: ${text}`); log(`М${pkt.unit} изучил «${oname(id)}»: ${text}`,'desc'); renderDesc(); }
-function decodeAct(pkt){ const b=pkt.bytes, id=b[0], code=b[1], text=decText(b.slice(3,3+b[2])); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,code===0?'evt':'err'); renderDesc(); }
+function decodeExam(pkt){ const b=pkt.bytes, id=b[0], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); jadd(id,pkt.unit,`подошёл, посмотрел: ${text}`); log(`М${pkt.unit} изучил «${oname(id)}»: ${text}`,'desc'); renderDesc(); }
+function decodeAct(pkt){ const b=pkt.bytes, id=b[0], code=b[1], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,code===0?'evt':'err'); renderDesc(); }
 function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М${pkt.unit} `:''; const txt=EVENTS[code]||('событие '+code);
   if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}); требуется новое описание`,'err'); else log(`${un}${txt}`,'evt');
   if(code===5){ const u=U(pkt.unit); u.alive=false; renderUnits(); }
   if(code===6){ U(pkt.unit); renderUnits(); }
-  if(code===3) log('усиление тракта +6 дБ на всех линиях','sys'); }
+  if(code===3) log('усиление тракта +6 дБ на всех линиях','sys');
+  if(code===17){ $('#task').textContent='задача: ПС-7 закрыта'; const last=[...journal.values()].flat().filter(e=>/прочитал запись/.test(e.text)).pop(); $('#fin-text').textContent=(last?last.text.replace(/^прочитал запись\. /,'')+'\n\n':'')+`Станция остановила протокол ПС-7. Биоматериала осталось: ${station.bio ?? '—'} ед. Миссионеров в поле: ${[...units.values()].filter(u=>u.alive).length}.\n\nЭто условная развязка прототипа. Сеанс можно продолжать.`; $('#finale').hidden=false; } }
 function showImg(u){ drawGray($('#img'),u.img.buf,64); $('#img-unit').textContent='М'+u.id; $('#img-state').textContent=u.img.state; $('#img-prog').style.width=(u.img.prog*100)+'%'; }
 function decodeImg(pkt){ const u=U(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[8,16,32,64][lvl], block=64/side;
   if(lvl===0&&im.msg!==pkt.msgId){ im.buf.fill(0); im.levels={}; }   // новая пирамида — чистим, чтобы прогресс был виден
@@ -113,7 +114,7 @@ function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(a
 
 function renderUnits(){ const el=$('#units'); el.innerHTML=''; [...units.values()].sort((a,b)=>a.id-b.id).forEach(u=>{ const b=document.createElement('button'); b.className=(u.id===active?'on ':'')+(u.alive?'':'dead'); b.textContent=`${u.alive?(u.carrier?'●':'◌'):'○'} М${u.id}`; b.onclick=()=>{ active=u.id; selectUnit(); }; el.appendChild(b); }); }
 function selectUnit(){ const u=units.get(active); renderUnits(); renderDesc(); drawSonar(u.sonarData); showImg(u); updateTarget();
-  $('#autonomy').value=u.autonomy; $('#sub-tlm').value=u.subs.tlm; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta;
+  $('#autonomy').value=u.autonomy; $('#sub-tlm').value=u.subs.tlm; $('#tx-pow').value=u.subs.tx||0; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta;
   $('#sonar-body').hidden=!u.sonar; $('#sonar-none').hidden=u.sonar; $('#img-body').hidden=!u.camera; $('#img-none').hidden=u.camera; $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }
 function renderDesc(){ const u=units.get(active), el=$('#desc'); el.innerHTML=''; $('#desc-unit').textContent='М'+active; if(!u||!u.desc.length){ el.innerHTML='<div class="dim small">нет данных</div>'; return; }
   el.insertAdjacentHTML('beforeend',`<div class="dim small">${(tNow-u.descAt).toFixed(0)} с назад</div>`); const tg=T();
@@ -210,6 +211,7 @@ $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log(
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
 function sendImgSub(){ const u=units.get(active); const iv=+$('#sub-img').value, lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; Object.assign(u.subs,{img:iv,level:lvl,delta:!!d}); if(iv&&!u.camera) return log('М'+active+': камера не установлена','err'); send([16,iv,active,lvl,d],`М${active} автосъёмка: ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
 $('#sub-img').onchange=sendImgSub; $('#img-level').onchange=()=>{ units.get(active).subs.level=+$('#img-level').value; if(+$('#sub-img').value) sendImgSub(); }; $('#img-delta').onchange=()=>{ units.get(active).subs.delta=$('#img-delta').checked; if(+$('#sub-img').value) sendImgSub(); };
+$('#tx-pow').onchange=e=>{ const v=+e.target.value; units.get(active).subs.tx=v; send([9,v+20,active],`М${active} передатчик ${v>0?'+':''}${v} дБм`); };
 $('#sub-tlm').onchange=e=>{ units.get(active).subs.tlm=+e.target.value; send([12,+e.target.value,active],`М${active} телеметрия: ${e.target.selectedOptions[0].text}`); };
 $('#sub-sonar').onchange=e=>{ units.get(active).subs.sonar=+e.target.value; send([13,+e.target.value,active],`М${active} сонар: ${e.target.selectedOptions[0].text}`); };
 $('#sub-desc').onchange=e=>{ units.get(active).subs.desc=+e.target.value; send([14,+e.target.value,active],`М${active} описание: ${e.target.selectedOptions[0].text}`); };
@@ -219,6 +221,7 @@ $('#btn-grow').onclick=()=>{ const mask=($('#g-cam').checked?1:0)|($('#g-sonar')
 $('#btn-st').onclick=()=>send([11,0,0],'станция: статус');
 $('#speed').onchange=e=>{ speed=+e.target.value; world.postMessage({t:'speed',v:speed}); };
 $$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab)); if(b.dataset.tab==='journal') renderJournal(); });
+$('#fin-close').onclick=()=>$('#finale').hidden=true;
 $('#btn-debug').onclick=()=>$('#drawer').hidden=false; $('#btn-debug-close').onclick=()=>$('#drawer').hidden=true;
 const bind=(id,key,fmt,tx)=>{ const el=$(id); el.oninput=()=>{ const v=+el.value; if(tx) send([9,v+20,active],`М${active} TX ${v} dBm`); else link.cfg[key]=v; $(id+'-v').textContent=fmt(v); }; };
 bind('#c-tx',null,v=>v+' dBm',true); bind('#c-noise','noiseDbm',v=>v+' dBm'); bind('#c-bw','bwHz',v=>v+' Hz'); bind('#c-deep','deepCapBps',v=>v+' bps');

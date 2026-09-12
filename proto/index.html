@@ -8,6 +8,7 @@
 <body>
 <div id="boot"><pre id="boot-text"></pre></div>
 <div id="tip"></div>
+<div id="finale" hidden><div class="fin"><h2>ЗАДАЧА ПС-7 ЗАКРЫТА</h2><pre id="fin-text"></pre><div class="row"><button id="fin-close">продолжить сеанс</button></div></div></div>
 
 <header id="top">
   <span id="link-state" class="badge" data-tip="Дальнее плечо канала: станция ↔ оператор. Линия СВС, задержка не зависит от расстояния, полоса фиксированная и делится между всеми подписками и запросами.">—</span>
@@ -29,6 +30,7 @@
     <div class="block" id="blk-tlm">
       <div class="bh"><span class="bt" data-tip="Фоновая телеметрия тела: 16 Б данных + 8 Б заголовка = 24 Б на пакет, по подписке с заданным интервалом.">ТЕЛО <span id="tlm-unit" class="dim"></span></span>
         <select class="sub" id="sub-tlm" data-tip="Интервал телеметрии. Между отсчётами данных о теле нет."><option value="1">каждую 1 с</option><option value="5">каждые 5 с</option><option value="15">каждые 15 с</option><option value="0">выкл</option></select>
+        <select class="sub" id="tx-pow" data-tip="Мощность нательного передатчика. +10 дБ к отношению сигнал/шум на линии со станцией — дальше и глубже держится несущая; расход заряда выше. −10 дБ — экономия."><option value="-10">−10 дБм</option><option value="0" selected>0 дБм</option><option value="10">+10 дБм</option></select>
         <span class="bw" id="bw-tlm" data-tip="Расход полосы панели за последние 5 с."></span></div>
       <div class="bb">
         <div class="pulse-row"><canvas id="ecg" width="150" height="44" data-tip="Форма ЭКГ синтезируется из одного байта частоты пульса. Передаётся только частота."></canvas><div><div id="pulse-val" class="big">—</div><div id="pulse-cls" class="dim small">пульс</div></div><span id="tlm-age" class="dim small"></span></div>
@@ -65,6 +67,7 @@
       <button data-tab="log" class="on">Лог</button><button data-tab="map" data-tip="Карта из принятых данных: координаты — из телеметрии, объекты — по пеленгу и дальности из описаний. Зелёные круги — зоны снятых описаний, радиус 100 м. Вне кругов данных нет.">Карта</button><button data-tab="charts" data-tip="История принятых значений по времени.">Графики</button><button data-tab="journal" data-tip="Лог записей по объектам с фильтрами по миссионеру, ориентиру и тексту. Описание показывает окружение миссионера; журнал — всё накопленное.">Журнал</button><button data-tab="station" data-tip="Консоль станции: биоматериал, склад датчиков, выращивание миссионеров.">Станция</button><button data-tab="channel" data-tip="Распределение полосы по видам данных. Реагирует на включение и выключение панелей.">Канал</button>
     </nav>
     <div class="tab on" id="tab-log">
+      <div id="task" class="small" data-tip="Открытая задача по протоколу станции. Приходит в паспорте станции при подключении; закрывается событием станции."></div>
       <div id="log"></div>
     </div>
     <div class="tab" id="tab-map">

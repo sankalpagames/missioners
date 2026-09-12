@@ -13,7 +13,7 @@ const POIS = [
   { id:4, x:90,  y:140,  subs:[[20,0,0],[20,3,0],[20,6,0],[20,9,0],[20,12,0],[20,15,0],[21,6,-3],[22,-4,4]] },
   { id:5, x:-200,y:60,   subs:[[23,0,0],[24,6,-5],[25,-15,10]] },
   { id:6, x:260, y:150,  subs:[[26,10,8],[27,-3,-2],[28,-6,3]] },
-  { id:7, x:330, y:210,  subs:[[29,4,3],[30,-3,-4],[31,8,-6]] },
+  { id:7, x:330, y:210,  subs:[[29,4,3],[30,-3,-4],[31,8,-6],[32,1,6]] },
 ];
 const TUN_A = {x:260,y:150}, TUN_B = {x:340,y:218};
 const CIRCLES = [ {x:0,y:0,r:14}, {x:-200,y:60,r:12},
@@ -25,7 +25,7 @@ function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
 function bearingDeg(from,to){ return (Math.atan2(to.y-from.y,to.x-from.x)*180/Math.PI+360)%360; }
 
 // ---------- состояние ----------
-const station = { bioStock:4, camInv:0, power:100, growing:null };
+const station = { bioStock:4, camInv:0, power:100, growing:null, taskOpen:true };
 const objState = {};                       // id объекта → состояние (по умолчанию 0)
 function stateOf(id){ return objState[id]||0; }
 const units = []; let nextUnit = 1;
@@ -39,7 +39,7 @@ function spawn(sensors){
   units.push(u); return u;
 }
 spawn({camera:true, sonar:true});          // первый миссионер уже готов и несёт единственную камеру
-const creature = { x:330, y:210, home:{x:330,y:210}, awake:false, hp:3, fleeing:false, target:null };
+const creature = { x:330, y:210, home:{x:330,y:210}, lair:{x:346,y:222}, awake:false, hp:3, fleeing:false, cooldown:0 };   // после отпора уходит в логово и не трогает 2 минуты
 let antennaBoost = 0, hbTimer = 0, hbInterval = 2;
 
 function speedFor(m){ return m===2?0.6 : m===3?2.6 : m===4?0 : m===5?1.0 : 1.4; }
@@ -160,7 +160,7 @@ function beginAction(u,kind,id){
 function doPending(u){
   const p=u.pending; u.pending=null; if(!p) return; const o=findObj(u,p.id); if(!o){ evt(16,u.id,p.id); return; }
   const st=stateOf(o.id), cb=CODEBOOK[o.type]||CODEBOOK[250];
-  const textReply=(kind,code,text)=>{ const t=encText(text); emit('cmd',kind,u.id,new Uint8Array([o.id,code,t.length,...t])); };
+  const textReply=(kind,code,text)=>{ const t=encText(text); emit('cmd',kind,u.id,new Uint8Array([o.id,code,t.length>>8,t.length&255,...t])); };   // длина — 2 байта
   if(p.kind==='exam'){ textReply('EXAM',0,examText(o)); return; }
   // взаимодействие: действие из текущего состояния; ответ — текст, составленный станцией
   const acts=cb.actions||[]; const a=acts.find(a=>a.from===st);
@@ -170,6 +170,7 @@ function doPending(u){
   if(a.special==='return_camera'){ if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; station.camInv++; textReply('ACT',0,'сдал камеру на склад. На складе: '+station.camInv+'.'); } else textReply('ACT',1,'осмотрел: сдавать нечего.'); return; }
   if(a.special==='strip'){ const v=o.unit; let got='датчиков на теле нет.'; if(v&&v.sensors.camera){ v.sensors.camera=false; v.sub.img.interval=0; u.sensors.camera=true; u.lastImg={}; got='снял камеру. Теперь она на М'+u.id+'.'; } objState[o.id]=a.to; textReply('ACT',0,got); return; }
   if(a.special==='boost') antennaBoost=6;
+  if(a.special==='finale' && station.taskOpen){ station.taskOpen=false; setTimeout(()=>evt(17,u.id),1500/speed); }
   if(a.item===42){ u.sensors.camera=true; u.lastImg={}; } else if(a.item) u.items.push(a.item);
   objState[o.id]=a.to; textReply('ACT',0,`${a.verb}. ${(cb.states||[])[a.to]||''}${a.item&&a.item!==42?' ['+ITEMS[a.item]+']':''}`);
 }
@@ -194,7 +195,7 @@ onmessage = e => {
     if(cam) station.camInv--; station.bioStock--; station.growing={sensors:{camera:cam,sonar:!!(arg&2)},tLeft:30}; evt(11); return;
   }
   if(cmd===11){ // статус: паспорт станции текстом + пульс
-    const info=`АРК-041, автономная посадочная платформа\nсостояние: штатное\nвозраст миссии: 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nбиоматериал: ${station.bioStock} ед.; камер на складе: ${station.camInv}; развёрнуто: ${units.length}`;
+    const info=`АРК-041, автономная посадочная платформа\nсостояние: штатное\nвозраст миссии: 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nбиоматериал: ${station.bioStock} ед.; камер на складе: ${station.camInv}; развёрнуто: ${units.length}\nзадача: ${station.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся с выхода. Серия 0 исчерпана (7 ед.)':'ПС-7 закрыта'}`;
     emit('cmd','INFO',0,encText(info)); heartbeat(); return; }
   if(cmd===15){ hbInterval=arg; return; }
   const u=units.find(u=>u.id===unit); if(!u) return;
@@ -236,10 +237,12 @@ function tick(){
   if(station.growing){ station.growing.tLeft-=dt; if(station.growing.tLeft<=0){ const u=spawn(station.growing.sensors); station.growing=null; evt(6,u.id); } }
   // существо выбирает ближайшего живого
   let nearest=null, nd=1e9; for(const u of units){ if(!u.alive) continue; const d=dist(u,creature); if(d<nd){ nd=d; nearest=u; } }
-  if(!creature.awake && !creature.fleeing && nearest && nd<detectRadius(nearest.mode)) creature.awake=true;
+  creature.cooldown=Math.max(0,creature.cooldown-dt);
+  if(!creature.awake && !creature.fleeing && !creature.cooldown && nearest && nd<detectRadius(nearest.mode)) creature.awake=true;
   if(creature.awake){
-    if(creature.fleeing){ const h=Math.atan2(creature.home.y-creature.y,creature.home.x-creature.x); creature.x+=Math.cos(h)*2*dt; creature.y+=Math.sin(h)*2*dt; if(dist(creature,creature.home)<2){creature.fleeing=false;creature.awake=false;creature.hp=3;} }
+    if(creature.fleeing){ const h=Math.atan2(creature.lair.y-creature.y,creature.lair.x-creature.x); creature.x+=Math.cos(h)*2*dt; creature.y+=Math.sin(h)*2*dt; if(dist(creature,creature.lair)<2){creature.fleeing=false;creature.awake=false;creature.hp=3;creature.cooldown=120;} }
     else if(!nearest || nd>160){ creature.awake=false; creature.x=creature.home.x; creature.y=creature.home.y; }
+    else if(creature.cooldown){ /* передышка: не преследует */ }
     else if(nd>2.5){ const h=Math.atan2(nearest.y-creature.y,nearest.x-creature.x); const cs=nearest.mode===2?0.7:1.1; creature.x+=Math.cos(h)*cs*dt; creature.y+=Math.sin(h)*cs*dt; }
     else { nearest.dmgTimer+=dt; if(nearest.dmgTimer>2){ nearest.dmgTimer=0; nearest.skin-=15; nearest.bone-=7; nearest.pain=1; nearest.psyche-=6; evt(4,nearest.id); } }
     if(nearest && nearest.mode===5 && nd<4){ nearest.atkTimer+=dt; if(nearest.atkTimer>2){ nearest.atkTimer=0; creature.hp--; if(creature.hp<=0){ creature.fleeing=true; evt(9,nearest.id); } } }

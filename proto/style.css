@@ -96,3 +96,10 @@ td{padding:1px 4px;border-bottom:1px solid #1a1e25}
 #journal .row-e .u{color:var(--acc);margin-right:6px}
 #journal .row-e .n{color:#9fb59f;margin-right:6px}
 #journal .row-e .lm{color:var(--dim);font-size:10px}
+
+#task{color:var(--acc);padding:2px 0 4px;border-bottom:1px dotted var(--line)}
+#task:empty{display:none}
+#finale{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:15;display:flex;align-items:center;justify-content:center}
+.fin{max-width:640px;padding:30px;border:1px solid var(--acc);background:#0b0d10}
+.fin h2{font-size:13px;letter-spacing:.2em;color:var(--acc);margin:0 0 16px}
+.fin pre{white-space:pre-wrap;font:13px/1.6 ui-monospace,Menlo,monospace;color:#9fb59f;margin:0 0 16px}
