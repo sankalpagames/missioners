@@ -103,3 +103,5 @@ td{padding:1px 4px;border-bottom:1px solid #1a1e25}
 .fin{max-width:640px;padding:30px;border:1px solid var(--acc);background:#0b0d10}
 .fin h2{font-size:13px;letter-spacing:.2em;color:var(--acc);margin:0 0 16px}
 .fin pre{white-space:pre-wrap;font:13px/1.6 ui-monospace,Menlo,monospace;color:#9fb59f;margin:0 0 16px}
+#boot .cur{display:inline-block;width:8px;height:14px;background:#9fb59f;vertical-align:-2px;animation:bl 1s steps(1) infinite}
+@keyframes bl{50%{opacity:0}}

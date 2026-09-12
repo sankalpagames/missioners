@@ -283,15 +283,14 @@ function restoreConsole(d){
   known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
   journal.clear(); for(const [k,v] of d.journal) journal.set(k,v);
 }
-function loadSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const s=JSON.parse(raw); const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap;
-  world.postMessage({t:'load',data:s.world,elapsed:gap}); restoreConsole(s.console); tNow+=Math.min(gap,8*3600); return true; }catch(e){ console.warn('save load failed',e); return false; } }
+function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){ return null; } }
+function applySave(s){ const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap; link.reset();
+  world.postMessage({t:'load',data:s.world,elapsed:gap}); restoreConsole(s.console); tNow+=Math.min(gap,8*3600); resumed=true; }
 setInterval(()=>{ if(!$('#boot').classList.contains('off')) return; requestSave(); },10000);
-$('#btn-export').onclick=()=>{ world.postMessage({t:'save'}); setTimeout(()=>{ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'})); a.download='арк-041-сеанс.json'; a.click(); },300); };
-$('#btn-import').onclick=()=>$('#import-file').click();
-$('#import-file').onchange=e=>{ const f=e.target.files[0]; if(!f) return; f.text().then(txt=>{ JSON.parse(txt); localStorage.setItem(SAVE_KEY,txt); location.reload(); }).catch(()=>log('файл сеанса не распознан','err')); };
-$('#btn-wipe').onclick=()=>{ if(!confirm('Стереть сохранение и начать заново?')) return; localStorage.removeItem(SAVE_KEY); location.reload(); };
-const resumed=loadSave();
-function fmtGap(s){ if(s<90) return `${s.toFixed(0)} с`; if(s<5400) return `${(s/60).toFixed(0)} мин`; if(s<172800) return `${(s/3600).toFixed(1).replace('.',',')} ч`; return `${(s/86400).toFixed(1).replace('.',',')} сут`; }
+function exportSave(){ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'})); a.download='ark-041-session.json'; a.click(); return true; }
+function importSave(){ return new Promise(res=>{ const inp=$('#import-file'); inp.value=''; inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return res(null); f.text().then(txt=>{ const s=JSON.parse(txt); localStorage.setItem(SAVE_KEY,txt); res(s); }).catch(()=>res(null)); }; inp.click(); }); }
+let resumed=false;
+function fmtGap(s){ if(s<90) return `${s.toFixed(0)}s`; if(s<5400) return `${(s/60).toFixed(0)}m`; if(s<172800) return `${(s/3600).toFixed(1)}h`; return `${(s/86400).toFixed(1)}d`; }
 
 // ---------- заставка: ведётся настоящими пакетами ----------
 const boot={onInfo:null,onHb:null,onTlm:null};
@@ -302,8 +301,20 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   selectUnit(); drawSonar(null);
   el.textContent='$ '; await sl(700); await type('ares-tk --key ~/old/dse.key ping ARK-041'); await sl(300); el.textContent+='\n';
   await sl(400); line('resolve ARK-041 via DSE routing table… corp endpoint unreachable, using cached route');
-  if(resumed) line(`session restore: local store, last link ${fmtGap(prevSessionGap)} ago${prevSessionGap>8*3600?' (capped 8h)':''}`);
-  await sl(800); const t0=Date.now(); line('status request, 3 B'); link.sendUplink([11,0,0]);
+  // сеанс: меню в терминале, одна клавиша
+  const key=async(keys)=>{ const cur=document.createElement('span'); cur.className='cur'; el.appendChild(cur); const k=await new Promise(res=>{ const h=e=>{ const k=e.key.toLowerCase(); if(keys.includes(k)){ document.removeEventListener('keydown',h); res(k); } }; document.addEventListener('keydown',h); }); cur.remove(); el.textContent+=k+'\n'; return k; };
+  let s=readSave();
+  for(;;){
+    if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); el.textContent+='[r] resume  [n] new  [i] import file  [e] export file  ';
+      const k=await key(['r','n','i','e']);
+      if(k==='r'){ applySave(s); line(`session restored${gap>8*3600?' (world time capped at 8h)':''}`); break; }
+      if(k==='e'){ exportSave(); line('exported'); continue; }
+      if(k==='i'){ const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); continue; }
+      if(k==='n'){ el.textContent+='overwrite stored session? [y/n] '; const y=await key(['y','n']); if(y==='y'){ localStorage.removeItem(SAVE_KEY); line('new session'); break; } continue; }
+    } else { line('local session store: empty'); el.textContent+='[n] new  [i] import file  ';
+      const k=await key(['n','i']); if(k==='n'){ line('new session'); break; } const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); }
+  }
+  await sl(500); const t0=Date.now(); line('status request, 3 B'); link.sendUplink([11,0,0]);
   const info=await new Promise(res=>{ boot.onInfo=(text,pkt)=>{ boot.onInfo=null; res({text,pkt}); }; });
   line(`ACK ARK-041  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${(link.deepCapBps()).toFixed(0)}bps  rx=${totals.INFO||0}B`);
   for(const l of info.text.split('\n')){ await sl(120); line('  '+l); }
