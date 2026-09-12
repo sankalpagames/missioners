@@ -15,6 +15,7 @@ const KIND_COL={TLM:'#5cb85c',HB:'#2f6f3a',SONAR:'#4a8fe0',DESC:'#9fb59f',IMG:'#
 const UCOL=['#7fe07f','#4a8fe0','#e0a94a','#d97fd9','#5cd0d0','#d9534f'];
 const bw={};                    // kind → массив {t,bytes} за 5 с
 const lastRx={};                // kind → последний принятый пакет
+const stcam={ id:0, img:{msg:null,buf:new Uint8Array(64*64),levels:{},skipped:0,at:-1e9,asm:{},state:'',prog:0}, subs:{img:0,level:2,delta:true}, camera:true };
 const totals={};
 
 function U(id){ if(!units.has(id)) units.set(id,{id,alive:true,carrier:true,camera:false,sonar:false,streaming:false,charge:null,tlm:null,tlmAt:-1e9,hist:[],track:[],sonarAt:-1e9,desc:[],descAt:-1e9,autonomy:0,target:null,descPts:[],subs:{tlm:1,sonar:0,desc:0,img:0,level:2,delta:true},img:{msg:null,buf:new Uint8Array(64*64),levels:{},skipped:0,at:-1e9,asm:{},state:'',prog:0}}); return units.get(id); }
@@ -35,7 +36,7 @@ const asm={};
 function assemble(pkt){ if(pkt.total===1) return pkt.bytes; const a=asm[pkt.msgId]=asm[pkt.msgId]||{parts:{},total:pkt.total,at:tNow}; a.parts[pkt.seq]=pkt.bytes; a.at=tNow;
   if(Object.keys(a.parts).length<a.total) return null; const out=[]; for(let i=0;i<a.total;i++) out.push(...a.parts[i]); delete asm[pkt.msgId]; return new Uint8Array(out); }
 link.onDeliver=pkt=>{
-  const k=link.kindOf(pkt.kind); (bw[k]=bw[k]||[]).push({t:tNow,b:pkt.size}); totals[k]=(totals[k]||0)+pkt.size; lastRx[k]={t:tNow,b:pkt.size,msg:pkt.msgId};
+  const k=link.kindOf(pkt.kind); (bw[k]=bw[k]||[]).push({t:tNow,b:pkt.size}); totals[k]=(totals[k]||0)+pkt.size; lastRx[k]={t:tNow,b:pkt.size,msg:pkt.msgId}; if(k==='IMG'&&pkt.unit===0){ (bw.STIMG=bw.STIMG||[]).push({t:tNow,b:pkt.size}); lastRx.STIMG={t:tNow,b:pkt.size}; }
   if(pkt.kind==='DESC'||pkt.kind==='EXAM'||pkt.kind==='ACT'||pkt.kind==='INFO'){ const full=assemble(pkt); if(!full) return; pkt={...pkt,bytes:full}; }
   switch(pkt.kind){
     case 'TLM': decodeTlm(pkt); break;
@@ -50,7 +51,7 @@ link.onDeliver=pkt=>{
     case 'ACT': decodeAct(pkt); break;
   }
 };
-link.onDrop=pkt=>{ if(pkt.kind==='TLM'||pkt.kind==='HB') return; if(pkt.seq===undefined){ const u=U(pkt.unit); u.img.skipped++; u.img.state=`кадр пропущен (${u.img.skipped}): ${pkt.reason.split(': ')[1]}`; if(pkt.unit===active) showImg(u); return; } log(`М${pkt.unit} ${pkt.kind} #${pkt.msgId}/${pkt.seq}: ${pkt.reason}`,'err'); };
+link.onDrop=pkt=>{ if(pkt.kind==='TLM'||pkt.kind==='HB') return; if(pkt.seq===undefined){ const u=holderOf(pkt.unit); u.img.skipped++; u.img.state=`кадр пропущен (${u.img.skipped}): ${pkt.reason.split(': ')[1]}`; if(pkt.unit===active||pkt.unit===0) showImg(u); return; } log(`М${pkt.unit} ${pkt.kind} #${pkt.msgId}/${pkt.seq}: ${pkt.reason}`,'err'); };
 
 // ---------- декодеры ----------
 function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit); if(boot.onTlm) boot.onTlm(pkt);
@@ -82,16 +83,17 @@ function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М
   if(code===6){ U(pkt.unit); renderUnits(); }
   if(code===3) log('усиление тракта +6 дБ на всех линиях','sys');
   if(code===17){ $('#task').textContent='задача: ПС-7 закрыта'; const last=[...journal.values()].flat().filter(e=>/прочитал запись/.test(e.text)).pop(); $('#fin-text').textContent=(last?last.text.replace(/^прочитал запись\. /,'')+'\n\n':'')+`Станция остановила протокол ПС-7. Биоматериала осталось: ${station.bio ?? '—'} ед. Миссионеров в поле: ${[...units.values()].filter(u=>u.alive).length}.\n\nЭто условная развязка прототипа. Сеанс можно продолжать.`; $('#finale').hidden=false; } }
-function showImg(u){ drawGray($('#img'),u.img.buf,64); $('#img-unit').textContent='М'+u.id; $('#img-state').textContent=u.img.state; $('#img-prog').style.width=(u.img.prog*100)+'%'; }
-function decodeImg(pkt){ const u=U(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[8,16,32,64][lvl], block=64/side;
+function showImg(u){ if(u.id===0){ drawGray($('#st-img'),u.img.buf,64); $('#st-img-state').textContent=u.img.state; $('#st-img-prog').style.width=(u.img.prog*100)+'%'; return; } drawGray($('#img'),u.img.buf,64); $('#img-unit').textContent='М'+u.id; $('#img-state').textContent=u.img.state; $('#img-prog').style.width=(u.img.prog*100)+'%'; }
+function holderOf(unit){ return unit===0?stcam:U(unit); }
+function decodeImg(pkt){ const u=holderOf(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[8,16,32,64][lvl], block=64/side;
   if(lvl===0&&im.msg!==pkt.msgId){ im.buf.fill(0); im.levels={}; }   // новая пирамида — чистим, чтобы прогресс был виден
   im.msg=pkt.msgId; const off=pkt.seq*64;
   for(let k=0;k<pkt.bytes.length;k++){ const i=off+k, px=i%side, py=Math.floor(i/side), v=pkt.bytes[k]; for(let y=0;y<block;y++)for(let x=0;x<block;x++) im.buf[(py*block+y)*64+px*block+x]=v; }
   im.levels[lvl]=(im.levels[lvl]||0)+1; im.at=tNow; const tot=[1,4,16,64]; const maxLvl=u.subs.level;
   const done=[0,1,2,3].reduce((a,l)=>a+(im.levels[l]||0),0), all=[0,1,2,3].slice(0,maxLvl+1).reduce((a,l)=>a+tot[l],0); im.prog=Math.min(1,done/all);
   im.state=`уровень ${lvl} (${side}×${side}): ${im.levels[lvl]}/${tot[lvl]} пакетов`+(im.levels[lvl]===tot[lvl]?' · уровень полный':'');
-  if(pkt.unit===active) showImg(u); }
-function decodeImd(pkt){ const u=U(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[8,16,32,64][lvl], bsz=side/8, n=bsz*bsz, up=64/side;
+  if(pkt.unit===active||pkt.unit===0) showImg(u); }
+function decodeImd(pkt){ const u=holderOf(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[8,16,32,64][lvl], bsz=side/8, n=bsz*bsz, up=64/side;
   im.asm[pkt.msgId]=im.asm[pkt.msgId]||{parts:{},total:pkt.total,at:tNow,len:pkt.total*64}; const a=im.asm[pkt.msgId]; a.parts[pkt.seq]=pkt.bytes; a.at=tNow; if(pkt.seq===pkt.total-1) a.len=pkt.seq*64+pkt.bytes.length;
   const buf=new Uint8Array(a.len), have=new Array(a.total).fill(false); for(const s in a.parts){ buf.set(a.parts[s].slice(0,Math.max(0,a.len-s*64)),s*64); have[s]=true; }
   const frameNo=buf[0], key=buf[1]; if(key&&pkt.seq===0&&Object.keys(a.parts).length===1) im.buf.fill(0);
@@ -101,7 +103,7 @@ function decodeImd(pkt){ const u=U(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[
   im.at=tNow; im.prog=Object.keys(a.parts).length/a.total; if(have.every(Boolean)) delete im.asm[pkt.msgId];
   im.state=`дельта-кадр ${frameNo}${key?' (ключевой)':''} ${side}×${side} · блоков ${applied}${skipped?' · неполных '+skipped:''}`;
   for(const id in im.asm) if(tNow-im.asm[id].at>90) delete im.asm[id];   // сборка живёт, пока приходят пакеты
-  if(pkt.unit===active) showImg(u); }
+  if(pkt.unit===active||pkt.unit===0) showImg(u); }
 
 // ---------- отрисовка ----------
 function drawGray(cv,buf,side){ const ctx=cv.getContext('2d'), im=ctx.createImageData(side,side); for(let i=0;i<side*side;i++){ im.data[i*4]=im.data[i*4+1]=im.data[i*4+2]=buf[i]; im.data[i*4+3]=255; } ctx.putImageData(im,0,0); }
@@ -211,6 +213,9 @@ $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log
 $$('button[data-mode]').forEach(b=>b.onclick=()=>{ send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': камера не установлена','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
+$('#st-btn-img').onclick=()=>{ const lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; send([3,lvl,0,d],`камера шлюза: кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
+function sendStSub(){ const iv=+$('#st-sub-img').value, lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; Object.assign(stcam.subs,{img:iv,level:lvl,delta:!!d}); send([16,iv,0,lvl,d],`камера шлюза: автосъёмка ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
+$('#st-sub-img').onchange=sendStSub; $('#st-img-level').onchange=()=>{ if(+$('#st-sub-img').value) sendStSub(); }; $('#st-img-delta').onchange=()=>{ if(+$('#st-sub-img').value) sendStSub(); };
 function sendImgSub(){ const u=units.get(active); const iv=+$('#sub-img').value, lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; Object.assign(u.subs,{img:iv,level:lvl,delta:!!d}); if(iv&&!u.camera) return log('М'+active+': камера не установлена','err'); send([16,iv,active,lvl,d],`М${active} автосъёмка: ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
 $('#sub-img').onchange=sendImgSub; $('#img-level').onchange=()=>{ units.get(active).subs.level=+$('#img-level').value; if(+$('#sub-img').value) sendImgSub(); }; $('#img-delta').onchange=()=>{ units.get(active).subs.delta=$('#img-delta').checked; if(+$('#sub-img').value) sendImgSub(); };
 $('#tx-pow').onchange=e=>{ const v=+e.target.value; units.get(active).subs.tx=v; send([9,v+20,active],`М${active} передатчик ${v>0?'+':''}${v} дБм`); };
@@ -219,7 +224,7 @@ $('#sub-sonar').onchange=e=>{ units.get(active).subs.sonar=+e.target.value; send
 $('#sub-desc').onchange=e=>{ units.get(active).subs.desc=+e.target.value; send([14,+e.target.value,active],`М${active} описание: ${e.target.selectedOptions[0].text}`); };
 $('#sub-hb').onchange=e=>send([15,+e.target.value,0],`пульс станции: ${e.target.selectedOptions[0].text}`);
 $('#autonomy').onchange=e=>{ const u=units.get(active); u.autonomy=+e.target.value; world.postMessage({t:'autonomy',unit:active,v:u.autonomy}); log(`М${active} при потере связи: ${e.target.selectedOptions[0].text}`,'cmd'); };
-$('#btn-grow').onclick=()=>{ const mask=($('#g-cam').checked?1:0)|($('#g-sonar').checked?2:0); send([10,mask,0],`станция: вырастить миссионера (${$('#g-cam').checked?'камера, ':''}${$('#g-sonar').checked?'сонар':''})`); };
+$('#btn-grow').onclick=()=>{ const mask=($('#g-cam').checked?1:0)|($('#g-sonar').checked?2:0); if(send([10,mask,0],`станция: вырастить миссионера (${$('#g-cam').checked?'камера, ':''}${$('#g-sonar').checked?'сонар':''})`)){ $('#btn-grow').disabled=true; $('#grow-state').textContent='команда отправлена, ожидание подтверждения станции…'; } };
 $('#btn-st').onclick=()=>send([11,0,0],'станция: статус');
 $('#speed').onchange=e=>{ speed=+e.target.value; world.postMessage({t:'speed',v:speed}); };
 $$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab)); if(b.dataset.tab==='journal') renderJournal(); });
@@ -249,7 +254,7 @@ setInterval(()=>{
   $('#sonar-age').textContent=u&&u.sonarAt>-1e8?`снимок ${(tNow-u.sonarAt).toFixed(0)} с назад`:'нет данных';
   // расход по панелям
   const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} Б · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };
-  setBw('#bw-tlm','TLM'); setBw('#bw-sonar','SONAR'); setBw('#bw-desc','DESC'); setBw('#bw-img','IMG'); setBw('#bw-hb','HB');
+  setBw('#bw-tlm','TLM'); setBw('#bw-sonar','SONAR'); setBw('#bw-desc','DESC'); setBw('#bw-img','IMG'); setBw('#bw-hb','HB'); setBw('#bw-stimg','STIMG');
   { const lvl=+$('#img-level').value, iv=+$('#sub-img').value, full=[72,72+264,72+264+1040,72+264+1040+4160][lvl]; const keyD=[2+64*2+8, 2+64*5+8*6, 2+64*17+8*18, 2+64*65+8*66][lvl]; const cap=link.deepCapBps()/8; const est=$('#img-est'); if(iv){ const per=$('#img-delta').checked?`ключевой ${keyD} Б, дальше по движению`:`${full} Б`; const rate=($('#img-delta').checked?keyD:full)/iv; est.textContent=`подписка: ${per} · до ${rate.toFixed(0)} Б/с из ${cap.toFixed(0)}`; est.style.color=rate>cap*0.8?'#d9534f':''; } else est.textContent=`один кадр: ${full} Б ≈ ${cap?(full/cap).toFixed(1):'∞'} с`; }
   // связь
   const up=link.up(); const st=$('#link-state'); st.textContent=up?'СВЯЗЬ':'НЕТ СВЯЗИ'; st.className='badge '+(up?'up':'down');
@@ -257,7 +262,10 @@ setInterval(()=>{
   const last=link.stats.hist[link.stats.hist.length-1]; const used=last?['TLM','HB','SONAR','DESC','IMG','EVT'].reduce((a,k)=>a+last[k],0):0; $('#rate').textContent=`${used.toFixed(0)} / ${(link.deepCapBps()/8).toFixed(0)} Б/с`+(link.cfg.orbit?` · окно ${fmtT(link.orbit().tLeft)}`:'');
   if(up!==lastUp){ log(up?'дальняя линия: связь установлена':'дальняя линия: связь потеряна','sys'); lastUp=up; }
   // станция
-  $('#st-bio').textContent=station.bio??'—'; $('#st-cam').textContent=station.cam??'—'; $('#st-grow').textContent=station.grow===null?'нет':station.grow+' с';
+  $('#st-bio').textContent=station.bio??'—'; $('#st-cam').textContent=station.cam??'—'; $('#st-grow').textContent=station.grow==null?'нет':station.grow+' с';
+  { const growing=station.grow!=null; $('#btn-grow').disabled=growing||station.bio===0; $('#g-cam').disabled=!station.cam; $('#g-cam-l').classList.toggle('dim',!station.cam); if(!station.cam) $('#g-cam').checked=false;
+    $('#grow-state').textContent=growing?`идёт выращивание: готовность через ${station.grow} с`:station.bio===0?'биоматериала нет':`готово к запуску · биоматериал ${station.bio??'—'} ед.${station.cam?'':' · камер на складе нет'}`;
+    $('#grow-prog').style.width=growing?((30-station.grow)/30*100)+'%':'0%'; }
   const tb=$('#roster tbody'); tb.innerHTML=''; for(const v of [...units.values()].sort((a,b)=>a.id-b.id)) tb.insertAdjacentHTML('beforeend',`<tr><td>М${v.id}</td><td>${v.alive?'жив':'мёртв'}</td><td>${v.carrier?'есть':'<span style="color:#d9534f">нет</span>'}</td><td>${[v.camera?'камера':'',v.sonar?'сонар':''].filter(Boolean).join(', ')||'—'}</td><td>${v.charge==null?'—':v.charge.toFixed(0)+'%'}</td><td>${(v.items||[]).map(i=>ITEMS[i]).join(', ')||'—'}</td><td>${v.streaming?'да':''}</td></tr>`);
   // вкладки
   const tab=$('.tabs button.on').dataset.tab;
@@ -276,12 +284,12 @@ const SAVE_KEY='missioners.save';
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null}));
-  return { tNow, active, station, totals, units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
+  return { tNow, active, station, totals, stcam:{subs:stcam.subs}, units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
 }
 function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
 function requestSave(){ world.postMessage({t:'save'}); }
 function restoreConsole(d){
-  tNow=d.tNow; active=d.active||1; Object.assign(station,d.station); Object.assign(totals,d.totals||{}); units.clear();
+  tNow=d.tNow; active=d.active||1; Object.assign(station,d.station); if(d.stcam) Object.assign(stcam.subs,d.stcam.subs); Object.assign(totals,d.totals||{}); units.clear();
   for(const su of d.units){ const u=U(su.id); Object.assign(u,su,{img:u.img, sonarData:su.sonarData?new Uint8Array(su.sonarData):null}); }
   known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
   journal.clear(); for(const [k,v] of d.journal) journal.set(k,v);

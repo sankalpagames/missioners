@@ -110,3 +110,6 @@ td{padding:1px 4px;border-bottom:1px solid #1a1e25}
 .lamp.busy{background:#e0a94a;box-shadow:0 0 6px #e0a94a}
 .lamp.full{background:#d9534f;box-shadow:0 0 8px #d9534f}
 .bw.hot{color:var(--acc)}
+
+.cmdb::before{content:'●';display:inline-block;font-size:8px;margin-right:6px;vertical-align:1px;color:var(--acc)}
+button.cmdb:disabled::before{color:var(--dim)}

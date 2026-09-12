@@ -53,7 +53,7 @@
     <div class="block" id="blk-sonar">
       <div class="bh"><span class="bt" data-tip="Сонар, базовый датчик. 64 луча по кругу, по байту дальности на луч (шаг 0,4 м, до 100 м) = 72 Б с заголовком. Центр — тело; кольца — 25, 50, 75, 100 м; ориентация как на карте (0° — вправо). Точка на луче — первое препятствие в этом направлении: стены, корпус станции, скалы, крупные предметы, тела. Луч без точки — до 100 м пусто. Что именно найдено, сонар не различает; для этого — описание.">СОНАР</span>
         <select class="sub" id="sub-sonar" data-tip="Автообновление сонара. Снимок — 72 Б."><option value="0">по запросу</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
-        <button class="mini" id="btn-sonar" data-tip="Снимок сонара, 72 Б.">снять</button>
+        <button class="mini cmdb" id="btn-sonar" data-tip="Снимок сонара, 72 Б.">снять</button>
         <span class="bw" id="bw-sonar"></span></div>
       <div class="bb" id="sonar-body"><canvas id="sonar" width="200" height="200"></canvas><div id="sonar-age" class="dim small">нет данных</div></div><div class="bb dim small" id="sonar-none" hidden>сонар не установлен</div>
     </div>
@@ -87,12 +87,24 @@
         <div data-tip="Выращивание: секунд до готовности."><label>выращивание</label><b id="st-grow">—</b></div>
       </div>
       <table id="roster"><thead><tr><th>№</th><th>состояние</th><th>сигнал</th><th>датчики</th><th>заряд</th><th>предметы</th><th>автосъёмка</th></tr></thead><tbody></tbody></table>
-      <div class="row" style="margin-top:8px">
-        <label class="small"><input type="checkbox" id="g-cam"> камера</label>
+      <h3>подготовка миссионера</h3>
+      <div class="row">
+        <label class="small" id="g-cam-l"><input type="checkbox" id="g-cam"> камера</label>
         <label class="small"><input type="checkbox" id="g-sonar" checked> сонар</label>
-        <button id="btn-grow" data-tip="Вырастить миссионера с выбранными датчиками. 30 с, одна единица биоматериала.">Подготовить миссионера</button>
-        <button id="btn-st" class="ghost" data-tip="Запросить статус станции вне очереди пульса.">запросить статус</button>
+        <button class="cmdb" id="btn-grow" data-tip="Вырастить миссионера с выбранными датчиками. 30 с, одна единица биоматериала. Пока идёт выращивание, следующее не начать.">Подготовить</button>
+        <button class="cmdb ghost" id="btn-st" data-tip="Запросить статус станции вне очереди пульса.">статус</button>
       </div>
+      <div id="grow-state" class="small dim"></div>
+      <div class="pbar" style="width:100%"><i id="grow-prog"></i></div>
+      <h3>камера шлюза <span class="dim">— стационарная, смотрит от люка наружу</span></h3>
+      <div class="row small">
+        <select class="sub" id="st-sub-img" data-tip="Автосъёмка камеры шлюза."><option value="0">по запросу</option><option value="30">каждые 30 с</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
+        <select class="sub" id="st-img-level"><option value="0">8×8</option><option value="1">16×16</option><option value="2" selected>32×32</option><option value="3">64×64</option></select>
+        <label><input type="checkbox" id="st-img-delta" checked> дельта</label>
+        <button class="mini cmdb" id="st-btn-img">снять</button>
+        <span class="bw" id="bw-stimg"></span>
+      </div>
+      <div class="row" style="align-items:flex-start"><canvas id="st-img" width="64" height="64" style="width:192px;height:192px;image-rendering:pixelated;background:#000;border:1px solid var(--line)"></canvas><div><div id="st-img-state" class="dim small"></div><div class="pbar" style="width:120px"><i id="st-img-prog"></i></div></div></div>
       <div class="row"><label class="small" data-tip="Пульс станции — фоновый пакет: запасы, список миссионеров с флагами.">пульс станции <select id="sub-hb"><option value="2">каждые 2 с</option><option value="10">каждые 10 с</option><option value="0">выкл</option></select></label><span class="bw" id="bw-hb"></span></div>
     </div>
     <div class="tab" id="tab-channel">
@@ -104,15 +116,15 @@
     </div>
       <div class="cmds">
         <div class="row">
-          <button id="btn-stop" data-tip="Стоп. Тело остаётся на месте, направление взгляда сохраняется.">Стоп</button>
-          <button id="btn-move" data-tip="Идти к выбранному объекту или точке. Координаты в команде, 7 Б. Взгляд — по направлению движения.">Перемещение</button>
-          <button id="btn-look" data-tip="Повернуть голову к выбранному, не двигаясь. 7 Б.">Смотреть</button>
-                    <button data-cmd="19" data-tip="Изучить: подойти к объекту, осмотреть вблизи, передать текст состояния. Описание издалека даёт только имя.">Изучить</button>
-          <button data-cmd="8" data-tip="Взаимодействовать: подойти и выполнить действие, доступное для текущего состояния объекта — вскрыть, забрать, прочитать, срастить, включить. Может требовать предмет или состояние другого объекта.">Взаимодействовать</button>
+          <button class="cmdb" id="btn-stop" data-tip="Стоп. Тело остаётся на месте, направление взгляда сохраняется.">Стоп</button>
+          <button class="cmdb" id="btn-move" data-tip="Идти к выбранному объекту или точке. Координаты в команде, 7 Б. Взгляд — по направлению движения.">Перемещение</button>
+          <button class="cmdb" id="btn-look" data-tip="Повернуть голову к выбранному, не двигаясь. 7 Б.">Смотреть</button>
+                    <button class="cmdb" data-cmd="19" data-tip="Изучить: подойти к объекту, осмотреть вблизи, передать текст состояния. Описание издалека даёт только имя.">Изучить</button>
+          <button class="cmdb" data-cmd="8" data-tip="Взаимодействовать: подойти и выполнить действие, доступное для текущего состояния объекта — вскрыть, забрать, прочитать, срастить, включить. Может требовать предмет или состояние другого объекта.">Взаимодействовать</button>
           <span id="target-label" class="dim small"></span>
         </div>
         <div class="row modes" data-tip="Режимы тела. Исследование — фонарь, обычная скорость. Скрытность — без фонаря, медленно, обнаружение с 22 м вместо 70. Отступление — бегом к шлюзу. Отдых — стоя, восстановление психики и заряда. Бой — удар при контакте.">
-          <label>режим</label><button data-mode="1">исследование</button><button data-mode="2">скрытность</button><button data-mode="3">отступление</button><button data-mode="4">отдых</button><button data-mode="5">бой</button>
+          <label>режим</label><button class="cmdb" data-mode="1">исследование</button><button class="cmdb" data-mode="2">скрытность</button><button class="cmdb" data-mode="3">отступление</button><button class="cmdb" data-mode="4">отдых</button><button class="cmdb" data-mode="5">бой</button>
         </div>
         <div class="row"><label class="small" data-tip="Инструкция на случай потери сигнала со станцией более 20 с. Задаётся до выхода.">при потере сигнала &gt;20 с <select id="autonomy"><option value="0">продолжать</option><option value="1">остановиться и ждать</option><option value="2">вернуться к шлюзу</option></select></label></div>
       </div>
@@ -128,7 +140,7 @@
           <select class="sub" id="sub-img" data-tip="Автосъёмка — повтор команды «снять» с текущими настройками через заданный интервал."><option value="0">по запросу</option><option value="30">каждые 30 с</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
           <select class="sub" id="img-level" data-tip="Разрешение. Полный кадр с нижними уровнями: 8×8 — 64 Б, 16×16 — 320 Б, 32×32 — 1,3 КБ, 64×64 — 5,4 КБ."><option value="0">8×8</option><option value="1">16×16</option><option value="2" selected>32×32</option><option value="3">64×64</option></select>
           <label data-tip="Дельта: передаются только блоки (из 64), изменившиеся с предыдущего кадра того же разрешения. Первый кадр — полный. Движение в кадре увеличивает расход."><input type="checkbox" id="img-delta" checked> дельта</label>
-          <button class="mini" id="btn-img" data-tip="Один кадр выбранного разрешения. Направление камеры — по последней команде: перемещение, изучить, взаимодействовать, смотреть; иначе по ходу.">снять</button>
+          <button class="mini cmdb" id="btn-img" data-tip="Один кадр выбранного разрешения. Направление камеры — по последней команде: перемещение, изучить, взаимодействовать, смотреть; иначе по ходу.">снять</button>
         </div>
         <div id="img-look" class="dim small"></div><canvas id="img" width="64" height="64"></canvas><div class="pbar"><i id="img-prog"></i></div><div id="img-state" class="dim small"></div><div id="img-est" class="dim small"></div>
       </div>
@@ -136,7 +148,7 @@
     <div class="block grow" id="blk-desc">
       <div class="bh"><span class="bt" data-tip="Объекты последнего описания: имя, пеленг, дальность. Ниже — последняя запись журнала по объекту. Клик — выбрать.">ОПИСАНИЕ <span id="desc-unit" class="dim"></span></span>
         <select class="sub" id="sub-desc" data-tip="Автоописание. ~5 Б + имя на объект. Отмечает покрытие на карте."><option value="0">по запросу</option><option value="15">каждые 15 с</option><option value="5">каждые 5 с</option></select>
-        <button class="mini" id="btn-desc" data-tip="Описание окружения: станция составляет список объектов вокруг и передаёт текстом — пеленг, дальность, имя; байт на символ. Неопознанное — «класс не определён». Требует живого тела.">снять</button>
+        <button class="mini cmdb" id="btn-desc" data-tip="Описание окружения: станция составляет список объектов вокруг и передаёт текстом — пеленг, дальность, имя; байт на символ. Неопознанное — «класс не определён». Требует живого тела.">снять</button>
         <span class="bw" id="bw-desc"></span></div>
       <div class="bb" id="desc"></div>
     </div>

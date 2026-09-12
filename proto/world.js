@@ -39,6 +39,8 @@ function spawn(sensors){
   units.push(u); return u;
 }
 spawn({camera:true, sonar:true});          // первый миссионер уже готов и несёт единственную камеру
+// стационарная камера у шлюза: смотрит от люка наружу (+x), сигнала не требует — она на станции
+const stationCam = { id:0, x:12, y:0, heading:0, goal:{x:60,y:8}, lightOn:true, charge:100, alive:true, lastImg:{}, pendingImg:null, frameNo:0, sensors:{camera:true}, sub:{img:{interval:0,level:2,delta:true}}, subT:{img:0}, items:[] };
 const creature = { x:330, y:210, home:{x:330,y:210}, lair:{x:346,y:222}, awake:false, hp:3, fleeing:false, cooldown:0 };   // после отпора уходит в логово и не трогает 2 минуты
 let antennaBoost = 0, hbTimer = 0, hbInterval = 2;
 
@@ -180,7 +182,7 @@ onmessage = e => {
   const m=e.data;
   if(m.t==='speed'){ speed=m.v; schedule(); return; }
   if(m.t==='link'){ for(const u of units) if(u.id in m.carriers) u.carrier=!!m.carriers[u.id]; return; }   // миссионер сам слышит, есть ли сигнал станции — физика, не данные
-  if(m.t==='imgAck'){ const u=units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
+  if(m.t==='imgAck'){ const u=m.unit===0?stationCam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='autonomy'){ const u=units.find(u=>u.id===m.unit); if(u) u.autonomy=m.v; return; }
   if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; } return; }
   if(m.t==='peek'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u) postMessage({t:'peekImg',unit:u.id,img:render(u,64)}); return; }   // отладка: чистый рендер мимо канала
@@ -198,7 +200,7 @@ onmessage = e => {
     const info=`ARK-041, автономная посадочная платформа\nсостояние: штатное\nвозраст миссии: 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nбиоматериал: ${station.bioStock} ед.; камер на складе: ${station.camInv}; развёрнуто: ${units.length}\nзадача: ${station.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся с выхода. Серия 0 исчерпана (7 ед.)':'ПС-7 закрыта'}`;
     emit('cmd','INFO',0,encText(info)); heartbeat(); return; }
   if(cmd===15){ hbInterval=arg; return; }
-  const u=units.find(u=>u.id===unit); if(!u) return;
+  const u=unit===0&&(cmd===3||cmd===16) ? stationCam : units.find(u=>u.id===unit); if(!u) return;
   switch(cmd){
     case 1: if(u.alive) describe(u); break;
     case 2: if(u.sensors.sonar && u.charge>0) sonar(u); break;
@@ -220,12 +222,13 @@ onmessage = e => {
 // ---------- сохранение мира ----------
 function snapshot(){
   const su=units.map(u=>{ const o={...u}; delete o.lastImg; delete o.pendingImg; return o; });
-  return { t, nextUnit, msgId, station, objState, creature, antennaBoost, hbInterval, units:su };
+  return { t, nextUnit, msgId, station, objState, creature, antennaBoost, hbInterval, units:su, stcam:{sub:stationCam.sub} };
 }
 function restore(d){
   t=d.t; nextUnit=d.nextUnit; msgId=d.msgId; Object.assign(station,d.station); for(const k in objState) delete objState[k]; Object.assign(objState,d.objState);
   Object.assign(creature,d.creature); antennaBoost=d.antennaBoost; hbInterval=d.hbInterval;
   units.length=0; for(const su of d.units){ units.push({...su, lastImg:{}, pendingImg:null}); }
+  if(d.stcam) stationCam.sub=d.stcam.sub;
 }
 // Мир жил без оператора: досчитываем прошедшее время (не больше 8 часов), ничего не передавая
 let muted=false;
@@ -270,6 +273,7 @@ function tick(){
     if(u.sub.sonar && u.sensors.sonar && u.charge>0){ u.subT.sonar+=dt; if(u.subT.sonar>=u.sub.sonar){ u.subT.sonar=0; sonar(u,'bg'); } }
     if(u.sub.img.interval && u.sensors.camera && u.charge>0){ u.subT.img+=dt; if(u.subT.img>=u.sub.img.interval){ u.subT.img=0; if(u.sub.img.delta) imageDelta(u,u.sub.img.level); else imagePyramid(u,u.sub.img.level,'bg'); } }
   }
+  { const u=stationCam; if(u.sub.img.interval){ u.subT.img+=dt; if(u.subT.img>=u.sub.img.interval){ u.subT.img=0; if(u.sub.img.delta) imageDelta(u,u.sub.img.level); else imagePyramid(u,u.sub.img.level,'bg'); } } }
   if(hbInterval){ hbTimer+=dt; if(hbTimer>=hbInterval){ hbTimer=0; heartbeat(); } }
   if(muted) return;
   postMessage({ t:'phys', extraGain:antennaBoost,
