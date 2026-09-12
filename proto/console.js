@@ -65,11 +65,11 @@ link.onDrop=pkt=>{ if(pkt.kind==='TLM'||pkt.kind==='HB') return; if(pkt.seq===un
 function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit); if(boot.onTlm) boot.onTlm(pkt);
   u.tlm={pulse:b[0],electro:b[1],glucose:b[2],toxin:b[3],skin:b[4],bone:b[5],psyche:b[6],danger:b[7],cons:b[8]/50,charge:b[9]/2.55,gen:b[10]/50,x:(((b[11]<<8)|b[12])-32768)/10,y:(((b[13]<<8)|b[14])-32768)/10,mode:b[15]};
   u.tlmAt=tNow; u.hist.push({t:tNow,...u.tlm}); if(u.hist.length>3000) u.hist.shift();
-  const last=u.track[u.track.length-1]; if(!last||Math.hypot(last.x-u.tlm.x,last.y-u.tlm.y)>2) u.track.push({x:u.tlm.x,y:u.tlm.y,t:tNow});
+  const last=u.track[u.track.length-1]; if(!last||Math.hypot(last.x-u.tlm.x,last.y-u.tlm.y)>2){ u.track.push({x:u.tlm.x,y:u.tlm.y,t:tNow}); if(u.track.length>600) u.track.shift(); }
 }
 function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.brik=b[3]; station.cut=b[4]; station.at=tNow; const n=b[5];
-  for(let i=0;i<n;i++){ const id=b[6+i*4], f=b[7+i*4], ch=b[8+i*4]/2.55, it=b[9+i*4]; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[])];
-    u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.atAirlock=!!(f&32); u.charge=ch; u.hbAt=tNow;
+  for(let i=0;i<n;i++){ const id=b[6+i*5], f=b[7+i*5], ch=b[8+i*5]/2.55, it=b[9+i*5], snr=b[10+i*5]-30; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[])];
+    u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.atAirlock=!!(f&32); u.charge=ch; u.snr=snr; u.hbAt=tNow;
     if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err');
     if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} не принимается`,'err');
     if(!wasCarrier&&u.carrier) log(`станция: несущая М${id} восстановлена`,'sys'); }
@@ -140,7 +140,7 @@ function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(a
   const bpm=u.tlm.pulse; ecgPhase+=dt*bpm/60; const ph=ecgPhase%1; let v=0; if(ph<0.08) v=Math.sin(ph/0.08*Math.PI)*0.15; else if(ph<0.12) v=-0.2; else if(ph<0.16) v=1; else if(ph<0.2) v=-0.3; else if(ph>0.35&&ph<0.5) v=Math.sin((ph-0.35)/0.15*Math.PI)*0.25;
   const y=28-v*20, x=ecgX; ecgX=(ecgX+dt*60)%W; ctx.fillStyle='rgba(0,0,0,0.06)'; ctx.fillRect(0,0,W,44); ctx.fillStyle='#000'; ctx.fillRect(x,0,8,44); ctx.fillStyle=bpm>150?'#ff5c5c':'#7fe07f'; ctx.fillRect(x,y,2,2); }
 
-function renderUnits(){ const el=$('#units'); el.innerHTML=''; [...units.values()].sort((a,b)=>a.id-b.id).forEach(u=>{ const b=document.createElement('button'); b.className=(u.id===active?'on ':'')+(u.alive?'':'dead'); b.textContent=`${u.alive?(u.carrier?'●':'◌'):'○'} М${u.id}`; b.onclick=()=>{ active=u.id; selectUnit(); }; el.appendChild(b); }); }
+function renderUnits(){ const el=$('#units'); el.innerHTML=''; [...units.values()].sort((a,b)=>a.id-b.id).forEach(u=>{ const b=document.createElement('button'); b.className=(u.id===active?'on ':'')+(u.alive?'':'dead'); b.textContent=`${u.alive?(u.carrier?'●':'◌'):'○'} М${u.id}`; b.onclick=()=>{ active=u.id; selectUnit(); }; b.ondblclick=()=>{ map.focus=pos(u.id); if(map.zoom<3) map.zoom=3; $$('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.tab==='map')); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-map')); drawMap(); }; el.appendChild(b); }); }
 function selectUnit(){ const u=units.get(active); renderUnits(); renderDesc(); drawSonar(u.sonarData,u.sonarMask); showImg(u); updateTarget();
   $('#autonomy').value=u.autonomy; $('#sub-tlm').value=u.subs.tlm; $('#tx-pow').value=u.subs.tx||0; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta;
   $('#sonar-body').hidden=!u.sonar; $('#sonar-none').hidden=u.sonar; $('#img-body').hidden=!u.camera; $('#img-none').hidden=u.camera; $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }
@@ -149,11 +149,9 @@ function renderDesc(){ const u=units.get(active), el=$('#desc'); el.innerHTML=''
   for(const it of u.desc){ const name=it.name; const d=document.createElement('div'); d.className='it'+(tg&&tg.id===it.id?' sel':''); const j=jlast(it.id);
     const js=journal.get(it.id)||[]; const open=expanded.has(it.id);
     d.innerHTML=`<span class="${it.cls===2?'u':'n'}">${name}</span> <span class="dim">${it.bearing}° · ${it.range} м</span>`+(j?`<br><span class="j">М${j.unit}: ${j.text}</span>`:'')+(js.length>1?` <span class="jt">${open?'▾':'▸'} ${js.length} записей</span>`:'')+(open?js.slice(0,-1).map(e=>`<div class="jl">${fmtT(e.t)} М${e.unit}: ${e.text}</div>`).join(''):'');
-    const cont=contents.get(it.id); const sel=tg&&tg.id===it.id;
-    if(cont){ const mine=u.items||[]; const carry=[...(u.camera?[42]:[]),...mine];
-      d.innerHTML+=`<div class="cont">${cont.length?cont.map((i,k)=>`<button class="mini" data-take="${it.id},${i}">взять ${ITEMS[i]} ●</button>`).join(' '):'<span class="dim">пусто</span>'}`+(sel&&carry.length?` <span class="dim">|</span> ${[...new Set(carry)].map(i=>`<button class="mini" data-put="${it.id},${i}">положить ${ITEMS[i]} ●</button>`).join(' ')}`:'')+'</div>'; }
-    d.onclick=e=>{ const tk=e.target.closest('[data-take]'), pt=e.target.closest('[data-put]'); if(tk){ const [oid,item]=tk.dataset.take.split(',').map(Number); send([23,item,active,oid],`М${active} взять ${ITEMS[item]} из «${name}»`); setGoal(name); return; } if(pt){ const [oid,item]=pt.dataset.put.split(',').map(Number); send([22,item,active,oid],`М${active} положить ${ITEMS[item]} в «${name}»`); setGoal(name); return; }
-      if(e.target.classList.contains('jt')){ expanded.has(it.id)?expanded.delete(it.id):expanded.add(it.id); renderDesc(); return; } setTarget({id:it.id,cls:it.cls,x:it.x,y:it.y,name}); }; el.appendChild(d); } }
+    const cont=contents.get(it.id);
+    if(cont) d.innerHTML+=`<div class="cont dim">${cont.length?'здесь: '+cont.map(i=>ITEMS[i]).join(', '):'пусто'}</div>`;
+    d.onclick=e=>{ if(e.target.classList.contains('jt')){ expanded.has(it.id)?expanded.delete(it.id):expanded.add(it.id); renderDesc(); return; } setTarget({id:it.id,cls:it.cls,x:it.x,y:it.y,name}); }; el.appendChild(d); } }
 const expanded=new Set();
 function nearestLandmark(x,y){ let best=null, bd=1e9; for(const o of known.values()){ if(o.cls!==1) continue; const d=Math.hypot(o.x-x,o.y-y); if(d<bd){ bd=d; best=o; } } return best?best.name:'станция'; }
 function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const fu=$('#jf-unit').value, flm=$('#jf-lm').value;
@@ -177,7 +175,9 @@ function fitCanvas(cv, crt){
 function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   const pts=[{x:0,y:0}]; for(const o of known.values()) pts.push(o); for(const u of units.values()){ pts.push(...u.track); }
   let minx=Math.min(...pts.map(p=>p.x))-30, maxx=Math.max(...pts.map(p=>p.x))+30, miny=Math.min(...pts.map(p=>p.y))-30, maxy=Math.max(...pts.map(p=>p.y))+30;
-  const sc=Math.min(W/(maxx-minx),H/(maxy-miny))*map.zoom; const cx=(minx+maxx)/2-map.panX/sc, cy=(miny+maxy)/2-map.panY/sc; const sx=x=>W/2+(x-cx)*sc, sy=y=>H/2+(y-cy)*sc; map.tf={sx,sy,sc,cx,cy,W,H};
+  const sc=Math.min(W/(maxx-minx),H/(maxy-miny))*map.zoom;
+  if(map.focus){ map.panX=((minx+maxx)/2-map.focus.x)*sc; map.panY=((miny+maxy)/2-map.focus.y)*sc; map.focus=null; }   // перелёт к точке
+  const cx=(minx+maxx)/2-map.panX/sc, cy=(miny+maxy)/2-map.panY/sc; const sx=x=>W/2+(x-cx)*sc, sy=y=>H/2+(y-cy)*sc; map.tf={sx,sy,sc,cx,cy,W,H};
   // сетка: шаг подбирается так, чтобы клетка была 40–120 px; подписи координат по краям
   const step=[1,2,5,10,20,50,100,200,500,1000].find(s=>s*sc>=40)||1000; const vx0=cx-W/2/sc, vx1=cx+W/2/sc, vy0=cy-H/2/sc, vy1=cy+H/2/sc;
   ctx.strokeStyle='#1a1e25'; ctx.fillStyle='#444'; ctx.font='9px monospace';
@@ -220,6 +220,7 @@ const map={tf:null,zoom:1,panX:0,panY:0,drag:null};
   window.addEventListener('mouseup',()=>{ if(map.drag&&map.drag.moved) map.suppressClick=true; map.drag=null; });
   cv.ondblclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); };
   const zoomBy=f=>{ const nz=Math.max(0.5,Math.min(40,map.zoom*f)); const k=nz/map.zoom; map.panX*=k; map.panY*=k; map.zoom=nz; drawMap(); };
+  $('#map-tracks').onclick=()=>{ for(const u of units.values()){ const p=pos(u.id); u.track=[{x:p.x,y:p.y,t:tNow}]; } drawMap(); };
   $('#map-plus').onclick=()=>zoomBy(1.5); $('#map-minus').onclick=()=>zoomBy(1/1.5); $('#map-reset').onclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); }; }
 $('#map').onclick=e=>{ if(map.suppressClick){ map.suppressClick=false; return; } const cv=$('#map'), r=cv.getBoundingClientRect(), tf=map.tf; if(!tf) return; const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
   let best=null, bd=12; for(const o of known.values()){ const d=Math.hypot(tf.sx(o.x)-px,tf.sy(o.y)-py); if(d<bd){ bd=d; best=o; } }
@@ -255,6 +256,8 @@ $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log
 $$('button[data-mode]').forEach(b=>b.onclick=()=>{ if(send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`) && b.dataset.mode==='3') setGoal('шлюз станции',{x:16,y:0}); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': камера не установлена','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
+$('#btn-take').onclick=()=>{ const tg=T(), item=+$('#take-item').value; if(!tg||!item) return; if(send([23,item,active,tg.id],`М${active} взять ${ITEMS[item]} из «${tg.name}»`)) setGoal(tg.name); };
+$('#btn-put').onclick=()=>{ const tg=T(), item=+$('#put-item').value; if(!tg||!item) return; if(send([22,item,active,tg.id],`М${active} положить ${ITEMS[item]} в «${tg.name}»`)) setGoal(tg.name); };
 $('#sonar').onwheel=e=>{ e.preventDefault(); const cur=map.sonarR||map.sonarAuto||50; map.sonarR=Math.max(5,Math.min(100,cur*(e.deltaY<0?1/1.15:1.15))); drawSonar(units.get(active).sonarData,units.get(active).sonarMask); };
 $('#sonar').ondblclick=()=>{ map.sonarR=null; drawSonar(units.get(active).sonarData,units.get(active).sonarMask); };
 $('#airlock').onclick=e=>{ const b=e.target.closest('[data-tr]'); if(!b) return; const [item,dir,unit]=b.dataset.tr.split(',').map(Number); send([21,item,unit,dir],`М${unit} ${dir?'взять со склада':'сдать на склад'}: ${ITEMS[item]}`); };
@@ -294,7 +297,7 @@ document.addEventListener('mousemove',e=>{ if(tip.style.display!=='block') retur
 let lastUp=true;
 setInterval(()=>{
   const dt=0.1*speed; tNow+=dt; link.tick(dt);
-  world.postMessage({t:'link',carriers:Object.fromEntries([...units.keys()].map(id=>[id,link.carrier(id)]))});
+  world.postMessage({t:'link',carriers:Object.fromEntries([...units.keys()].map(id=>[id,link.carrier(id)])),snr:Object.fromEntries([...units.keys()].map(id=>[id,link.phys.units[id]?link.snrDb(id):0]))});
   drawEcg(dt);
   const u=units.get(active); $('#tlm-unit').textContent='М'+active;
   if(u&&u.tlm){ const T=u.tlm, age=tNow-u.tlmAt; $('#tlm-age').textContent=age<1.5?'live':`${age.toFixed(0)} с назад`; $('#tlm-age').style.color=age>3*Math.max(1,+$('#sub-tlm').value||1)?'#d9534f':'';
@@ -302,7 +305,12 @@ setInterval(()=>{
     for(const k of ['electro','glucose','toxin','skin','bone','psyche']){ $('#b-'+k).style.width=T[k]+'%'; $('#v-'+k).textContent=T[k]; }
     $('#v-danger').textContent=T.danger?'ДА':'нет'; $('#v-danger').style.color=T.danger?'#ff5c5c':''; $('#v-cons').textContent=T.cons.toFixed(2); $('#v-charge').textContent=T.charge.toFixed(0)+'%'; $('#v-gen').textContent=T.gen.toFixed(2); $('#v-xy').textContent=`${T.x.toFixed(1)}, ${T.y.toFixed(1)}`; $('#v-mode').textContent=MODES[T.mode]||'—'; }
   else { $('#tlm-age').textContent=u&&!u.alive?'тело мертво':'нет данных'; $('#pulse-val').textContent='—'; }
+  { const el=$('#v-snr'); if(u&&u.hbAt>-1e8){ const s=u.snr??0; el.textContent=u.carrier?`${s>0?'+':''}${s.toFixed(0)} дБ`:'нет'; el.style.color=!u.carrier?'#d9534f':s<5?'#e0a94a':''; } else el.textContent='—'; }
   { const el=$('#v-items'); const items=u&&u.items||[]; const n40=items.filter(i=>i===40).length; const html=[n40?`пищевой брикет${n40>1?' ×'+n40:''} <button class="mini" data-eat="40">съесть ●</button> <button class="mini" data-drop="40">сбросить ●</button>`:'', items.includes(41)?'резак <button class="mini" data-drop="41">сбросить ●</button>':''].filter(Boolean).join(', ')||'—'; if(el.innerHTML!==html) el.innerHTML=html; }
+  { const tg=T(), cont=tg&&contents.get(tg.id); const p=u&&pos(active); const near=cont&&p&&Math.hypot(p.x-tg.x,p.y-tg.y)<=4; const box=$('#xfer'); box.hidden=!near;
+    if(near){ const ts=$('#take-item'), ps=$('#put-item'); const carry=[...(u.camera?[42]:[]),...(u.items||[])];
+      const fill=(sel,arr)=>{ const cur=sel.value; const html=[...new Set(arr)].map(i=>`<option value="${i}">${ITEMS[i]}</option>`).join(''); if(sel.dataset.h!==html){ sel.innerHTML=html; sel.dataset.h=html; if([...sel.options].some(o=>o.value===cur)) sel.value=cur; } sel.disabled=!arr.length; };
+      fill(ts,cont); fill(ps,carry); $('#btn-take').disabled=!cont.length; $('#btn-put').disabled=!carry.length; } }
   $('#sonar-age').textContent=u&&u.sonarAt>-1e8?`снимок ${(tNow-u.sonarAt).toFixed(0)} с назад`:'нет данных';
   // расход по панелям
   const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };
@@ -390,7 +398,7 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   line(`ACK ARK-041  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${(link.deepCapBps()).toFixed(0)}bps  rx=${(totals.INFO||0)-info0}B`);
   for(const l of info.text.split('\n')) line('  '+l);
   const hb=await new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; });
-  line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
+  line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier '+(hb[10]-30)+'dB':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
   const anyAlive=[...units.values()].some(u=>u.alive);
   const tlm=anyAlive?await Promise.race([new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; }), sl(6000).then(()=>null)]):null; boot.onTlm=null;
   if(tlm){ const T=units.get(tlm.unit).tlm; line(`telemetry M${tlm.unit} ${tlm.size}B  pulse=${T.pulse} charge=${T.charge.toFixed(0)}% pos=${T.x},${T.y}`); } else line(anyAlive?'telemetry: none within 6s':'telemetry: no live units');

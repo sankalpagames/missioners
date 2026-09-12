@@ -13,11 +13,17 @@ const POIS = [
   { id:4, x:90,  y:140,  subs:[[20,0,0],[20,3,0],[20,6,0],[20,9,0],[20,12,0],[20,15,0],[21,6,-3],[22,-4,4]] },
   { id:5, x:-200,y:60,   subs:[[23,0,0],[24,6,-5],[25,-15,10]] },
   { id:6, x:260, y:150,  subs:[[26,10,8],[27,-3,-2],[28,-6,3]] },
-  { id:7, x:330, y:210,  subs:[[29,4,3],[30,-3,-4],[31,8,-6],[32,1,6]] },
+  { id:7, x:330, y:210,  subs:[[29,4,3],[30,-3,-4],[31,6,5],[32,-4,-3]] },
 ];
 const TUN_A = {x:260,y:150}, TUN_B = {x:340,y:218};
 const CIRCLES = [ {x:0,y:0,r:14}, {x:-200,y:60,r:12},
   {x:-60,y:-90,r:6},{x:180,y:40,r:5},{x:210,y:-30,r:7},{x:-120,y:160,r:8},{x:60,y:220,r:9},{x:300,y:60,r:6} ];
+// скальный массив: порода вокруг тоннеля; проход — коридор шириной 8 м от входа до конца
+const TUN_DIR=(()=>{ const dx=TUN_B.x-TUN_A.x, dy=TUN_B.y-TUN_A.y, L=Math.hypot(dx,dy); return {x:dx/L,y:dy/L,L}; })();
+const MASSIF={ x:TUN_A.x+TUN_DIR.x*70, y:TUN_A.y+TUN_DIR.y*70, r:70 };
+function tunnelCoords(x,y){ const dx=x-TUN_A.x, dy=y-TUN_A.y; return { along:dx*TUN_DIR.x+dy*TUN_DIR.y, perp:Math.abs(-dx*TUN_DIR.y+dy*TUN_DIR.x) }; }
+function inCorridor(x,y,margin=0){ const c=tunnelCoords(x,y); return c.along>=-1 && c.along<=TUN_DIR.L-margin && c.perp<4-margin; }
+function inRock(x,y,margin=0){ return Math.hypot(x-MASSIF.x,y-MASSIF.y)<MASSIF.r+margin && !inCorridor(x,y,margin); }
 const SEGS = (()=>{ const dx=TUN_B.x-TUN_A.x, dy=TUN_B.y-TUN_A.y, L=Math.hypot(dx,dy), nx=-dy/L*4, ny=dx/L*4;
   return [ {x1:TUN_A.x+nx,y1:TUN_A.y+ny,x2:TUN_B.x+nx,y2:TUN_B.y+ny}, {x1:TUN_A.x-nx,y1:TUN_A.y-ny,x2:TUN_B.x-nx,y2:TUN_B.y-ny}, {x1:TUN_B.x+nx,y1:TUN_B.y+ny,x2:TUN_B.x-nx,y2:TUN_B.y-ny} ]; })();
 function tunnelT(x,y){ const dx=TUN_B.x-TUN_A.x, dy=TUN_B.y-TUN_A.y, L2=dx*dx+dy*dy; const tt=((x-TUN_A.x)*dx+(y-TUN_A.y)*dy)/L2; if(tt<0||tt>1) return -1; const px=TUN_A.x+tt*dx, py=TUN_A.y+tt*dy; return Math.hypot(x-px,y-py)<12 ? tt : -1; }
@@ -57,6 +63,7 @@ function detectRadius(m){ return m===2?22 : m===4?35 : 70; }
 // ---------- столкновения: тело не проходит сквозь корпус, скалы и стены тоннеля; вдоль препятствия скользит ----------
 const BODY_R = 0.6;
 function blocked(x,y){
+  if(inRock(x,y,BODY_R)) return true;
   for(const c of CIRCLES){ if(Math.hypot(x-c.x,y-c.y) < c.r+BODY_R) return true; }
   for(const s of SEGS){ const ex=s.x2-s.x1, ey=s.y2-s.y1, L2=ex*ex+ey*ey; let t=((x-s.x1)*ex+(y-s.y1)*ey)/L2; t=Math.max(0,Math.min(1,t)); if(Math.hypot(x-(s.x1+t*ex),y-(s.y1+t*ey)) < BODY_R) return true; }
   return false;
@@ -83,10 +90,10 @@ function telemetry(u){
   const [xh,xl,yh,yl]=posBytes(u); b[11]=xh; b[12]=xl; b[13]=yh; b[14]=yl; b[15]=u.mode;
   return b;
 }
-// ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), склад брикетов, склад резаков, n, (id, флаги, заряд, предметы)*] ----------
+// ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), склад брикетов, склад резаков, n, (id, флаги, заряд, предметы, SNR+30)*] ----------
 function heartbeat(){
   const b=[station.bioStock, station.camInv, station.growing?Math.ceil(station.growing.tLeft):255, station.store[40], station.store[41], units.length];
-  for(const u of units){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)); }
+  for(const u of units){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0), Math.max(0,Math.min(255,Math.round((u.snr||0)+30)))); }
   emit('bg','HB',0,new Uint8Array(b));
 }
 
@@ -137,6 +144,7 @@ function sonar(u, cls='cmd'){
   const b=new Uint8Array(64), mask=new Uint8Array(8); const objs=objectsAround(u,100);
   for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, dx=Math.cos(a), dy=Math.sin(a); let best=100, solid=false;
     for(const c of CIRCLES){ const t=rayCircle(u.x,u.y,dx,dy,c); if(t<best){ best=t; solid=true; } }
+    if(Math.hypot(u.x-MASSIF.x,u.y-MASSIF.y)>MASSIF.r){ const t=rayCircle(u.x,u.y,dx,dy,MASSIF); if(t<best && !inCorridor(u.x+dx*t,u.y+dy*t)){ best=t; solid=true; } }   // скала снаружи; во вход луч проходит
     for(const s of SEGS){ const t=raySeg(u.x,u.y,dx,dy,s); if(t<best){ best=t; solid=true; } }
     for(const o of objs){ if(o.landmark) continue; const r=o.creature?0.5:o.unit?0.5:(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,dx,dy,{x:o.x,y:o.y,r}); if(t<best){ best=t; solid=false; } }
     b[i]=Math.round(Math.min(100,best)/100*255); if(solid&&best<100) mask[i>>3]|=1<<(i&7); }
@@ -229,7 +237,7 @@ function doPending(u){
 onmessage = e => {
   const m=e.data;
   if(m.t==='speed'){ speed=m.v; schedule(); return; }
-  if(m.t==='link'){ for(const u of units) if(u.id in m.carriers) u.carrier=!!m.carriers[u.id]; return; }   // миссионер сам слышит несущую станции — физика, не данные
+  if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ u.carrier=!!m.carriers[u.id]; u.snr=m.snr?m.snr[u.id]:0; } return; }   // станция измеряет уровень сигнала каждого тела   // миссионер сам слышит несущую станции — физика, не данные
   if(m.t==='imgAck'){ const u=m.unit===0?stationCam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='autonomy'){ const u=units.find(u=>u.id===m.unit); if(u) u.autonomy=m.v; return; }
   if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; } return; }
