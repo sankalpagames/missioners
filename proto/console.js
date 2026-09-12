@@ -253,7 +253,7 @@ setInterval(()=>{
   $('#v-items').textContent=u&&u.items&&u.items.length?u.items.map(i=>ITEMS[i]).join(', '):'—';
   $('#sonar-age').textContent=u&&u.sonarAt>-1e8?`снимок ${(tNow-u.sonarAt).toFixed(0)} с назад`:'нет данных';
   // расход по панелям
-  const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} Б · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };
+  const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };
   setBw('#bw-tlm','TLM'); setBw('#bw-sonar','SONAR'); setBw('#bw-desc','DESC'); setBw('#bw-img','IMG'); setBw('#bw-hb','HB'); setBw('#bw-stimg','STIMG');
   { const lvl=+$('#img-level').value, iv=+$('#sub-img').value, full=[72,72+264,72+264+1040,72+264+1040+4160][lvl]; const keyD=[2+64*2+8, 2+64*5+8*6, 2+64*17+8*18, 2+64*65+8*66][lvl]; const cap=link.deepCapBps()/8; const est=$('#img-est'); if(iv){ const per=$('#img-delta').checked?`ключевой ${keyD} Б, дальше по движению`:`${full} Б`; const rate=($('#img-delta').checked?keyD:full)/iv; est.textContent=`подписка: ${per} · до ${rate.toFixed(0)} Б/с из ${cap.toFixed(0)}`; est.style.color=rate>cap*0.8?'#d9534f':''; } else est.textContent=`один кадр: ${full} Б ≈ ${cap?(full/cap).toFixed(1):'∞'} с`; }
   // связь
