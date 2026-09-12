@@ -144,8 +144,10 @@ function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`выб
 function setTarget(tg){ units.get(active).sel=tg; renderDesc(); updateTarget(); }   // выбор — локальный, ничего не уходит
 function setGoal(name,p){ const u=units.get(active); u.goalName=name; if(p) u.goalPos={x:p.x,y:p.y}; else if(T()) u.goalPos={x:T().x,y:T().y}; $('#img-look').textContent=`смотрит: ${name?'на «'+name+'»':'вперёд'}`; }
 
-function fitCanvas(cv){ const w=Math.max(50,cv.clientWidth|0), h=Math.max(50,cv.clientHeight|0); if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; } }
-function drawMap(){ const cv=$('#map'); fitCanvas(cv); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+function fitCanvas(cv, crt){
+  // crt: рисуем в половинном разрешении и чуть приплюснуто — при растяжении получается ЭЛТ-зерно и крупный «плохой» шрифт
+  const w=Math.max(50,(cv.clientWidth/(crt?2:1))|0), h=Math.max(50,(cv.clientHeight/(crt?2.15:1))|0); if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; } }
+function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   const pts=[{x:0,y:0}]; for(const o of known.values()) pts.push(o); for(const u of units.values()){ pts.push(...u.track); }
   let minx=Math.min(...pts.map(p=>p.x))-30, maxx=Math.max(...pts.map(p=>p.x))+30, miny=Math.min(...pts.map(p=>p.y))-30, maxy=Math.max(...pts.map(p=>p.y))+30;
   const sc=Math.min(W/(maxx-minx),H/(maxy-miny))*map.zoom; const cx=(minx+maxx)/2-map.panX/sc, cy=(miny+maxy)/2-map.panY/sc; const sx=x=>W/2+(x-cx)*sc, sy=y=>H/2+(y-cy)*sc; map.tf={sx,sy,sc,cx,cy,W,H};
