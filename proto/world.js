@@ -201,7 +201,7 @@ function doPending(u){
   const sendCont=()=>{ if(isContainer(o)&&containerOpen(o)){ const c=contentsOf(o); emit('cmd','CONT',u.id,new Uint8Array([o.id,c.length,...c])); } };
   if(p.kind==='exam'){ textReply('EXAM',0,examText(o)); sendCont(); return; }
   if(p.kind==='take'||p.kind==='put'){
-    if(!isContainer(o)||!containerOpen(o)){ textReply('ACT',1,'это не контейнер.'); return; }
+    if(!isContainer(o)||!containerOpen(o)){ textReply('ACT',1,'не контейнер.'); return; }
     const item=p.item;
     if(p.kind==='take'){ const c=contentsOf(o); if(!c.includes(item)){ textReply('ACT',1,`здесь нет: ${ITEMS[item]}.`); return; }
       if(o.unit){ const v=o.unit; if(item===42){ v.sensors.camera=false; v.sub.img.interval=0; } else v.items.splice(v.items.indexOf(item),1); } else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ ground.splice(ground.findIndex(g=>g.id===o.id),1); delete contents[o.id]; } }
@@ -214,7 +214,7 @@ function doPending(u){
     textReply('ACT',0,`положил: ${ITEMS[item]}.`); sendCont(); return; }
   // взаимодействие: действие из текущего состояния; ответ — текст, составленный станцией
   const acts=cb.actions||[]; const a=acts.find(a=>a.from===st);
-  if(!a){ textReply('ACT',1,'осмотрел: сделать здесь нечего.'); return; }
+  if(!a){ textReply('ACT',1,'действий нет.'); return; }
   if(a.needs && !u.items.includes(a.needs)){ textReply('ACT',2,`не смог: ${a.fail||'нужен предмет'}`); return; }
   if(a.req && stateOf(a.req.obj)!==a.req.state){ textReply('ACT',3,`не смог: ${a.fail||'условие не выполнено'}`); return; }
   if(a.special==='boost') antennaBoost=6;
