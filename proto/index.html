@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>АРК-041 — консоль оператора</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="boot"><pre id="boot-text"></pre></div>
+<div id="tip"></div>
+
+<header id="top">
+  <span id="link-state" class="badge" data-tip="Состояние дальнего плеча канала (станция ↔ ты). Это FTL-линия: расстояние не влияет, но полоса крошечная и делится между всем, что ты запросил. Если здесь «нет связи» — не дойдёт ничего.">—</span>
+  <span id="rate" class="dim small" data-tip="Сколько байт в секунду реально дошло за последнюю секунду / ёмкость дальней линии. Всё, что ты видишь на экране, прошло через это число."></span>
+  <span class="grow"></span>
+  <div id="units" data-tip="Миссионеры. Команды и панели слева/справа относятся к выбранному. ● живой, ○ мёртвый, ◌ нет несущей (станция его не слышит). Тело мёртвого — тоже источник: приборы на нём работают, пока есть заряд."></div>
+  <span class="grow"></span>
+  <label class="small" data-tip="Ускорение симуляции. Мир и канал ускоряются вместе, соотношения не меняются.">время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
+  <button id="btn-debug" class="ghost" data-tip="Отладочная шторка: правда о мире и физика канала. Игрок этого не видит.">⚙ отладка</button>
+</header>
+
+<div id="app">
+  <section class="col">
+    <div class="block" id="blk-tlm">
+      <div class="bh"><span class="bt" data-tip="Фоновая телеметрия тела: 16 байт + 8 заголовок = 24 Б на пакет. Идёт по подписке с выбранным интервалом. Это единственное, что ты знаешь о теле между запросами.">ТЕЛО <span id="tlm-unit" class="dim"></span></span>
+        <select class="sub" id="sub-tlm" data-tip="Интервал телеметрии. Реже — дешевле, но между отсчётами ты слеп: пульс мог подскочить и упасть, а ты не узнаешь."><option value="1">каждую 1 с</option><option value="5">каждые 5 с</option><option value="15">каждые 15 с</option><option value="0">выкл</option></select>
+        <span class="bw" id="bw-tlm" data-tip="Фактический расход полосы этой панели за последние 5 с."></span></div>
+      <div class="bb">
+        <div class="pulse-row"><canvas id="ecg" width="150" height="44" data-tip="Синтез формы по одному байту BPM. Форма волны — локальная визуализация, не данные."></canvas><div><div id="pulse-val" class="big">—</div><div id="pulse-cls" class="dim small">пульс</div></div><span id="tlm-age" class="dim small"></span></div>
+        <div class="bars">
+          <div class="bar" data-tip="Электролиты. Падают от нагрузки. Ноль — судороги, остановка."><label>электролиты</label><div><i id="b-electro"></i></div><span id="v-electro"></span></div>
+          <div class="bar" data-tip="Глюкоза. Топливо мышц. Расходуется движением и страхом. Ноль — смерть."><label>глюкоза</label><div><i id="b-glucose"></i></div><span id="v-glucose"></span></div>
+          <div class="bar" data-tip="Токсины в крови. Растут в тоннеле (там что-то в воздухе), снаружи выводятся."><label>токсины</label><div><i id="b-toxin" class="inv"></i></div><span id="v-toxin"></span></div>
+          <div class="bar" data-tip="Целостность кожного покрова. Падает от ран."><label>кожа</label><div><i id="b-skin"></i></div><span id="v-skin"></span></div>
+          <div class="bar" data-tip="Опорно-двигательный аппарат. Ноль — тело не может идти."><label>опорно-двиг.</label><div><i id="b-bone"></i></div><span id="v-bone"></span></div>
+          <div class="bar" data-tip="Психика. Падает от страха и темноты, восстанавливается в режиме «отдых». Что происходит на нуле — пока не решено."><label>психика</label><div><i id="b-psyche"></i></div><span id="v-psyche"></span></div>
+        </div>
+        <div class="kv">
+          <div data-tip="Флаг «опасность» — 1 бит. Тело чувствует угрозу раньше, чем ты узнаешь, какую."><label>опасность</label><b id="v-danger">—</b></div>
+          <div data-tip="Режим, в котором тело сейчас находится (по последней телеметрии)."><label>режим</label><b id="v-mode">—</b></div>
+          <div data-tip="Энергопотребление тела + приборов. Растёт от движения, фонаря, мощности передатчика, видеопотока."><label>потребление</label><b id="v-cons">—</b></div>
+          <div data-tip="Генерация — метаболизм тела. Падает от страха."><label>генерация</label><b id="v-gen">—</b></div>
+          <div data-tip="Заряд. Ноль — смерть тела. У мёртвого тела приборы продолжают работать на остатке."><label>заряд</label><b id="v-charge">—</b></div>
+          <div data-tip="Координаты относительно станции, метры. 2×16 бит."><label>координаты</label><b id="v-xy">—</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="block" id="blk-sonar">
+      <div class="bh"><span class="bt" data-tip="Сонар — базовый датчик, есть у любого миссионера. 64 луча по 8 бит дальности (шаг 0,4 м, до 100 м) = 64 Б + заголовок. Видит стены и объекты, не различает, что это.">СОНАР</span>
+        <select class="sub" id="sub-sonar" data-tip="Автообновление сонара. Каждый снимок — 72 Б."><option value="0">по запросу</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
+        <button class="mini" id="btn-sonar" data-tip="Один снимок сонара (72 Б).">снять</button>
+        <span class="bw" id="bw-sonar"></span></div>
+      <div class="bb" id="sonar-body"><canvas id="sonar" width="200" height="200"></canvas><div id="sonar-age" class="dim small">нет данных</div></div><div class="bb dim small" id="sonar-none" hidden>у этого миссионера нет сонара</div>
+    </div>
+  </section>
+
+  <section class="col center">
+    <nav class="tabs">
+      <button data-tab="log" class="on">Лог</button><button data-tab="map" data-tip="Карта строится только из того, что дошло по каналу: координаты из телеметрии + пеленг/дальность из описаний.">Карта</button><button data-tab="charts" data-tip="История принятых значений по времени.">Графики</button><button data-tab="station" data-tip="Консоль станции: запас биоматериала, склад датчиков, выращивание миссионеров.">Станция</button><button data-tab="channel" data-tip="Кто ест полосу. Включай и выключай панели — и смотри сюда.">Канал</button>
+    </nav>
+    <div class="tab on" id="tab-log">
+      <div id="log"></div>
+    </div>
+    <div class="tab" id="tab-map">
+      <canvas id="map" width="720" height="460"></canvas>
+      <div class="row small dim"><span id="map-hint">колёсико — зум, тянуть — панорама, двойной клик — сброс. клик — задать цель (уходит миссионеру: сюда идти и сюда смотреть). тусклые объекты этот миссионер сам не видел.</span><span class="grow"></span><span id="map-count"></span></div>
+    </div>
+    <div class="tab" id="tab-charts">
+      <div class="row"><label class="small">миссионер <select id="ch-unit"></select></label><label class="small">величина <select id="ch-field"><option value="pulse">пульс</option><option value="glucose">глюкоза</option><option value="electro">электролиты</option><option value="toxin">токсины</option><option value="skin">кожа</option><option value="bone">опорно-двиг.</option><option value="psyche">психика</option><option value="charge">заряд</option><option value="cons">потребление</option></select></label></div>
+      <canvas id="chart-tlm" width="720" height="300"></canvas>
+      <div class="small dim">точки — принятые пакеты телеметрии; разрывы — то, чего ты не получил</div>
+    </div>
+    <div class="tab" id="tab-station">
+      <div class="kv two">
+        <div data-tip="Единиц биоматериала на станции. Один миссионер = одна единица. Пополнения нет."><label>биоматериал</label><b id="st-bio">—</b></div>
+        <div data-tip="Камер на складе. Камера — уникальный датчик: их не производят. Снять с тела и принести обратно — единственный способ вернуть."><label>камеры на складе</label><b id="st-cam">—</b></div>
+        <div data-tip="Идёт выращивание — секунд до готовности."><label>выращивание</label><b id="st-grow">—</b></div>
+      </div>
+      <table id="roster"><thead><tr><th>№</th><th>состояние</th><th>несущая</th><th>датчики</th><th>заряд</th><th>автосъёмка</th></tr></thead><tbody></tbody></table>
+      <div class="row" style="margin-top:8px">
+        <label class="small"><input type="checkbox" id="g-cam"> камера</label>
+        <label class="small"><input type="checkbox" id="g-sonar" checked> сонар</label>
+        <button id="btn-grow" data-tip="Вырастить миссионера с выбранными датчиками. 30 с. Тратит единицу биоматериала.">Подготовить миссионера</button>
+        <button id="btn-st" class="ghost" data-tip="Запросить статус станции вне очереди пульса.">запросить статус</button>
+      </div>
+      <div class="row"><label class="small" data-tip="Пульс станции — крошечный фоновый пакет: запасы, список миссионеров с флагами. Идёт даже во время видеопотока.">пульс станции <select id="sub-hb"><option value="2">каждые 2 с</option><option value="10">каждые 10 с</option><option value="0">выкл</option></select></label><span class="bw" id="bw-hb"></span></div>
+    </div>
+    <div class="tab" id="tab-channel">
+      <canvas id="chart-ch" width="720" height="220"></canvas>
+      <div class="legend small"><i class="k-TLM"></i>тело <i class="k-HB"></i>станция <i class="k-SONAR"></i>сонар <i class="k-DESC"></i>описания <i class="k-IMG"></i>изображения <i class="k-EVT"></i>события <i class="k-drop"></i>потери <i class="k-cap"></i>ёмкость</div>
+      <table id="ch-table"><thead><tr><th>панель</th><th>Б/с сейчас</th><th>Б всего</th></tr></thead><tbody></tbody></table>
+      <h3>в очереди</h3>
+      <table id="queue"><thead><tr><th>запрос</th><th>от</th><th>пакеты</th><th>байт</th><th>ETA</th></tr></thead><tbody></tbody></table>
+    </div>
+      <div class="cmds">
+        <div class="row">
+          <button id="btn-stop" data-tip="Остановиться: сбросить цель движения. Тело стоит там, где стоит.">Стоп</button>
+          <button id="btn-move" data-tip="Идти к цели. Цель уже в миссионере (ушла 7 байтами, когда ты её выбрал), поэтому сама команда — 3 байта. Тело идёт само, путь виден по телеметрии.">Перемещение</button>
+                    <button data-cmd="8" data-tip="Взаимодействовать с выбранной целью (объект из описания или с карты). Контекстно: шкаф усилителя — включить, тело — снять камеру, шлюз — сдать камеру на склад. Нужно подойти вплотную.">Взаимодействовать</button>
+          <span id="target-label" class="dim small"></span>
+        </div>
+        <div class="row modes" data-tip="Режимы тела. Исследование: фонарь, обычная скорость. Скрытность: без фонаря, медленно, тише — существо замечает с 22 м вместо 70. Отступление: бегом к шлюзу. Отдых: стоит, восстанавливает психику и заряд. Бой: при контакте бьёт.">
+          <label>режим</label><button data-mode="1">исследование</button><button data-mode="2">скрытность</button><button data-mode="3">отступление</button><button data-mode="4">отдых</button><button data-mode="5">бой</button>
+        </div>
+        <div class="row"><label class="small" data-tip="Инструкция, вшитая в тело до выхода: что делать, если 20 с нет несущей станции. Единственная «воля», которую ты можешь ему выдать.">при потере связи &gt;20 с <select id="autonomy"><option value="0">продолжать</option><option value="1">остановиться и ждать</option><option value="2">вернуться к шлюзу</option></select></label></div>
+      </div>
+  </section>
+
+  <section class="col">
+    <div class="block" id="blk-img">
+      <div class="bh"><span class="bt" data-tip="Камера — уникальный датчик. Кадр 8 бит серого. По запросу приходит пирамидой 8×8 → 16×16 → 32×32 → 64×64: сначала грубо, потом точнее; оборвётся — останется, что дошло. По подписке — тем же способом, либо дельтой: уходят только изменившиеся блоки, статичная сцена почти бесплатна, движение — дорого. Если канал не успевает за интервалом, кадры пропускаются, и это видно.">ИЗОБРАЖЕНИЕ <span id="img-unit" class="dim"></span></span>
+        <span class="bw" id="bw-img"></span></div>
+      <div class="bb dim small" id="img-none" hidden>у этого миссионера нет камеры</div>
+      <div class="bb" id="img-body">
+        <div class="row small">
+          <select class="sub" id="sub-img" data-tip="Автосъёмка — это просто «нажимать кнопку снять каждые N с» с текущими настройками. Ничего другого она не делает."><option value="0">по запросу</option><option value="30">каждые 30 с</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
+          <select class="sub" id="img-level" data-tip="Разрешение. Размер полного кадра: 8×8 — 64 Б, 16×16 — 320 Б (с нижними уровнями), 32×32 — 1,3 КБ, 64×64 — 5,4 КБ."><option value="0">8×8</option><option value="1">16×16</option><option value="2" selected>32×32</option><option value="3">64×64</option></select>
+          <label data-tip="Дельта: слать только блоки (из 64), изменившиеся с прошлого кадра того же разрешения. Первый кадр — полный (ключевой). Дёшево, пока ничего не движется; движение — сразу видно по расходу."><input type="checkbox" id="img-delta" checked> дельта</label>
+          <button class="mini" id="btn-img" data-tip="Один кадр выбранного разрешения. Камера смотрит на цель миссионера (голова поворачивается); если цели нет — вперёд по ходу.">снять</button>
+        </div>
+        <canvas id="img" width="64" height="64"></canvas><div class="pbar"><i id="img-prog"></i></div><div id="img-state" class="dim small"></div><div id="img-est" class="dim small"></div>
+      </div>
+    </div>
+    <div class="block grow" id="blk-desc">
+      <div class="bh"><span class="bt" data-tip="Объекты из последнего описания. Клик — выбрать цель для «идти»/«взаимодействовать».">ОПИСАНИЕ <span id="desc-unit" class="dim"></span></span>
+        <select class="sub" id="sub-desc" data-tip="Автоописание. Каждый ответ — 4 Б на объект."><option value="0">по запросу</option><option value="15">каждые 15 с</option><option value="5">каждые 5 с</option></select>
+        <button class="mini" id="btn-desc" data-tip="Описание с текущей позиции: список объектов вокруг в виде (id, тип, пеленг, дальность) — 4 байта на объект. Названия и тексты — из кодовой книги на твоей стороне. Неизвестный тип придёт как «объект, класс не определён». Нужно живое тело (глаза).">снять</button>
+        <span class="bw" id="bw-desc"></span></div>
+      <div class="bb" id="desc"></div>
+    </div>
+  </section>
+</div>
+
+<div id="drawer" hidden>
+  <div class="dh"><b>ОТЛАДКА</b> <span class="dim small">физика канала и правда о мире — игрок этого не видит</span><span class="grow"></span><button class="ghost" id="btn-debug-close">закрыть</button></div>
+  <div class="dgrid">
+    <div>
+      <h3>линия выбранного миссионера</h3>
+      <div class="kv two">
+        <div data-tip="Расстояние миссионера от станции по прямой."><label>расстояние</label><b id="i-dist"></b></div>
+        <div data-tip="Free-space path loss: 20·log10(d) + 20·log10(f) − 27,55 дБ. Каждое удвоение расстояния — минус 6 дБ."><label>FSPL</label><b id="i-fspl"></b></div>
+        <div data-tip="Затухание в препятствиях. В тоннеле: 8 дБ у входа + до 22 дБ по глубине."><label>препятствия</label><b id="i-obst"></b></div>
+        <div data-tip="SNR = Pпередатчика + усиления антенн − FSPL − препятствия − шум приёмника. Ниже −5 дБ демодулятор не захватывает несущую."><label>SNR</label><b id="i-snr"></b></div>
+        <div data-tip="Шеннон: C = B·log2(1+SNR) × 0,5 (реализация хуже теории). С FEC — ещё ×0,5."><label>лок. ёмкость</label><b id="i-local"></b></div>
+        <div data-tip="Вероятность ошибки бита при этом SNR: 0,5·erfc(√SNR). FEC даёт +5 дБ."><label>BER</label><b id="i-ber"></b></div>
+        <div data-tip="Вероятность потери пакета 72 Б = 1 − (1−BER)^576."><label>PER (72 Б)</label><b id="i-per"></b></div>
+        <div data-tip="Дальняя (FTL) линия: фикс. ёмкость. Ниже — ползунок."><label>дальняя</label><b id="i-deep"></b></div>
+        <div data-tip="Доставлено / потеряно / повторов пакетов за сессию."><label>пакеты</label><b id="i-cnt"></b></div>
+      </div>
+      <h3>параметры</h3>
+      <div class="ctl">
+        <label data-tip="Мощность нательного передатчика выбранного миссионера. +10 дБ = SNR +10 дБ, но заряд уходит быстрее.">TX миссионера <input id="c-tx" type="range" min="-10" max="10" value="0" step="1"> <b id="c-tx-v">0 dBm</b></label>
+        <label data-tip="Уровень шума приёмника станции. Тепловой шум −130 дБм + NF + помехи от реактора.">шум приёмника <input id="c-noise" type="range" min="-120" max="-80" value="-92" step="1"> <b id="c-noise-v">-92 dBm</b></label>
+        <label data-tip="Полоса локальной линии, Гц. Входит в формулу Шеннона линейно.">полоса <input id="c-bw" type="range" min="1000" max="12000" value="4000" step="500"> <b id="c-bw-v">4000 Hz</b></label>
+        <label data-tip="Ёмкость FTL-линии. 64 бит/с — вариант ChatGPT, 8000 — исходный. Это главный ползунок для решения, какая это игра.">дальняя линия <input id="c-deep" type="range" min="64" max="16000" value="512" step="64"> <b id="c-deep-v">512 bps</b></label>
+        <label data-tip="Помехоустойчивое кодирование 1/2: терпит на 5 дБ больше шума, но полезная скорость вдвое ниже."><input id="c-fec" type="checkbox" checked> FEC 1/2</label>
+        <label data-tip="Повтор потерянных командных пакетов через RTT. Фон и поток не повторяются — они устаревают."><input id="c-arq" type="checkbox" checked> ARQ</label>
+        <label data-tip="Окно видимости ретранслятора (для варианта без FTL): 5 мин связь / 2 мин нет."><input id="c-orbit" type="checkbox"> окно ретранслятора</label>
+      </div>
+    </div>
+    <div>
+      <h3>правда о мире <span class="dim">— клик = телепорт выбранного</span></h3>
+      <canvas id="truth" width="360" height="200"></canvas>
+      <h3>очередь пакетов</h3>
+      <div id="i-queue" class="small dim"></div>
+    </div>
+  </div>
+</div>
+
+<script src="codebook.js"></script>
+<script src="link.js"></script>
+<script src="console.js"></script>
+</body>
+</html>
