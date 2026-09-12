@@ -195,7 +195,7 @@ onmessage = e => {
     if(cam) station.camInv--; station.bioStock--; station.growing={sensors:{camera:cam,sonar:!!(arg&2)},tLeft:30}; evt(11); return;
   }
   if(cmd===11){ // статус: паспорт станции текстом + пульс
-    const info=`АРК-041, автономная посадочная платформа\nсостояние: штатное\nвозраст миссии: 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nбиоматериал: ${station.bioStock} ед.; камер на складе: ${station.camInv}; развёрнуто: ${units.length}\nзадача: ${station.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся с выхода. Серия 0 исчерпана (7 ед.)':'ПС-7 закрыта'}`;
+    const info=`ARK-041, автономная посадочная платформа\nсостояние: штатное\nвозраст миссии: 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nбиоматериал: ${station.bioStock} ед.; камер на складе: ${station.camInv}; развёрнуто: ${units.length}\nзадача: ${station.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся с выхода. Серия 0 исчерпана (7 ед.)':'ПС-7 закрыта'}`;
     emit('cmd','INFO',0,encText(info)); heartbeat(); return; }
   if(cmd===15){ hbInterval=arg; return; }
   const u=units.find(u=>u.id===unit); if(!u) return;
