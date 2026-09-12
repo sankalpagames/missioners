@@ -124,14 +124,16 @@ function sonarSegments(b){ const pts=[]; for(let i=0;i<64;i++){ const r=b[i]/255
   return {pts, joined, chainLen}; }
 function drawSonar(b){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200);
   // масштаб — по самому дальнему отражению: ближняя геометрия заполняет круг
-  const {pts,joined}=b?sonarSegments(b):{pts:[],joined:()=>false}; const maxR=pts.reduce((m,p)=>p?Math.max(m,p.r):m,0); const R=Math.max(12,Math.min(100,maxR*1.15||100)); const k=100/R;
+  // масштаб: по 75-му процентилю дальностей (ближняя геометрия заполняет круг), колёсико — вручную
+  const {pts,joined}=b?sonarSegments(b):{pts:[],joined:()=>false}; const rs=pts.filter(Boolean).map(p=>p.r).sort((a,b)=>a-b); const q=rs.length?rs[Math.floor(rs.length*0.75)]:100;
+  const R=map.sonarR||Math.max(12,Math.min(100,q*1.25)); map.sonarAuto=R; const k=100/R;
   const step=[2,5,10,20,25,50].find(s=>s*k>=22)||50; ctx.strokeStyle='#1e3a1e'; ctx.fillStyle='#555'; ctx.font='9px monospace'; for(let r=step;r<=R;r+=step){ ctx.beginPath(); ctx.arc(c,c,r*k,0,7); ctx.stroke(); ctx.fillText(r,c+r*k+2,c-2); }
   if(!b) return; const X=p=>c+Math.cos(p.a)*p.r*k, Y=p=>c+Math.sin(p.a)*p.r*k;
   // свободное пространство
   ctx.fillStyle='rgba(127,224,127,0.07)'; ctx.beginPath(); for(let i=0;i<64;i++){ const p=pts[i]||{a:i/64*Math.PI*2,r:R}; i?ctx.lineTo(X(p),Y(p)):ctx.moveTo(X(p),Y(p)); } ctx.closePath(); ctx.fill();
-  ctx.strokeStyle='#7fe07f'; ctx.lineWidth=1.5; for(let i=0;i<64;i++){ if(!joined(i)) continue; const p=pts[i], q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1;
-  ctx.fillStyle='#7fe07f'; for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; const lone=!joined(i)&&!joined((i+63)%64); ctx.fillRect(X(p)-(lone?2:1),Y(p)-(lone?2:1),lone?4:2,lone?4:2); }
-  ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.fillText(`до ${R.toFixed(0)} м`,4,196); }
+  ctx.strokeStyle='#7fe07f'; ctx.lineWidth=1.5; for(let i=0;i<64;i++){ if(!joined(i)) continue; const p=pts[i], q=pts[(i+1)%64]; if(p.r>R||q.r>R) continue; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1;
+  ctx.fillStyle='#7fe07f'; for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; if(p.r>R){ ctx.fillStyle='#2f5f2f'; ctx.fillRect(c+Math.cos(p.a)*99-1,c+Math.sin(p.a)*99-1,2,2); ctx.fillStyle='#7fe07f'; continue; } const lone=!joined(i)&&!joined((i+63)%64); ctx.fillRect(X(p)-(lone?2:1),Y(p)-(lone?2:1),lone?4:2,lone?4:2); }
+  ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.fillText(`до ${R.toFixed(0)} м${map.sonarR?' ·':''}`,4,196); }
 let ecgPhase=0, ecgX=0;
 function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(active); const W=150;
   if(!u||!u.tlm||tNow-u.tlmAt>3*Math.max(1,+$('#sub-tlm').value||1)){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,44); ctx.fillStyle='#333'; ctx.fillRect(0,22,W,1); return; }
@@ -253,6 +255,8 @@ $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log
 $$('button[data-mode]').forEach(b=>b.onclick=()=>{ if(send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`) && b.dataset.mode==='3') setGoal('шлюз станции',{x:16,y:0}); });
 $('#btn-img').onclick=()=>{ const u=units.get(active); if(!u.camera) return log('М'+active+': камера не установлена','err'); const lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; send([3,lvl,active,d],`М${active} кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
 $('#btn-stop').onclick=()=>send([17,0,active],`М${active} стоп`);
+$('#sonar').onwheel=e=>{ e.preventDefault(); const cur=map.sonarR||map.sonarAuto||50; map.sonarR=Math.max(5,Math.min(100,cur*(e.deltaY<0?1/1.15:1.15))); drawSonar(units.get(active).sonarData); };
+$('#sonar').ondblclick=()=>{ map.sonarR=null; drawSonar(units.get(active).sonarData); };
 $('#airlock').onclick=e=>{ const b=e.target.closest('[data-tr]'); if(!b) return; const [item,dir,unit]=b.dataset.tr.split(',').map(Number); send([21,item,unit,dir],`М${unit} ${dir?'взять со склада':'сдать на склад'}: ${ITEMS[item]}`); };
 { const sp=$('#splitter'), lw=$('#logwrap'); let drag=null;
   sp.onmousedown=e=>{ drag={y:e.clientY,h:lw.offsetHeight}; sp.classList.add('on'); e.preventDefault(); };
