@@ -117,8 +117,11 @@ function decodeImd(pkt){ const u=holderOf(pkt.unit), im=u.img, lvl=+pkt.kind[3],
 function drawGray(cv,buf,side){ const ctx=cv.getContext('2d'), im=ctx.createImageData(side,side); for(let i=0;i<side*side;i++){ im.data[i*4]=im.data[i*4+1]=im.data[i*4+2]=buf[i]; im.data[i*4+3]=255; } ctx.putImageData(im,0,0); }
 // сонар: 64 дальности по кругу. Соседние отсчёты с близкой дальностью — одна поверхность (линия), одиночные — точки
 function sonarSegments(b){ const pts=[]; for(let i=0;i<64;i++){ const r=b[i]/255*100; pts.push(r>=99.5?null:{a:i/64*Math.PI*2,r}); }
-  const joined=i=>{ const p=pts[i], q=pts[(i+1)%64]; return p&&q&&Math.abs(p.r-q.r)<Math.max(4,0.18*Math.min(p.r,q.r)); };
-  return {pts, joined}; }
+  // допуск по дальности растёт с дальностью: соседние лучи расходятся на 0,1·r; поверхность под углом до ~70° даёт Δr ≈ 0,27·r
+  const joined=i=>{ const p=pts[i], q=pts[(i+1)%64]; return p&&q&&Math.abs(p.r-q.r)<0.5+0.3*Math.min(p.r,q.r); };
+  // цепочка: сколько подряд соединённых отсчётов, начиная с i
+  const chainLen=i=>{ let n=1; while(n<64&&joined((i+n-1)%64)) n++; return n; };
+  return {pts, joined, chainLen}; }
 function drawSonar(b){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200);
   // масштаб — по самому дальнему отражению: ближняя геометрия заполняет круг
   const {pts,joined}=b?sonarSegments(b):{pts:[],joined:()=>false}; const maxR=pts.reduce((m,p)=>p?Math.max(m,p.r):m,0); const R=Math.max(12,Math.min(100,maxR*1.15||100)); const k=100/R;
@@ -189,7 +192,10 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   // геометрия с сонара: поверхности линиями, одиночные отражения точками; старые снимки тусклее
   for(const s of sonarSnaps){ const age=tNow-s.t; const al=Math.max(0.15,0.7-age/3000); const {pts,joined}=sonarSegments(s.b); const X=p=>sx(s.x+Math.cos(p.a)*p.r), Y=p=>sy(s.y+Math.sin(p.a)*p.r);
     // на карту — только поверхности (цепочки отсчётов); одиночные отражения (ящики, столбики) остаются в панели сонара
-    ctx.strokeStyle=`rgba(92,208,208,${al})`; for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!joined(i)) continue; const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } }
+    // на карту — цепочки от 4 отсчётов (стены, корпуса); короткие (ящики, столбики) остаются в панели
+    const {chainLen}=sonarSegments(s.b); const inChain=new Array(64).fill(false); for(let i=0;i<64;i++){ if(joined((i+63)%64)) continue; const n=chainLen(i); if(n>=4) for(let k=0;k<n;k++) inChain[(i+k)%64]=true; }
+    if(!inChain.some(Boolean) && joined(0)) inChain.fill(true);   // все 64 соединены — замкнутая стена вокруг
+    ctx.strokeStyle=`rgba(92,208,208,${al})`; for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!joined(i)||!inChain[i]) continue; const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } }
   ctx.strokeStyle='#555'; ctx.beginPath(); ctx.arc(sx(0),sy(0),14*sc,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(0)+16*sc,sy(0)-4);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); u.track.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
@@ -341,7 +347,7 @@ function restoreConsole(d){
   tNow=d.tNow; active=d.active||1; Object.assign(station,d.station); if(d.stcam) Object.assign(stcam.subs,d.stcam.subs); Object.assign(totals,d.totals||{}); units.clear();
   for(const su of d.units){ const u=U(su.id); Object.assign(u,su,{img:u.img, sonarData:su.sonarData?new Uint8Array(su.sonarData):null}); }
   known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
-  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v); sonarSnaps.length=0; sonarSnaps.push(...(d.sonar||[]));
+  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v); sonarSnaps.length=0; sonarSnaps.push(...(d.sonar||[]).filter(s=>s.b&&s.b.length===64));
   $('#log').innerHTML=''; logEntries.length=0; for(const e of d.log||[]) log(e.txt,e.cls,e.t); log('— сеанс восстановлен —','sys');
 }
 function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){ return null; } }

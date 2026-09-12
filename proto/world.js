@@ -309,7 +309,7 @@ function tick(){
       if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; if(u.autonomy===1) u.target=null; if(u.autonomy===2){ u.target={x:16,y:0}; u.mode=3; } } }
       else { u.linkLostFor=0; u.autoDone=false; }
       const sp=speedFor(u.mode);
-      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:1.5)){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); }
+      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:0.5)){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); }
         else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
           // застревание — по продвижению: за 4 с не приблизился к цели на метр → стоп
           u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<1){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
