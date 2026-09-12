@@ -81,11 +81,22 @@ function objectsAround(u, maxR){
   if(dist(u,creature)<=Math.min(maxR,60)) out.push({id:250,type:250,x:creature.x,y:creature.y,creature:true});
   return out;
 }
+// Станция составляет текст сама — из базы знаний и текущего состояния мира.
+function nameOf(o){
+  if(o.creature) return creature.awake ? 'существо, класс не определён' : 'объект, класс не определён';
+  if(o.unit) return o.unit.alive ? `миссионер М${o.unit.id}` : `тело М${o.unit.id}`;
+  return (CODEBOOK[o.type]||CODEBOOK[250]).name;
+}
+function examText(o){
+  if(o.creature) return creature.awake ? 'Двуногое. Кожа с тем же рисунком пор, что у миссионера. Смотрит.' : 'Двуногое, лежит. Дышит. Кожа с тем же рисунком пор, что у миссионера.';
+  if(o.unit){ const v=o.unit; if(v.alive) return `Наш. ${v.target?'Идёт.':'Стоит.'} Пульс на вид ${v.pulse<100?'ровный':'частый'}.`; return `Не двигается. ${v.sensors.camera?'Камера на месте.':'Камеры нет.'}${v.items.length?' При нём: '+v.items.map(i=>ITEMS[i]).join(', ')+'.':''}`; }
+  const cb=CODEBOOK[o.type]||CODEBOOK[250]; return (cb.states||[])[stateOf(o.id)]||'';
+}
+function classOf(o){ return o.creature?2 : o.unit?(o.unit.alive?4:3) : o.landmark?1 : 0; }
 function describe(u, cls='cmd'){
-  const objs=objectsAround(u,100);
-  const b=new Uint8Array(objs.length*4);
-  objs.forEach((o,i)=>{ b[i*4]=o.id&255; b[i*4+1]=o.type; b[i*4+2]=Math.round(bearingDeg(u,o)/2); b[i*4+3]=Math.min(255,Math.round(dist(u,o))); });
-  emit(cls,'DESC',u.id,b);
+  const objs=objectsAround(u,100); const parts=[];
+  for(const o of objs){ const t=encText(nameOf(o)); parts.push([o.id&255, classOf(o), Math.round(bearingDeg(u,o)/2), Math.min(255,Math.round(dist(u,o))), t.length, ...t]); }
+  emit(cls,'DESC',u.id,new Uint8Array(parts.flat()));
 }
 function rayCircle(ox,oy,dx,dy,c){ const fx=ox-c.x, fy=oy-c.y; const b=2*(fx*dx+fy*dy), cc=fx*fx+fy*fy-c.r*c.r; const D=b*b-4*cc; if(D<0) return Infinity; const s=Math.sqrt(D); const t1=(-b-s)/2, t2=(-b+s)/2; if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
 function raySeg(ox,oy,dx,dy,s){ const ex=s.x2-s.x1, ey=s.y2-s.y1; const den=dx*ey-dy*ex; if(Math.abs(den)<1e-9) return Infinity; const tt=((s.x1-ox)*ey-(s.y1-oy)*ex)/den; const uu=((s.x1-ox)*dy-(s.y1-oy)*dx)/den; return (tt>0&&uu>=0&&uu<=1)?tt:Infinity; }
@@ -149,18 +160,18 @@ function beginAction(u,kind,id){
 function doPending(u){
   const p=u.pending; u.pending=null; if(!p) return; const o=findObj(u,p.id); if(!o){ evt(16,u.id,p.id); return; }
   const st=stateOf(o.id), cb=CODEBOOK[o.type]||CODEBOOK[250];
-  if(p.kind==='exam'){ emit('cmd','EXAM',u.id,new Uint8Array([o.id,o.type,st])); return; }
-  // взаимодействие: действие из текущего состояния
-  const acts=cb.actions||[]; const ai=acts.findIndex(a=>a.from===st); const a=acts[ai];
-  const reply=(code,newSt)=>emit('cmd','ACT',u.id,new Uint8Array([o.id,o.type,newSt,code,ai<0?255:ai]));
-  if(!a){ reply(1,st); return; }
-  if(a.needs && !u.items.includes(a.needs)){ reply(2,st); return; }
-  if(a.req && stateOf(a.req.obj)!==a.req.state){ reply(3,st); return; }
-  if(a.special==='return_camera'){ if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; station.camInv++; reply(0,st); } else reply(1,st); return; }
-  if(a.special==='strip'){ const v=o.unit; if(v&&v.sensors.camera){ v.sensors.camera=false; v.sub.img.interval=0; u.sensors.camera=true; u.lastImg={}; } objState[o.id]=a.to; reply(0,a.to); return; }
+  const textReply=(kind,code,text)=>{ const t=encText(text); emit('cmd',kind,u.id,new Uint8Array([o.id,code,t.length,...t])); };
+  if(p.kind==='exam'){ textReply('EXAM',0,examText(o)); return; }
+  // взаимодействие: действие из текущего состояния; ответ — текст, составленный станцией
+  const acts=cb.actions||[]; const a=acts.find(a=>a.from===st);
+  if(!a){ textReply('ACT',1,'осмотрел: сделать здесь нечего.'); return; }
+  if(a.needs && !u.items.includes(a.needs)){ textReply('ACT',2,`не смог: ${a.fail||'нужен предмет'}`); return; }
+  if(a.req && stateOf(a.req.obj)!==a.req.state){ textReply('ACT',3,`не смог: ${a.fail||'условие не выполнено'}`); return; }
+  if(a.special==='return_camera'){ if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; station.camInv++; textReply('ACT',0,'сдал камеру на склад. На складе: '+station.camInv+'.'); } else textReply('ACT',1,'осмотрел: сдавать нечего.'); return; }
+  if(a.special==='strip'){ const v=o.unit; let got='датчиков на теле нет.'; if(v&&v.sensors.camera){ v.sensors.camera=false; v.sub.img.interval=0; u.sensors.camera=true; u.lastImg={}; got='снял камеру. Теперь она на М'+u.id+'.'; } objState[o.id]=a.to; textReply('ACT',0,got); return; }
   if(a.special==='boost') antennaBoost=6;
   if(a.item===42){ u.sensors.camera=true; u.lastImg={}; } else if(a.item) u.items.push(a.item);
-  objState[o.id]=a.to; reply(0,a.to);
+  objState[o.id]=a.to; textReply('ACT',0,`${a.verb}. ${(cb.states||[])[a.to]||''}${a.item&&a.item!==42?' ['+ITEMS[a.item]+']':''}`);
 }
 
 // ---------- команды (uplink) ----------

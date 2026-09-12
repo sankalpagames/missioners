@@ -1,5 +1,7 @@
-// Кодовая книга: лежит на консоли. По каналу ходят только id типов и состояний.
-// Подключается и в мир (для логики состояний), и в консоль (для текста).
+// База знаний станции: типы объектов, их состояния и действия. Живёт в МИРЕ.
+// По каналу ходит ТЕКСТ, который станция составляет из этой базы и текущего состояния мира,
+// а не id — так описание может зависеть от чего угодно и не быть заранее перечисленным.
+// Консоль отсюда берёт только системные коды (события, режимы, предметы) и кодек текста.
 //   states  — что видно вблизи в каждом состоянии (ответ на «изучить»)
 //   actions — что можно сделать из состояния: {from, to, verb, item?, needs?, req?, fail?}
 //     item  — предмет, который получает миссионер; needs — предмет, без которого нельзя;
@@ -43,6 +45,12 @@ const CODEBOOK = {
 
 const ITEMS = { 40:'пищевой брикет', 41:'резак', 42:'камера' };
 
+// Однобайтовая кодировка текста в духе КОИ-8: кириллица, латиница, цифры, знаки — по байту на символ.
+const TXT_ALPHABET = ' абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,;:!?-—«»()[]/+%°№…\n';
+const TXT_ENC = {}; [...TXT_ALPHABET].forEach((ch,i)=>TXT_ENC[ch]=i+1);
+function encText(s){ const out=new Uint8Array(s.length); let n=0; for(const ch of s){ out[n++]=TXT_ENC[ch]||TXT_ENC['?']; } return out.slice(0,n); }
+function decText(b){ let s=''; for(const v of b) s+=v?TXT_ALPHABET[v-1]||'?':''; return s; }
+
 const MODES = { 1:'исследование', 2:'скрытность', 3:'отступление', 4:'отдых', 5:'бой' };
 
 const EVENTS = {
@@ -64,4 +72,4 @@ const EVENTS = {
   16:'объект не найден рядом',
 };
 
-if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, EVENTS };
+if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, EVENTS, encText, decText };

@@ -9,14 +9,14 @@ const known=new Map();          // ключ → объект с координа
 const journal=new Map();        // id объекта → [{t, unit, text}] — что узнали, изучив или взаимодействуя
 function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push({t:tNow,unit,text}); if($('.tabs button.on').dataset.tab==='journal') renderJournal(); }
 function jlast(id){ const j=journal.get(id); return j?j[j.length-1]:null; }
-function oname(id,type){ const cb=CODEBOOK[type]||CODEBOOK[250]; return id>=200&&id<250?`${cb.name} М${id-200}`:cb.name; }
+function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:'объект '+id; }
 const KIND_RU={TLM:'телеметрия',HB:'пульс станции',SONAR:'сонар',DESC:'описание',IMG:'изображение',EVT:'событие',EXAM:'осмотр',ACT:'действие'};
 const KIND_COL={TLM:'#5cb85c',HB:'#2f6f3a',SONAR:'#4a8fe0',DESC:'#9fb59f',IMG:'#e0a94a',EVT:'#8a7fd0',EXAM:'#8a7fd0',ACT:'#8a7fd0',drop:'#d9534f'};
 const UCOL=['#7fe07f','#4a8fe0','#e0a94a','#d97fd9','#5cd0d0','#d9534f'];
 const bw={};                    // kind → массив {t,bytes} за 5 с
 const totals={};
 
-function U(id){ if(!units.has(id)) units.set(id,{id,alive:true,carrier:true,camera:false,sonar:false,streaming:false,charge:null,tlm:null,tlmAt:-1e9,hist:[],track:[],sonarAt:-1e9,desc:[],descAt:-1e9,autonomy:0,target:null,subs:{tlm:1,sonar:0,desc:0,img:0,level:2,delta:true},img:{msg:null,buf:new Uint8Array(64*64),levels:{},skipped:0,at:-1e9,asm:{},state:'',prog:0}}); return units.get(id); }
+function U(id){ if(!units.has(id)) units.set(id,{id,alive:true,carrier:true,camera:false,sonar:false,streaming:false,charge:null,tlm:null,tlmAt:-1e9,hist:[],track:[],sonarAt:-1e9,desc:[],descAt:-1e9,autonomy:0,target:null,descPts:[],subs:{tlm:1,sonar:0,desc:0,img:0,level:2,delta:true},img:{msg:null,buf:new Uint8Array(64*64),levels:{},skipped:0,at:-1e9,asm:{},state:'',prog:0}}); return units.get(id); }
 function T(){ const u=units.get(active); return u?u.sel:null; }
 U(1); units.get(1).camera=true; units.get(1).sonar=true;
 function pos(id){ const u=units.get(id); if(u&&u.tlm) return {x:u.tlm.x,y:u.tlm.y}; if(u&&u.track.length) return u.track[u.track.length-1]; return {x:16,y:0}; }
@@ -29,8 +29,13 @@ function fmtT(t){ if(!isFinite(t)) return '—'; const m=Math.floor(t/60), s=Mat
 world.onmessage=e=>{ const m=e.data; if(m.t==='msg') link.enqueue(m); else if(m.t==='phys'){ link.setPhys(m); dbg=m.dbg; } };
 link.onUplink=bytes=>world.postMessage({t:'cmd',bytes});
 link.onFrame=(msg,ok)=>world.postMessage({t:'imgAck',unit:msg.unit,level:+msg.kind[3],ok});
+// Сборка многопакетных текстовых сообщений: декодируем, когда пришли все пакеты
+const asm={};
+function assemble(pkt){ if(pkt.total===1) return pkt.bytes; const a=asm[pkt.msgId]=asm[pkt.msgId]||{parts:{},total:pkt.total,at:tNow}; a.parts[pkt.seq]=pkt.bytes; a.at=tNow;
+  if(Object.keys(a.parts).length<a.total) return null; const out=[]; for(let i=0;i<a.total;i++) out.push(...a.parts[i]); delete asm[pkt.msgId]; return new Uint8Array(out); }
 link.onDeliver=pkt=>{
   const k=link.kindOf(pkt.kind); (bw[k]=bw[k]||[]).push({t:tNow,b:pkt.size}); totals[k]=(totals[k]||0)+pkt.size;
+  if(pkt.kind==='DESC'||pkt.kind==='EXAM'||pkt.kind==='ACT'){ const full=assemble(pkt); if(!full) return; pkt={...pkt,bytes:full}; }
   switch(pkt.kind){
     case 'TLM': decodeTlm(pkt); break;
     case 'HB': decodeHb(pkt.bytes); break;
@@ -58,18 +63,17 @@ function decodeHb(b){ station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===25
     if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} потеряна — миссионер вне зоны приёма`,'err');
     if(!wasCarrier&&u.carrier) log(`станция: несущая М${id} восстановлена`,'sys'); }
   renderUnits(); const au=units.get(active); if(au){ $('#sonar-body').hidden=!au.sonar; $('#sonar-none').hidden=au.sonar; $('#img-body').hidden=!au.camera; $('#img-none').hidden=au.camera; } }
+// Описание: [id, класс, пеленг/2, дальность, длина, текст]*. Класс: 0 объект, 1 ориентир, 2 неопознанное, 3 тело, 4 миссионер.
 function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit), p=pos(pkt.unit); const items=[];
-  for(let i=0;i+3<b.length;i+=4){ const it={id:b[i],type:b[i+1],bearing:b[i+2]*2,range:b[i+3]}; it.x=Math.round(p.x+Math.cos(it.bearing*Math.PI/180)*it.range); it.y=Math.round(p.y+Math.sin(it.bearing*Math.PI/180)*it.range); items.push(it);
-    const key=it.type===250?'creature':(it.id>=200?'unit'+it.id:'o'+it.id); const c=CODEBOOK[it.type]||CODEBOOK[250];
-    const prev=known.get(key); const seen=prev?prev.seenBy:new Set(); seen.add(pkt.unit);
-    known.set(key,{id:it.id,type:it.type,x:it.x,y:it.y,at:tNow,unit:pkt.unit,seenBy:seen,name:it.id>=200&&it.id<250?`${c.name} М${it.id-200}`:c.name}); }
-  u.desc=items; u.descAt=tNow; if(pkt.unit===active) renderDesc();
-  log(`М${pkt.unit} описание: ${items.length} — ${items.map(i=>(CODEBOOK[i.type]||CODEBOOK[250]).name).join(', ')}`,'desc'); }
-function decodeExam(pkt){ const [id,type,st]=pkt.bytes; const cb=CODEBOOK[type]||CODEBOOK[250]; const text=(cb.states||[])[st]||'…'; jadd(id,pkt.unit,`подошёл, посмотрел: ${text}`); log(`М${pkt.unit} изучил «${oname(id,type)}»: ${text}`,'desc'); renderDesc(); }
-function decodeAct(pkt){ const [id,type,st,code,ai]=pkt.bytes; const cb=CODEBOOK[type]||CODEBOOK[250]; const a=(cb.actions||[])[ai]; const name=oname(id,type); let text;
-  if(code===0){ text=`${a?a.verb:'сделал'}. ${(cb.states||[])[st]||''}`; if(a&&a.item){ text+=` [${ITEMS[a.item]}]`; } if(a&&a.special==='boost') log('усиление тракта +6 дБ для всех миссионеров','sys'); }
-  else if(code===1) text='осмотрел: сделать здесь нечего.'; else if(code===2) text=`не смог: ${a?a.fail:'нужен предмет'}`; else text=`не смог: ${a?a.fail:'условие не выполнено'}`;
-  jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${name}: ${text}`,code===0?'evt':'err'); renderDesc(); }
+  for(let i=0;i+4<b.length;){ const len=b[i+4]; const it={id:b[i],cls:b[i+1],bearing:b[i+2]*2,range:b[i+3],name:decText(b.slice(i+5,i+5+len))}; i+=5+len;
+    it.x=Math.round(p.x+Math.cos(it.bearing*Math.PI/180)*it.range); it.y=Math.round(p.y+Math.sin(it.bearing*Math.PI/180)*it.range); items.push(it);
+    const key=it.cls===2?'creature':'o'+it.id; const prev=known.get(key); const seen=prev?prev.seenBy:new Set(); seen.add(pkt.unit);
+    known.set(key,{id:it.id,cls:it.cls,x:it.x,y:it.y,at:tNow,unit:pkt.unit,seenBy:seen,name:it.name}); }
+  u.desc=items; u.descAt=tNow; u.descPts.push({x:p.x,y:p.y,t:tNow}); if(pkt.unit===active) renderDesc();
+  log(`М${pkt.unit} описание: ${items.length} — ${items.map(i=>i.name).join(', ')}`,'desc'); }
+// Осмотр и действие: [id, код, длина, текст] — текст составила станция, консоль его только печатает.
+function decodeExam(pkt){ const b=pkt.bytes, id=b[0], text=decText(b.slice(3,3+b[2])); jadd(id,pkt.unit,`подошёл, посмотрел: ${text}`); log(`М${pkt.unit} изучил «${oname(id)}»: ${text}`,'desc'); renderDesc(); }
+function decodeAct(pkt){ const b=pkt.bytes, id=b[0], code=b[1], text=decText(b.slice(3,3+b[2])); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,code===0?'evt':'err'); renderDesc(); }
 function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М${pkt.unit} `:''; const txt=EVENTS[code]||('событие '+code);
   if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}) — нужно новое описание`,'err'); else log(`${un}${txt}`,'evt');
   if(code===5){ const u=U(pkt.unit); u.alive=false; renderUnits(); }
@@ -112,12 +116,12 @@ function selectUnit(){ const u=units.get(active); renderUnits(); renderDesc(); d
   $('#sonar-body').hidden=!u.sonar; $('#sonar-none').hidden=u.sonar; $('#img-body').hidden=!u.camera; $('#img-none').hidden=u.camera; $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }
 function renderDesc(){ const u=units.get(active), el=$('#desc'); el.innerHTML=''; $('#desc-unit').textContent='М'+active; if(!u||!u.desc.length){ el.innerHTML='<div class="dim small">нет данных</div>'; return; }
   el.insertAdjacentHTML('beforeend',`<div class="dim small">${(tNow-u.descAt).toFixed(0)} с назад</div>`); const tg=T();
-  for(const it of u.desc){ const name=oname(it.id,it.type); const d=document.createElement('div'); d.className='it'+(tg&&tg.id===it.id?' sel':''); const j=jlast(it.id);
+  for(const it of u.desc){ const name=it.name; const d=document.createElement('div'); d.className='it'+(tg&&tg.id===it.id?' sel':''); const j=jlast(it.id);
     const js=journal.get(it.id)||[]; const open=expanded.has(it.id);
-    d.innerHTML=`<span class="${it.type===250?'u':'n'}">${name}</span> <span class="dim">${it.bearing}° · ${it.range} м</span>`+(j?`<br><span class="j">М${j.unit}: ${j.text}</span>`:'')+(js.length>1?` <span class="jt">${open?'▾':'▸'} ${js.length} записей</span>`:'')+(open?js.slice(0,-1).map(e=>`<div class="jl">${fmtT(e.t)} М${e.unit}: ${e.text}</div>`).join(''):'');
-    d.onclick=e=>{ if(e.target.classList.contains('jt')){ expanded.has(it.id)?expanded.delete(it.id):expanded.add(it.id); renderDesc(); return; } setTarget({id:it.id,type:it.type,x:it.x,y:it.y,name}); }; el.appendChild(d); } }
+    d.innerHTML=`<span class="${it.cls===2?'u':'n'}">${name}</span> <span class="dim">${it.bearing}° · ${it.range} м</span>`+(j?`<br><span class="j">М${j.unit}: ${j.text}</span>`:'')+(js.length>1?` <span class="jt">${open?'▾':'▸'} ${js.length} записей</span>`:'')+(open?js.slice(0,-1).map(e=>`<div class="jl">${fmtT(e.t)} М${e.unit}: ${e.text}</div>`).join(''):'');
+    d.onclick=e=>{ if(e.target.classList.contains('jt')){ expanded.has(it.id)?expanded.delete(it.id):expanded.add(it.id); renderDesc(); return; } setTarget({id:it.id,cls:it.cls,x:it.x,y:it.y,name}); }; el.appendChild(d); } }
 const expanded=new Set();
-function nearestLandmark(x,y){ let best=null, bd=1e9; for(const o of known.values()){ if(o.type>7) continue; const d=Math.hypot(o.x-x,o.y-y); if(d<bd){ bd=d; best=o; } } return best?best.name:'станция'; }
+function nearestLandmark(x,y){ let best=null, bd=1e9; for(const o of known.values()){ if(o.cls!==1) continue; const d=Math.hypot(o.x-x,o.y-y); if(d<bd){ bd=d; best=o; } } return best?best.name:'станция'; }
 function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const fu=$('#jf-unit').value, flm=$('#jf-lm').value, q=$('#jf-q').value.trim().toLowerCase();
   const rows=[]; const lms=new Set();
   for(const [id,entries] of journal){ const o=[...known.values()].find(k=>k.id===id); const lm=o?nearestLandmark(o.x,o.y):'без координат'; lms.add(lm); const name=o?o.name:('объект '+id);
@@ -127,7 +131,7 @@ function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const fu=$('#
   const f=rows.filter(r=>(!fu||r.unit===+fu)&&(!flm||r.lm===flm)&&(!q||(r.name+' '+r.text).toLowerCase().includes(q))).sort((a,b)=>b.t-a.t);
   $('#jf-count').textContent=`${f.length} из ${rows.length}`;
   if(!rows.length){ el.innerHTML='<div class="dim">пока ничего не изучено. выбери объект и нажми «Изучить».</div>'; return; }
-  for(const r of f){ const d=document.createElement('div'); d.className='row-e'; d.innerHTML=`<span class="t">${fmtT(r.t)}</span><span class="u">М${r.unit}</span><span class="n">${r.name}</span>${r.text} <span class="lm">· ${r.lm}</span>`; if(r.o) d.onclick=()=>setTarget({id:r.o.id,type:r.o.type,x:r.o.x,y:r.o.y,name:r.name}); el.appendChild(d); } }
+  for(const r of f){ const d=document.createElement('div'); d.className='row-e'; d.innerHTML=`<span class="t">${fmtT(r.t)}</span><span class="u">М${r.unit}</span><span class="n">${r.name}</span>${r.text} <span class="lm">· ${r.lm}</span>`; if(r.o) d.onclick=()=>setTarget({id:r.o.id,cls:r.o.cls,x:r.o.x,y:r.o.y,name:r.name}); el.appendChild(d); } }
 ['#jf-unit','#jf-lm'].forEach(s=>$(s).onchange=renderJournal); $('#jf-q').oninput=renderJournal;
 function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`выбрано: ${tg.name} (${tg.x}, ${tg.y})`:'ничего не выбрано'; }
 function setTarget(tg){ units.get(active).sel=tg; renderDesc(); updateTarget(); }   // выбор — локальный, ничего не уходит
@@ -144,11 +148,13 @@ function drawMap(){ const cv=$('#map'), ctx=cv.getContext('2d'), W=cv.width, H=c
   for(let gy=Math.floor(vy0/step)*step;gy<=vy1;gy+=step){ ctx.beginPath(); ctx.moveTo(0,sy(gy)); ctx.lineTo(W,sy(gy)); ctx.stroke(); ctx.fillText(gy,2,sy(gy)-2); }
   // линейка масштаба
   ctx.fillStyle='#aaa'; ctx.fillRect(W-16-step*sc,12,step*sc,2); ctx.fillText(step+' м',W-16-step*sc,10);
+  // покрытие: где и когда снимались описания (радиус 100 м) — единственное, что консоль честно знает о «просмотренном»
+  for(const u of units.values()) for(const q of u.descPts){ const age=tNow-q.t; ctx.fillStyle=`rgba(159,181,159,${Math.max(0.03,0.12-age/6000)})`; ctx.beginPath(); ctx.arc(sx(q.x),sy(q.y),100*sc,0,7); ctx.fill(); }
   ctx.strokeStyle='#555'; ctx.beginPath(); ctx.arc(sx(0),sy(0),14*sc,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(0)+16*sc,sy(0)-4);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); u.track.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
   const tg=T(), au0=units.get(active), gp=au0&&au0.goalPos;
-  for(const o of known.values()){ const age=tNow-o.at, mine=o.seenBy.has(active); ctx.globalAlpha=(mine?Math.max(0.4,1-age/600):0.22); const col=o.type===250?'#ff5c5c':o.type===251?'#888':o.type<=7?'#e0a94a':'#9fb59f'; const r=o.type<=7?3:2; if(mine){ ctx.fillStyle=col; ctx.fillRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } else { ctx.strokeStyle=col; ctx.strokeRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } if(mine&&(o.type<=7||o.type>=250||sc>1.2)) ctx.fillText(o.name,sx(o.x)+5,sy(o.y)+3); }
+  for(const o of known.values()){ const age=tNow-o.at, mine=o.seenBy.has(active); ctx.globalAlpha=(mine?Math.max(0.4,1-age/600):0.22); const col=o.cls===2?'#ff5c5c':o.cls===3?'#888':o.cls===1?'#e0a94a':'#9fb59f'; const r=o.cls===1?3:2; if(mine){ ctx.fillStyle=col; ctx.fillRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } else { ctx.strokeStyle=col; ctx.strokeRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } if(mine&&(o.cls!==0||sc>1.2)) ctx.fillText(o.name,sx(o.x)+5,sy(o.y)+3); }
   { const au=units.get(active); if(au){ const p=pos(active); let ang=null; if(gp&&Math.hypot(gp.x-p.x,gp.y-p.y)>1.5) ang=Math.atan2(gp.y-p.y,gp.x-p.x); else if(au.track.length>1){ const a=au.track[au.track.length-2], b=au.track[au.track.length-1]; ang=Math.atan2(b.y-a.y,b.x-a.x); } else ang=0;
       const R=80*sc, f=52*Math.PI/180; ctx.fillStyle='rgba(224,169,74,0.10)'; ctx.beginPath(); ctx.moveTo(sx(p.x),sy(p.y)); ctx.arc(sx(p.x),sy(p.y),R,ang-f,ang+f); ctx.closePath(); ctx.fill(); } }
   ctx.globalAlpha=1; if(gp){ ctx.strokeStyle='#e0a94a'; ctx.beginPath(); ctx.arc(sx(gp.x),sy(gp.y),5,0,7); ctx.stroke(); } if(tg){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(sx(tg.x),sy(tg.y),7,0,7); ctx.stroke(); ctx.fillStyle='#fff'; ctx.fillText('выбрано',sx(tg.x)+9,sy(tg.y)-8); }
@@ -170,7 +176,7 @@ const map={tf:null,zoom:1,panX:0,panY:0,drag:null};
 $('#map').onclick=e=>{ if(map.suppressClick){ map.suppressClick=false; return; } const cv=$('#map'), r=cv.getBoundingClientRect(), tf=map.tf; if(!tf) return; const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
   let best=null, bd=12; for(const o of known.values()){ const d=Math.hypot(tf.sx(o.x)-px,tf.sy(o.y)-py); if(d<bd){ bd=d; best=o; } }
   const wx=Math.round(tf.cx+(px-tf.W/2)/tf.sc), wy=Math.round(tf.cy+(py-tf.H/2)/tf.sc);
-  setTarget(best?{id:best.id,type:best.type,x:best.x,y:best.y,name:best.name}:{id:0,type:0,x:wx,y:wy,name:`точка ${wx}, ${wy}`}); };
+  setTarget(best?{id:best.id,cls:best.cls,x:best.x,y:best.y,name:best.name}:{id:0,cls:0,x:wx,y:wy,name:`точка ${wx}, ${wy}`}); };
 
 function drawChartTlm(){ const cv=$('#chart-tlm'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); const u=units.get(+$('#ch-unit').value||active); const f=$('#ch-field').value; if(!u||!u.hist.length) return;
   const h=u.hist, t0=h[0].t, t1=Math.max(tNow,t0+60); const max=f==='pulse'?220:f==='cons'?3:100; ctx.strokeStyle='#1a1e25'; for(let g=0;g<=4;g++){ const y=H-g/4*H; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText((max*g/4).toFixed(0),2,y-2); }
