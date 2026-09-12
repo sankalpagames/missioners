@@ -336,11 +336,11 @@ function fmtGap(s){ if(s<90) return `${s.toFixed(0)}s`; if(s<5400) return `${(s/
 const boot={onInfo:null,onHb:null,onTlm:null};
 (async()=>{
   const el=$('#boot-text'); const sl=ms=>new Promise(r=>setTimeout(r,ms));
-  const type=async s=>{ for(const ch of s){ el.textContent+=ch; await sl(35+Math.random()*50); } };
+  const type=async s=>{ for(const ch of s){ el.textContent+=ch; await sl(12); } };
   const line=(s)=>{ el.textContent+=s+'\n'; };
   selectUnit(); drawSonar(null);
-  el.textContent='$ '; await sl(700); await type('ares-tk --key ~/old/dse.key ping ARK-041'); await sl(300); el.textContent+='\n';
-  await sl(400); line('resolve ARK-041 via DSE routing table… corp endpoint unreachable, using cached route');
+  el.textContent='$ '; await sl(200); await type('ares-tk --key ~/old/dse.key ping ARK-041'); el.textContent+='\n';
+  line('resolve ARK-041 via DSE routing table… corp endpoint unreachable, using cached route');
   // сеанс: меню в терминале, одна клавиша
   const key=async(keys)=>{ const cur=document.createElement('span'); cur.className='cur'; el.appendChild(cur); const k=await new Promise(res=>{ const h=e=>{ const k=e.key.toLowerCase(); if(keys.includes(k)){ document.removeEventListener('keydown',h); res(k); } }; document.addEventListener('keydown',h); }); cur.remove(); el.textContent+=k+'\n'; return k; };
   let s=readSave();
@@ -354,14 +354,14 @@ const boot={onInfo:null,onHb:null,onTlm:null};
     } else { line('local session store: empty'); el.textContent+='[n] new  [i] import file  ';
       const k=await key(['n','i']); if(k==='n'){ line('new session'); break; } const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); }
   }
-  await sl(500); const t0=Date.now(); line('status request, 3 B'); link.sendUplink([11,0,0]);
+  const t0=Date.now(), info0=totals.INFO||0; line('status request, 3 B'); link.sendUplink([11,0,0]);
   const info=await new Promise(res=>{ boot.onInfo=(text,pkt)=>{ boot.onInfo=null; res({text,pkt}); }; });
-  line(`ACK ARK-041  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${(link.deepCapBps()).toFixed(0)}bps  rx=${totals.INFO||0}B`);
-  for(const l of info.text.split('\n')){ await sl(120); line('  '+l); }
+  line(`ACK ARK-041  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${(link.deepCapBps()).toFixed(0)}bps  rx=${(totals.INFO||0)-info0}B`);
+  for(const l of info.text.split('\n')) line('  '+l);
   const hb=await new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; });
   line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));
   const tlm=await new Promise(res=>{ boot.onTlm=p=>{ boot.onTlm=null; res(p); }; });
   const T=units.get(tlm.unit).tlm; line(`telemetry M${tlm.unit} ${tlm.size}B  pulse=${T.pulse} charge=${T.charge.toFixed(0)}% pos=${T.x},${T.y}`);
-  await sl(400); line(''); line('$ console'); await sl(500); $('#boot').classList.add('off');
+  line(''); line('$ console'); await sl(250); $('#boot').classList.add('off');
   log('консоль открыта. ключ принят.','sys'); selectUnit(); renderUnits();
 })();
