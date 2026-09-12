@@ -260,7 +260,7 @@ onmessage = e => {
     case 22: beginAction(u,'put',m.bytes[3],arg); break;    // положить: [22,item,unit,objId] (objId 0 — на грунт)
     case 23: beginAction(u,'take',m.bytes[3],arg); break;   // взять:    [23,item,unit,objId]
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
-    case 6: if(u.alive){ const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.target={x,y}; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
+    case 6: if(u.alive){ const {x,y}=decPos(m.bytes,3); u.goal={x,y}; if(blocked(x,y)){ evt(23,u.id); break; } u.target={x,y}; u.bestD=undefined; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
     case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ u.target={x:16,y:0}; u.goal={x:16,y:0}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
     case 8: beginAction(u,'act',arg); break;
@@ -309,9 +309,10 @@ function tick(){
       if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; if(u.autonomy===1) u.target=null; if(u.autonomy===2){ u.target={x:16,y:0}; u.mode=3; } } }
       else { u.linkLostFor=0; u.autoDone=false; }
       const sp=speedFor(u.mode);
-      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:1.5)){ u.target=null; u.exertion=0; u.stuck=0; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); }
-        else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); const moved=stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
-          if(!moved){ u.stuck=(u.stuck||0)+dt; if(u.stuck>4){ u.stuck=0; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); } } else u.stuck=0; } } else u.exertion=0;
+      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:1.5)){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); }
+        else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
+          // застревание — по продвижению: за 4 с не приблизился к цели на метр → стоп
+          u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<1){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
       const dc=dist(u,creature);
       const fearT=creature.awake&&!creature.fleeing?Math.max(0,1-dc/80):0; u.fear+=(fearT-u.fear)*dt/2; u.pain=Math.max(0,u.pain-dt/8);
       const rest=u.mode===4; const pulseT=60+55*u.exertion+95*u.fear+45*u.pain-(rest?8:0); u.pulse+=(pulseT-u.pulse)*dt/3;
