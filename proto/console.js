@@ -203,9 +203,9 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
     ctx.globalAlpha=0.07; ctx.drawImage(off,0,0); ctx.globalAlpha=1;
     for(const u of units.values()){ const q=u.descPts[u.descPts.length-1]; if(!q) continue; const age=tNow-q.t; const a=Math.max(0,0.12*(1-age/60)); if(a<=0) continue; ctx.fillStyle=`rgba(159,181,159,${a})`; ctx.beginPath(); ctx.arc(sx(q.x),sy(q.y),100*sc,0,7); ctx.fill(); } }
   // карта высот: заливка тоном по высоте (ниже — темнее) и изогипсы через 0,5 м по центрам ячеек (marching squares)
-  if(hmap.size){ const sm=hmapSmooth(); const i0=Math.floor((cx-W/2/sc)/HCELL)-1, i1=Math.floor((cx+W/2/sc)/HCELL)+1, j0=Math.floor((cy-H/2/sc)/HCELL)-1, j1=Math.floor((cy+H/2/sc)/HCELL)+1; const get=(i,j)=>sm.get(i+','+j);
-    const cs=HCELL*sc; for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const c=get(i,j); if(!c) continue; const t=Math.max(0,Math.min(1,(c.z+3)/30)); ctx.fillStyle=`rgba(${70+120*t},${110+90*t},${100+70*t},${0.12+0.05*Math.min(c.w,4)})`; ctx.fillRect(sx(i*HCELL),sy(j*HCELL),cs+0.5,cs+0.5); }
-    if(cs>=2){ ctx.strokeStyle='rgba(140,210,185,0.7)'; ctx.lineWidth=1; ctx.beginPath(); const STEP=0.5;
+  if(hmap.size&&(map.hm||map.iso)){ const sm=hmapSmooth(); const i0=Math.floor((cx-W/2/sc)/HCELL)-1, i1=Math.floor((cx+W/2/sc)/HCELL)+1, j0=Math.floor((cy-H/2/sc)/HCELL)-1, j1=Math.floor((cy+H/2/sc)/HCELL)+1; const get=(i,j)=>sm.get(i+','+j);
+    const cs=HCELL*sc; if(map.hm) for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const c=get(i,j); if(!c) continue; const t=Math.max(0,Math.min(1,(c.z+3)/30)); ctx.fillStyle=`rgba(${70+120*t},${110+90*t},${100+70*t},${0.12+0.05*Math.min(c.w,4)})`; ctx.fillRect(sx(i*HCELL),sy(j*HCELL),cs+0.5,cs+0.5); }
+    if(map.iso&&cs>=2){ ctx.strokeStyle='rgba(140,210,185,0.7)'; ctx.lineWidth=1; ctx.beginPath(); const STEP=0.5;
       for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const a=get(i,j), b=get(i+1,j), c=get(i+1,j+1), d=get(i,j+1); if(!a||!b||!c||!d) continue; const v=[a.z,b.z,c.z,d.z]; const lo=Math.ceil(Math.min(...v)/STEP)*STEP, hi=Math.max(...v);
         const P=[[i,j],[i+1,j],[i+1,j+1],[i,j+1]].map(([q,w])=>[sx((q+0.5)*HCELL),sy((w+0.5)*HCELL)]);
         for(let L=lo;L<=hi;L+=STEP){ const pts=[]; for(let e=0;e<4;e++){ const va=v[e], vb=v[(e+1)%4]; if((va<L)!==(vb<L)){ const k=(L-va)/(vb-va); pts.push([P[e][0]+(P[(e+1)%4][0]-P[e][0])*k, P[e][1]+(P[(e+1)%4][1]-P[e][1])*k]); } }
@@ -219,7 +219,7 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
     if(!inChain.some(Boolean) && joined(0)) inChain.fill(true);   // все 64 соединены — замкнутая стена вокруг
     ctx.strokeStyle=`rgba(226,240,255,${al})`; ctx.lineWidth=1.2; for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!p.solid||!joined(i)||!inChain[i]) continue; const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1; }
   ctx.strokeStyle='#555'; ctx.beginPath(); ctx.arc(sx(0),sy(0),14*sc,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(0)+16*sc,sy(0)-4);
-  for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); u.track.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
+  for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); const t0=map.trackLife?tNow-map.trackLife:-1; u.track.filter(p=>!(p.t<t0)).forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
   const tg=T(), au0=units.get(active), gp=au0&&au0.goalPos;
   for(const o of known.values()){ const age=tNow-o.at, mine=o.seenBy.has(active); ctx.globalAlpha=(mine?Math.max(0.4,1-age/600):0.22); const col=o.cls===2?'#ff5c5c':o.cls===3?'#888':o.cls===1?'#e0a94a':'#9fb59f'; const r=o.cls===1?3:2; if(mine){ ctx.fillStyle=col; ctx.fillRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } else { ctx.strokeStyle=col; ctx.strokeRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } if(mine&&(o.cls!==0||sc>1.2)) ctx.fillText(o.name,sx(o.x)+5,sy(o.y)+3); }
@@ -229,7 +229,7 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   ctx.globalAlpha=1;
   for(const u of units.values()){ const p=pos(u.id); const col=UCOL[(u.id-1)%UCOL.length]; ctx.fillStyle=u.alive?col:'#666'; ctx.beginPath(); ctx.arc(sx(p.x),sy(p.y),u.id===active?5:3.5,0,7); ctx.fill(); ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?'':' †'}`,sx(p.x)+7,sy(p.y)-6); if(u.tlm&&tNow-u.tlmAt>10){ ctx.fillStyle='#888'; ctx.fillText(`${(tNow-u.tlmAt).toFixed(0)} с назад`,sx(p.x)+7,sy(p.y)+6); } }
   $('#map-count').textContent=`объектов: ${known.size}`; $('#map-scale').textContent=`1 px = ${(1/sc).toFixed(2)} м · ×${map.zoom.toFixed(1)}`; }
-const map={tf:null,zoom:1,panX:0,panY:0,drag:null};
+const map={tf:null,zoom:1,panX:0,panY:0,drag:null,hm:true,iso:true,trackLife:0};   // hm/iso — показ карты высот и изогипс; trackLife — сколько секунд пути показывать, 0 — весь
 { const cv=$('#map');
   cv.onwheel=e=>{ e.preventDefault(); const tf=map.tf; if(!tf) return; const r=cv.getBoundingClientRect(); const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
     const f=e.deltaY<0?1.07:1/1.07; const nz=Math.max(0.5,Math.min(40,map.zoom*f)); const k=nz/map.zoom;
@@ -240,7 +240,8 @@ const map={tf:null,zoom:1,panX:0,panY:0,drag:null};
   window.addEventListener('mouseup',()=>{ if(map.drag&&map.drag.moved) map.suppressClick=true; map.drag=null; });
   cv.ondblclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); };
   const zoomBy=f=>{ const nz=Math.max(0.5,Math.min(40,map.zoom*f)); const k=nz/map.zoom; map.panX*=k; map.panY*=k; map.zoom=nz; drawMap(); };
-  $('#map-tracks').onclick=()=>{ for(const u of units.values()){ const p=pos(u.id); u.track=[{x:p.x,y:p.y,t:tNow}]; } drawMap(); };
+  $('#map-tracks').onchange=()=>{ map.trackLife=+$('#map-tracks').value; drawMap(); };
+  for(const id of ['hm','iso']) $('#map-'+id).onclick=e=>{ map[id]=!map[id]; e.target.classList.toggle('on',map[id]); drawMap(); };
   $('#map-plus').onclick=()=>zoomBy(1.5); $('#map-minus').onclick=()=>zoomBy(1/1.5); $('#map-reset').onclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); }; }
 $('#map').onclick=e=>{ if(map.suppressClick){ map.suppressClick=false; return; } const cv=$('#map'), r=cv.getBoundingClientRect(), tf=map.tf; if(!tf) return; const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
   let best=null, bd=12; for(const o of known.values()){ const d=Math.hypot(tf.sx(o.x)-px,tf.sy(o.y)-py); if(d<bd){ bd=d; best=o; } }
