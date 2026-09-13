@@ -3,7 +3,7 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 // Лаборатория лидара (index.html?lab): та же консоль и тот же мир, но канал без ограничений (ёмкость 1e8 бит/с, шум −500 дБм, RTT 0),
 // сеанс не сохраняется, клик по карте и стрелки — телепорт тела с мгновенным снимком лидара. Датчик и карта работают как в игре.
-const LAB=/[?&]lab\b/.test(location.search);
+const LAB=/[?&]lab\b/.test(location.search) && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);   // только локально: на опубликованном сайте флаг не действует
 const link=new Link(); const world=new Worker('world.js?v='+window.__v+(LAB?'&lab':''));
 if(LAB){ Object.assign(link.cfg,{deepCapBps:1e8,noiseDbm:-500,rtt:0,deepBer:0}); document.body.classList.add('lab'); document.title='лаборатория лидара'; }
 let speed=1, tNow=0, active=1, dbg=null;
