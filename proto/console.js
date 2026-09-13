@@ -53,7 +53,7 @@ link.onDeliver=pkt=>{
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
-    case 'INFO': { const text=decText(pkt.bytes); const tl=text.split('\n').find(l=>l.startsWith('задача:')); if(tl) $('#task').textContent=tl; if(boot.onInfo) boot.onInfo(text,pkt); else log('станция: '+text.replace(/\n/g,' · '),'sys'); break; }
+    case 'INFO': { const text=decText(pkt.bytes); const tl=text.split('\n').find(l=>l.startsWith('задача:')); if(tl) $('#task').textContent=tl; const rr=/возврат:.*?(\d+) м/.exec(text); if(rr) station.returnR=+rr[1]; /* радиус возврата — из паспорта, для круга на карте */ if(boot.onInfo) boot.onInfo(text,pkt); else log('станция: '+text.replace(/\n/g,' · '),'sys'); break; }
     case 'CONT': { const b=pkt.bytes; contents.set(b[0],[...b.slice(2,2+b[1])]); renderDesc(); break; }
     case 'EXAM': decodeExam(pkt); break;
     case 'ACT': decodeAct(pkt); break;
@@ -89,10 +89,11 @@ function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit); const p={x:(((b[0]<<
 function decodeExam(pkt){ const b=pkt.bytes, id=b[0], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); markSeen(id,pkt.unit); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,'desc'); renderDesc(); }
 function decodeAct(pkt){ const b=pkt.bytes, id=b[0], code=b[1], len=(b[2]<<8)|b[3], text=decText(b.slice(4,4+len)); if(code===0) markSeen(id,pkt.unit); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,code===0?'evt':'err'); renderDesc(); }
 function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М${pkt.unit} `:''; const txt=EVENTS[code]||('событие '+code);
-  if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}); требуется новое описание`,'err'); else if(code===19||code===20) log(`${un}${txt}: ${ITEMS[arg]||arg}`,'evt'); else log(`${un}${txt}`,'evt');
+  if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}); требуется новое описание`,'err'); else if(code===19||code===20) log(`${un}${txt}: ${ITEMS[arg]||arg}`,'evt'); else if(code===28) log(`${un}${txt} (${arg*10} м от ближайшего узла${station.returnR?', предел '+station.returnR+' м':''})`,'err'); else log(`${un}${txt}`,'evt');
   if(code===5){ const u=U(pkt.unit); u.alive=false; renderUnits(); }
   if(code===6){ U(pkt.unit); renderUnits(); }
-  if(code===3) log('усиление тракта +6 дБ на всех линиях','sys');
+  if(code===3){ station.relay=true; log('усиление тракта +6 дБ на всех линиях; мачта — узел возврата','sys'); }
+  if(code===28){ const u=U(pkt.unit); if(u.prevGoal){ u.goalName=u.prevGoal.name; u.goalPos=u.prevGoal.pos; } $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }   // цель не принята — голова там же, где была
   if(code===27){ $('#fin-title').textContent='СЕРИЯ 1 ИСЧЕРПАНА'; $('#fin-text').textContent=`Живых миссионеров нет, биоматериала нет. Станция закрыла серию 1 и продолжает работу по протоколу.\n\nПС-7 остаётся открытой. Кто-то не вернулся тридцать девять лет назад; теперь — ещё ${[...units.values()].length}.\n\nПриборы на телах отвечают, пока есть заряд. Новый сеанс — в терминале при подключении: [n].`; $('#finale').hidden=false; }
   if(code===17){ $('#fin-title').textContent='ЗАДАЧА ПС-7 ЗАКРЫТА'; $('#task').textContent='задача: ПС-7 закрыта'; const last=[...journal.values()].flat().filter(e=>/прочитал запись/.test(e.text)).pop(); $('#fin-text').textContent=(last?last.text.replace(/^прочитал запись\. /,'')+'\n\n':'')+`Станция остановила протокол ПС-7. Биоматериала осталось: ${station.bio ?? '—'} ед. Миссионеров в поле: ${[...units.values()].filter(u=>u.alive).length}.\n\nЭто условная развязка прототипа. Сеанс можно продолжать.`; $('#finale').hidden=false; } }
 function showImg(u){ if(u.id===0){ drawGray($('#st-img'),u.img.buf,64); $('#st-img-state').textContent=u.img.state; $('#st-img-prog').style.width=(u.img.prog*100)+'%'; return; } drawGray($('#img'),u.img.buf,64); $('#img-unit').textContent='М'+u.id; $('#img-state').textContent=u.img.state; $('#img-prog').style.width=(u.img.prog*100)+'%'; }
@@ -198,7 +199,7 @@ function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const fu=$('#
 ['#jf-unit','#jf-lm'].forEach(s=>$(s).onchange=renderJournal);
 function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`выбрано: ${tg.name} (${Math.round(tg.x)}, ${Math.round(tg.y)})`:'выбор: нет'; }
 function setTarget(tg){ units.get(active).sel=tg; renderDesc(); updateTarget(); }   // выбор — локальный, ничего не уходит
-function setGoal(name,p){ const u=units.get(active); u.goalName=name; if(p) u.goalPos={x:p.x,y:p.y}; else if(T()) u.goalPos={x:T().x,y:T().y}; $('#img-look').textContent=`смотрит: ${name?'на «'+name+'»':'вперёд'}`; }
+function setGoal(name,p){ const u=units.get(active); u.prevGoal={name:u.goalName,pos:u.goalPos}; u.goalName=name; if(p) u.goalPos={x:p.x,y:p.y}; else if(T()) u.goalPos={x:T().x,y:T().y}; $('#img-look').textContent=`смотрит: ${name?'на «'+name+'»':'вперёд'}`; }
 
 function fitCanvas(cv, crt){
   // crt: рисуем в половинном разрешении, по горизонтали чуть уже — растягивается вширь — при растяжении получается ЭЛТ-зерно и крупный «плохой» шрифт
@@ -233,6 +234,8 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
     const inChain=new Array(64).fill(false); for(let i=0;i<64;i++){ if(joined((i+63)%64)) continue; const n=chainLen(i); if(n>=(s.m?2:4)) for(let k=0;k<n;k++) inChain[(i+k)%64]=true; }
     if(!inChain.some(Boolean) && joined(0)) inChain.fill(true);   // все 64 соединены — замкнутая стена вокруг
     ctx.strokeStyle=`rgba(226,240,255,${al})`; ctx.lineWidth=1.2; for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!p.solid||!joined(i)||!inChain[i]) continue; const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1; }
+  // радиус возврата (ПС-2) — пунктир вокруг узлов: станция и, после включения усилителя, мачта (её место — из описаний)
+  if(station.returnR){ const nodes=[STATION]; if(station.relay&&known.get(3)) nodes.push(known.get(3)); ctx.strokeStyle='rgba(224,169,74,0.35)'; ctx.setLineDash([4,6]); for(const n of nodes){ ctx.beginPath(); ctx.arc(sx(n.x),sy(n.y),station.returnR*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
   // знак станции — контур корпуса из кодовой книги (эллипс, люк на +x); лидар отражается от того же контура
   ctx.strokeStyle='#666'; ctx.beginPath(); ctx.ellipse(sx(STATION.x),sy(STATION.y),STATION.rx*sc,STATION.ry*sc,STATION.ang,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(STATION.x)-8*sc-44,sy(STATION.y)+3);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); const t0=map.trackLife?tNow-map.trackLife:-1; u.track.filter(p=>!(p.t<t0)).forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }

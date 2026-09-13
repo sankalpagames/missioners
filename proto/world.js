@@ -17,6 +17,12 @@ const POIS = [
   { id:7, x:336, y:216,  subs:[[29,1.8,2.9],[30,-0.6,-1.8],[31,-4.4,-0.5],[32,0.8,0.1]] },   // на дне последнего колена расщелины
 ];
 const TUN_A = TER.CANYON.pts[0];                                             // вход в расщелину (ориентир 6)
+// ПС-2, радиус гарантированного возврата: цель дальше RETURN_R от ближайшего узла (станция, работающий ретранслятор) станция не принимает —
+// потеря биоматериала гарантирована. Бюджет линии (дБ) к границе не привязан: далеко уйти можно, если есть узел
+const RETURN_R = 500;
+function nodes(){ const n=[{x:STATION.x,y:STATION.y}]; if(antennaBoost) n.push(POIS[2]); return n; }   // ретранслятор — мачта (ориентир 3) с включённым усилителем
+function nodeDist(p){ return Math.min(...nodes().map(n=>dist(p,n))); }
+function beyondReturn(u,p){ const d=nodeDist(p); if(d<=RETURN_R) return false; evt(28,u.id,Math.min(255,Math.ceil(d/10))); return true; }   // отказ: arg — расстояние до узла, десятки метров
 const HULLS = [ {...STATION}, {x:-200,y:60,r:4,h:4} ];                          // корпус платформы (эллипс из кодовой книги), обломки (круг): непроходимы и отражают лидар; остальное — рельеф
 // точка внутри корпуса (с запасом pad); луч в корпус: эллипс приводится к единичному кругу, параметр t — в метрах по лучу
 function hullIn(x,y,c,pad=0){ if(c.r!==undefined) return Math.hypot(x-c.x,y-c.y)<c.r+pad; const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=(x-c.x)*ca+(y-c.y)*sa, ly=-(x-c.x)*sa+(y-c.y)*ca; return (lx/(c.rx+pad))**2+(ly/(c.ry+pad))**2<1; }
@@ -137,7 +143,7 @@ function describe(u, cls='cmd'){
   for(const o of objs){ const t=encText(nameOf(o)); parts.push([o.id&255, classOf(o), Math.round(bearingDeg(u,o)/2), Math.min(255,Math.round(dist(u,o))), t.length, ...t]); }
   emit(cls,'DESC',u.id,new Uint8Array([...posBytes(u),...parts.flat()]));   // первые 4 байта — где снято
 }
-function posBytes(u){ const x=Math.round(u.x*10)+32768, y=Math.round(u.y*10)+32768; return [x>>8,x&255,y>>8,y&255]; }   // дециметры, 16 бит: ±3276 м
+function posBytes(u){ const c=v=>Math.max(0,Math.min(65535,Math.round(v*10)+32768)), x=c(u.x), y=c(u.y); return [x>>8,x&255,y>>8,y&255]; }   // дециметры, 16 бит: ±3276 м, за пределом — край, не заворот
 function decPos(b,o){ return { x:(((b[o]<<8)|b[o+1])-32768)/10, y:(((b[o+2]<<8)|b[o+3])-32768)/10 }; }
 function rayCircle(ox,oy,dx,dy,c){ const fx=ox-c.x, fy=oy-c.y; const b=2*(fx*dx+fy*dy), cc=fx*fx+fy*fy-c.r*c.r; const D=b*b-4*cc; if(D<0) return Infinity; const s=Math.sqrt(D); const t1=(-b-s)/2, t2=(-b+s)/2; if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
 // что отражает лидар: только тела с объёмом (радиус, м); следы, надписи, кабели, вода — нет
@@ -197,6 +203,7 @@ function beginAction(u,kind,id,item){
     const g={id:nextGround++, x:Math.round(u.x), y:Math.round(u.y)}; if(nextGround>199) nextGround=100; ground.push(g); contents[g.id]=[item];
     const t=encText(`сбросил: ${ITEMS[item]}.`); emit('cmd','ACT',u.id,new Uint8Array([g.id,0,t.length>>8,t.length&255,...t])); emit('cmd','CONT',u.id,new Uint8Array([g.id,1,item])); return; }
   const o=findObj(u,id); if(!o){ evt(16,u.id,id); return; }
+  if(dist(u,o)>3 && beyondReturn(u,o)) return;
   u.pending={kind,id,item}; u.goal={x:o.x,y:o.y};
   if(dist(u,o)>3){ u.target={x:o.x,y:o.y}; evt(8,u.id); } else doPending(u);
 }
@@ -249,7 +256,7 @@ onmessage = e => {
     if(cam) station.camInv--; station.bioStock--; station.growing={sensors:{camera:cam,sonar:!!(arg&2)},tLeft:180}; evt(11); return;
   }
   if(cmd===11){ // статус: паспорт станции текстом + пульс
-    const info=`ARK-041, посадочная платформа; штатно; миссия 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nбиоматериал ${station.bioStock}; камер ${station.camInv}; развёрнуто ${units.length}\nзадача: ${station.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся. Серия 0 исчерпана (7)':'ПС-7 закрыта'}`;
+    const info=`ARK-041, посадочная платформа; штатно; миссия 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nбиоматериал ${station.bioStock}; камер ${station.camInv}; развёрнуто ${units.length}\nвозврат: ПС-2, ${RETURN_R} м от узла; узлов ${nodes().length}\nзадача: ${station.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся. Серия 0 исчерпана (7)':'ПС-7 закрыта'}`;
     emit('cmd','INFO',0,encText(info)); heartbeat(); return; }
   if(cmd===15){ hbInterval=arg; return; }
   const u=unit===0&&(cmd===3||cmd===16) ? stationCam : units.find(u=>u.id===unit); if(!u) return;
@@ -270,7 +277,7 @@ onmessage = e => {
     case 22: beginAction(u,'put',m.bytes[3],arg); break;    // положить: [22,item,unit,objId] (objId 0 — на грунт)
     case 23: beginAction(u,'take',m.bytes[3],arg); break;   // взять:    [23,item,unit,objId]
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
-    case 6: if(u.alive){ const g=decPos(m.bytes,3); u.goal={x:g.x,y:g.y}; const {x,y}=outsideHulls(g.x,g.y,u); u.target={x,y}; u.bestD=undefined; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
+    case 6: if(u.alive){ const g=decPos(m.bytes,3); if(beyondReturn(u,g)) break; u.goal={x:g.x,y:g.y}; const {x,y}=outsideHulls(g.x,g.y,u); u.target={x,y}; u.bestD=undefined; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
     case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ u.target={x:16,y:0}; u.goal={x:16,y:0}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
     case 8: beginAction(u,'act',arg); break;
