@@ -1,7 +1,11 @@
 // КОНСОЛЬ. Видит только пакеты, доставленные каналом (link.onDeliver).
 // Всё, что нарисовано на экране, восстановлено из этих байтов. Отладочная шторка читает канал и мир напрямую.
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const link=new Link(); const world=new Worker('world.js?v='+window.__v);
+// Лаборатория лидара (index.html?lab): та же консоль и тот же мир, но канал без ограничений (ёмкость 1e8 бит/с, шум −500 дБм, RTT 0),
+// сеанс не сохраняется, клик по карте и стрелки — телепорт тела с мгновенным снимком лидара. Датчик и карта работают как в игре.
+const LAB=/[?&]lab\b/.test(location.search);
+const link=new Link(); const world=new Worker('world.js?v='+window.__v+(LAB?'&lab':''));
+if(LAB){ Object.assign(link.cfg,{deepCapBps:1e8,noiseDbm:-500,rtt:0,deepBer:0}); document.body.classList.add('lab'); document.title='лаборатория лидара'; }
 let speed=1, tNow=0, active=1, dbg=null;
 const units=new Map();          // id → знание о миссионере
 const station={bio:null,cam:null,grow:null,brik:0,cut:0,at:-1e9};
@@ -49,7 +53,7 @@ link.onDeliver=pkt=>{
     case 'TLM': decodeTlm(pkt); break;
     case 'HB': decodeHb(pkt.bytes); break;
     case 'DESC': decodeDesc(pkt); break;
-    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const o=b.length>=79?3:b.length>=78?2:b.length>=77?1:0; const tilt=o?b[4]-90:0; const zs=o>2?((b[5]<<8)|b[6])/10-40:o>1?b[5]/2-40:null; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o);   /* o — сдвиг: наклон, барометр 2 Б (шаг 0,1 м; старые форматы — 1 Б по 0,5 м или без) */ u.sonarData=rays; u.sonarMask=mask; u.sonarTilt=tilt; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays],m:mask,k:tilt}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(zs!==null) hmapAdd(p.x,p.y,tilt,zs,rays,mask); if(pkt.unit===active) drawSonar(rays,mask,tilt); break; }
+    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const o=b.length>=79?3:b.length>=78?2:b.length>=77?1:0; const tilt=o?b[4]-90:0; const zs=o>2?((b[5]<<8)|b[6])/10-40:o>1?b[5]/2-40:null; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o);   /* o — сдвиг: наклон, барометр 2 Б (шаг 0,1 м; старые форматы — 1 Б по 0,5 м или без) */ u.sonarData=rays; u.sonarMask=mask; u.sonarTilt=tilt; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays],m:mask,k:tilt}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(zs!==null) hmapAdd(p.x,p.y,tilt,zs,rays,mask); snapWalls({x:p.x,y:p.y,b:rays,m:mask,k:tilt}); if(pkt.unit===active) drawSonar(rays,mask,tilt); break; }
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
@@ -124,21 +128,29 @@ function drawGray(cv,buf,side){ const ctx=cv.getContext('2d'), im=ctx.createImag
 // ---------- карта высот (чистые функции без DOM; tools/hmap-check.js вырезает этот блок по маркерам) ----------
 // Из отсчётов лидара: дальность, наклон и высота датчика дают высоту точки попадания. Сетка 2 м, в ячейке — среднее и число отсчётов.
 const HCELL=2, hmap=new Map();   // 'i,j' → {z,n}. Ошибка одного отсчёта ≈ 0,05 м (барометр ±0,05, квантование дальности 0,4·sin наклона)
+// Ячейки, через которые прошла стена (сплошная цепочка лидара): сглаживание через них не тянется, изогипсы в них не строятся —
+// иначе высота дна растягивалась на 4 м под скалу, а между ячейкой стены и гребнем ложилась пачка ложных изогипс.
+const hwall=new Set();
+function hmapAddWall(x1,y1,x2,y2){ const n=Math.ceil(Math.hypot(x2-x1,y2-y1))+1; for(let k=0;k<=n;k++){ const x=x1+(x2-x1)*k/n, y=y1+(y2-y1)*k/n; hwall.add(Math.floor(x/HCELL)+','+Math.floor(y/HCELL)); } hsmDirty=true; }
+function wallBetween(i,j,di,dj){ const n=2*Math.max(Math.abs(di),Math.abs(dj)); for(let k=1;k<=n;k++) if(hwall.has((i+Math.round(di*k/n))+','+(j+Math.round(dj*k/n)))) return true; return false; }   // стена на пути от ячейки к соседу (включая соседа)
 let hsm=new Map(), hsmDirty=true;   // сглаженное поле: отсчёты растянуты на соседние ячейки (радиус 2), чтобы между кольцами снимков появились изогипсы
 // Увязка снимков между собой (сдвиг нового к уже снятому по перекрытию) проверялась в tools/hmap-check.js: при барометре 0,1 м она только
 // добавляет дрейф (ошибка ячейки 0,03 → 0,17 м), поэтому снимки кладутся как есть.
+// Сплошные отсчёты (стены, корпуса) в карту высот не идут: точка на вертикальной поверхности — не высота грунта в этой XY (на одной XY все
+// высоты от подошвы до гребня, и какая попадёт в пакет, зависит от наклона и дальности, а не от рельефа — вдоль стены получалась ложная
+// лесенка, изогипсы поперёк стены). Стена остаётся линией на карте.
 function hmapAdd(x0,y0,tilt,zs,rays,mask){ const tr=tilt*Math.PI/180, ch=Math.cos(tr), sh=Math.sin(tr);
-  for(let i=0;i<64;i++){ const r=rays[i]/255*100; if(r>=99.5) continue; const a=i/64*Math.PI*2; const x=x0+Math.cos(a)*r*ch, y=y0+Math.sin(a)*r*ch, z=zs+r*sh;
+  for(let i=0;i<64;i++){ const r=rays[i]/255*100; if(r>=99.5) continue; if(mask&&(mask[i>>3]&(1<<(i&7)))) continue; const a=i/64*Math.PI*2; const x=x0+Math.cos(a)*r*ch, y=y0+Math.sin(a)*r*ch, z=zs+r*sh;
     const key=Math.floor(x/HCELL)+','+Math.floor(y/HCELL); const c=hmap.get(key); if(c){ c.z+=(z-c.z)/Math.min(c.n+1,8); c.n++; } else hmap.set(key,{z,n:1}); } hsmDirty=true; }
 function hmapSmooth(){ if(!hsmDirty) return hsm; hsm=new Map(); const R=2;
-  for(const [k,c] of hmap){ const [i,j]=k.split(',').map(Number); for(let di=-R;di<=R;di++)for(let dj=-R;dj<=R;dj++){ const w=Math.min(c.n,4)/(1+di*di+dj*dj); const kk=(i+di)+','+(j+dj); const t=hsm.get(kk); if(t){ t.z+=c.z*w; t.w+=w; } else hsm.set(kk,{z:c.z*w,w}); } }
+  for(const [k,c] of hmap){ const [i,j]=k.split(',').map(Number); const own=hwall.has(k); for(let di=-R;di<=R;di++)for(let dj=-R;dj<=R;dj++){ if((di||dj)&&(own||wallBetween(i,j,di,dj))) continue; const w=Math.min(c.n,4)/(1+di*di+dj*dj); const kk=(i+di)+','+(j+dj); const t=hsm.get(kk); if(t){ t.z+=c.z*w; t.w+=w; } else hsm.set(kk,{z:c.z*w,w}); } }
   for(const [k,t] of hsm){ if(t.w<0.7) hsm.delete(k); else t.z/=t.w; } hsmDirty=false; return hsm; }
 // Изогипсы через STEP по центрам ячеек (marching squares) в окне ячеек [i0..i1]×[j0..j1]; отрезки в метрах: [x1,y1,x2,y2].
 // Отрезки собираются в цепочки по общим концам; цепочка короче HMIN отрезков — обрывок: на плоском его даёт шум измерения, а не рельеф.
 // Проверено tools/hmap-check.js: изогипса ложится в 1 м (медиана) от истинной того же уровня; порог по уклону ячейки (ошибка/уклон) точности не добавлял.
 const HMIN=4;
 function hmapContours(sm,i0,i1,j0,j1,STEP=0.5){ const seg=[]; const get=(i,j)=>sm.get(i+','+j);
-  for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const a=get(i,j), b=get(i+1,j), c=get(i+1,j+1), d=get(i,j+1); if(!a||!b||!c||!d) continue; const v=[a.z,b.z,c.z,d.z]; const lo=Math.ceil(Math.min(...v)/STEP)*STEP, hi=Math.max(...v);
+  for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const a=get(i,j), b=get(i+1,j), c=get(i+1,j+1), d=get(i,j+1); if(!a||!b||!c||!d) continue; if(hwall.has(i+','+j)||hwall.has((i+1)+','+j)||hwall.has((i+1)+','+(j+1))||hwall.has(i+','+(j+1))) continue; const v=[a.z,b.z,c.z,d.z]; const lo=Math.ceil(Math.min(...v)/STEP)*STEP, hi=Math.max(...v);
     const P=[[i,j],[i+1,j],[i+1,j+1],[i,j+1]].map(([q,w])=>[(q+0.5)*HCELL,(w+0.5)*HCELL]);
     for(let L=lo;L<=hi;L+=STEP){ const pts=[]; for(let e=0;e<4;e++){ const va=v[e], vb=v[(e+1)%4]; if((va<L)!==(vb<L)){ const k=(L-va)/(vb-va); pts.push([P[e][0]+(P[(e+1)%4][0]-P[e][0])*k, P[e][1]+(P[(e+1)%4][1]-P[e][1])*k]); } }
       if(pts.length>=2) seg.push([...pts[0],...pts[1],L]); if(pts.length===4) seg.push([...pts[2],...pts[3],L]); } }
@@ -147,13 +159,14 @@ function hmapContours(sm,i0,i1,j0,j1,STEP=0.5){ const seg=[]; const get=(i,j)=>s
   seg.forEach((s,i)=>{ for(const k of [Math.round(s[0]*100)+','+Math.round(s[1]*100)+','+s[4], Math.round(s[2]*100)+','+Math.round(s[3]*100)+','+s[4]]){ const j=ends.get(k); if(j!==undefined) par[find(i)]=find(j); else ends.set(k,i); } });
   const len=new Map(); for(let i=0;i<seg.length;i++){ const r=find(i); len.set(r,(len.get(r)||0)+1); }
   return seg.filter((_,i)=>len.get(find(i))>=HMIN); }
-// ---------- /карта высот ----------
+function snapWalls(s){ const {pts,joined}=sonarSegments(s.b,s.m,s.k||0); for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!p.solid||!joined(i)) continue; const q=pts[(i+1)%64]; hmapAddWall(s.x+Math.cos(p.a)*p.r,s.y+Math.sin(p.a)*p.r,s.x+Math.cos(q.a)*q.r,s.y+Math.sin(q.a)*q.r); } }   // сплошные пары снимка → ячейки стен
 function sonarSegments(b,m,tilt=0){ const pts=[]; const ch=Math.cos(tilt*Math.PI/180); for(let i=0;i<64;i++){ const r=b[i]/255*100; const solid=m?!!(m[i>>3]&(1<<(i&7))):true; pts.push(r>=99.5?null:{a:i/64*Math.PI*2,r:r*ch,solid}); }   // r — горизонтальная проекция наклонной дальности
   // соединяем только сплошные отсчёты; допуск по дальности растёт с дальностью (лучи расходятся на 0,1·r; поверхность под углом до ~70° даёт Δr ≈ 0,27·r)
   const joined=i=>{ const p=pts[i], q=pts[(i+1)%64]; return p&&q&&p.solid===q.solid&&Math.abs(p.r-q.r)<0.5+0.3*Math.min(p.r,q.r); };   // соседи одного рода: стена со стеной, грунт с грунтом
   // цепочка: сколько подряд соединённых отсчётов, начиная с i
   const chainLen=i=>{ let n=1; while(n<64&&joined((i+n-1)%64)) n++; return n; };
   return {pts, joined, chainLen}; }
+// ---------- /карта высот ----------
 function drawSonar(b,m,tilt=0){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c=100; ctx.fillStyle='#000'; ctx.fillRect(0,0,200,200);
   // масштаб — по самому дальнему отражению: ближняя геометрия заполняет круг
   // масштаб: по 75-му процентилю дальностей (ближняя геометрия заполняет круг), колёсико — вручную
@@ -163,8 +176,10 @@ function drawSonar(b,m,tilt=0){ const cv=$('#sonar'), ctx=cv.getContext('2d'), c
   if(!b) return; const X=p=>c+Math.cos(p.a)*p.r*k, Y=p=>c+Math.sin(p.a)*p.r*k;
   // свободное пространство
   ctx.fillStyle='rgba(127,224,127,0.07)'; ctx.beginPath(); for(let i=0;i<64;i++){ const p=pts[i]||{a:i/64*Math.PI*2,r:R}; i?ctx.lineTo(X(p),Y(p)):ctx.moveTo(X(p),Y(p)); } ctx.closePath(); ctx.fill();
-  ctx.strokeStyle='#7fe07f'; ctx.lineWidth=1.5; for(let i=0;i<64;i++){ if(!joined(i)) continue; const p=pts[i], q=pts[(i+1)%64]; if(p.r>R||q.r>R) continue; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1;
-  ctx.fillStyle='#7fe07f'; for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; if(p.r>R){ ctx.fillStyle='#2f5f2f'; ctx.fillRect(c+Math.cos(p.a)*99-1,c+Math.sin(p.a)*99-1,2,2); ctx.fillStyle='#7fe07f'; continue; } const lone=!p.solid||(!joined(i)&&!joined((i+63)%64)); ctx.fillStyle=p.solid?'#7fe07f':'#e0a94a'; ctx.fillRect(X(p)-(lone?2:1),Y(p)-(lone?2:1),lone?4:2,lone?4:2); }
+  // стены (сплошные цепочки) — яркая линия; грунт (цепочки низкого эха) — тусклая тонкая: рельеф, а не преграда
+  for(let i=0;i<64;i++){ if(!joined(i)) continue; const p=pts[i], q=pts[(i+1)%64]; if(p.r>R||q.r>R) continue; ctx.strokeStyle=p.solid?'#7fe07f':'#3d5c3d'; ctx.lineWidth=p.solid?1.5:1; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1;
+  for(let i=0;i<64;i++){ const p=pts[i]; if(!p) continue; if(p.r>R){ ctx.fillStyle='#2f5f2f'; ctx.fillRect(c+Math.cos(p.a)*99-1,c+Math.sin(p.a)*99-1,2,2); continue; } const lone=!joined(i)&&!joined((i+63)%64);   // одиночное низкое эхо — объект (ящик, тело, существо): жёлтая точка; грунт в цепочке — тусклая
+    ctx.fillStyle=p.solid?'#7fe07f':lone?'#e0a94a':'#4d7a4d'; const sz=lone?4:2; ctx.fillRect(X(p)-sz/2,Y(p)-sz/2,sz,sz); }
   ctx.fillStyle='#fff'; ctx.fillRect(c-1,c-1,2,2); ctx.fillStyle='#555'; ctx.fillText(`до ${R.toFixed(0)} м${map.sonarR?' ·':''}${tilt?` · наклон ${tilt>0?'+':''}${tilt}°`:''}`,4,196); }
 let ecgPhase=0, ecgX=0;
 function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(active); const W=150;
@@ -267,6 +282,7 @@ const map={tf:null,zoom:1,panX:0,panY:0,drag:null,hm:true,iso:true,trackLife:0};
   for(const id of ['hm','iso']) $('#map-'+id).onclick=e=>{ map[id]=!map[id]; e.target.classList.toggle('on',map[id]); drawMap(); };
   $('#map-plus').onclick=()=>zoomBy(1.5); $('#map-minus').onclick=()=>zoomBy(1/1.5); $('#map-reset').onclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); }; }
 $('#map').onclick=e=>{ if(map.suppressClick){ map.suppressClick=false; return; } const cv=$('#map'), r=cv.getBoundingClientRect(), tf=map.tf; if(!tf) return; const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
+  if(LAB){ labJump(tf.cx+(px-tf.W/2)/tf.sc, tf.cy+(py-tf.H/2)/tf.sc); return; }
   let best=null, bd=12; for(const o of known.values()){ const d=Math.hypot(tf.sx(o.x)-px,tf.sy(o.y)-py); if(d<bd){ bd=d; best=o; } }
   const wx=Math.round(tf.cx+(px-tf.W/2)/tf.sc), wy=Math.round(tf.cy+(py-tf.H/2)/tf.sc);
   setTarget(best?{id:best.id,cls:best.cls,x:best.x,y:best.y,name:best.name}:{id:0,cls:0,x:wx,y:wy,name:`точка ${wx}, ${wy}`}); };
@@ -289,6 +305,11 @@ $('#truth').onclick=e=>{ const r=$('#truth').getBoundingClientRect(); const x=((
 // ---------- команды ----------
 function send(bytes,label){ if(!link.sendUplink(bytes)){ log(`${label}: нет связи со станцией`,'err'); return false; } if(label) log(`→ ${label}`,'cmd'); return true; }
 function coordBytes(p){ const X=Math.round(p.x*10)+32768, Y=Math.round(p.y*10)+32768; return [X>>8,X&255,Y>>8,Y&255]; }   // дециметры
+// лаборатория: телепорт (мимо канала, как в шторке) и сразу запрос лидара с текущим наклоном; положение ведём сами — телеметрия отстаёт
+const lab={pos:null};
+function labJump(x,y){ lab.pos={x,y}; world.postMessage({t:'tp',unit:active,x,y}); send([2,+$('#sonar-tilt').value+90,active]); }
+if(LAB) document.addEventListener('keydown',e=>{ if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return; const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key]; if(!d) return; e.preventDefault();
+  const p=lab.pos||pos(active), st=e.shiftKey?10:2; labJump(p.x+d[0]*st,p.y+d[1]*st); });
 function moveTo(tg){ const u=units.get(active); if(!u||!u.alive){ log('М'+active+': тело мертво, перемещение невозможно','err'); return; } if(send([6,0,active,...coordBytes(tg)],`М${active} идти: ${tg.name}`)) setGoal(tg.name); }
 $$('button[data-cmd]').forEach(b=>b.onclick=()=>{ const c=+b.dataset.cmd, tg=T();
   if(c===8){ if(!tg||!tg.id) return log('объект не выбран','err'); if(send([8,tg.id,active],`М${active} взаимодействовать: ${tg.name}`)) setGoal(tg.name); }
@@ -398,7 +419,7 @@ const SAVE_KEY='missioners.save', SAVE_VERSION=6;   // поднимать при
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));
-  return { tNow, active, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], sonar:sonarSnaps.slice(-120), hmap:[...hmap.entries()].map(([k,c])=>[k,+c.z.toFixed(2),c.n]), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
+  return { tNow, active, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], sonar:sonarSnaps.slice(-120), hwall:[...hwall], hmap:[...hmap.entries()].map(([k,c])=>[k,+c.z.toFixed(2),c.n]), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
 }
 function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({v:SAVE_VERSION, savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
 function requestSave(){ world.postMessage({t:'save'}); }
@@ -406,13 +427,13 @@ function restoreConsole(d){
   tNow=d.tNow; active=d.active||1; Object.assign(station,d.station); if(d.stcam) Object.assign(stcam.subs,d.stcam.subs); Object.assign(totals,d.totals||{}); units.clear();
   for(const su of d.units){ const u=U(su.id); Object.assign(u,su,{img:u.img, sonarData:su.sonarData?new Uint8Array(su.sonarData):null, sonarMask:su.sonarMask||null}); }
   known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
-  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v); sonarSnaps.length=0; sonarSnaps.push(...(d.sonar||[]).filter(s=>s.b&&s.b.length===64)); hmap.clear(); for(const [k,z,n] of d.hmap||[]) hmap.set(k,{z,n}); hsmDirty=true;
+  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v); sonarSnaps.length=0; sonarSnaps.push(...(d.sonar||[]).filter(s=>s.b&&s.b.length===64)); hmap.clear(); for(const [k,z,n] of d.hmap||[]) hmap.set(k,{z,n}); hwall.clear(); if(d.hwall) for(const k of d.hwall) hwall.add(k); else for(const s of sonarSnaps) snapWalls(s); hsmDirty=true;
   $('#log').innerHTML=''; logEntries.length=0; for(const e of d.log||[]) log(e.txt,e.cls,e.t); log('— сеанс восстановлен —','sys');
 }
 function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){ return null; } }
 function applySave(s){ const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap; link.reset();
   world.postMessage({t:'load',data:s.world,elapsed:0}); restoreConsole(s.console); resumed=true; }   // игровое время стоит, пока консоль закрыта
-setInterval(()=>{ if(!$('#boot').classList.contains('off')) return; requestSave(); },10000);
+setInterval(()=>{ if(LAB||!$('#boot').classList.contains('off')) return; requestSave(); },10000);
 function exportSave(){ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'})); a.download='ark-041-session.json'; a.click(); return true; }
 function importSave(){ return new Promise(res=>{ const inp=$('#import-file'); inp.value=''; let done=false; const finish=v=>{ if(done) return; done=true; window.removeEventListener('focus',onFocus); res(v); };
   inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return finish(null); f.text().then(txt=>{ const s=JSON.parse(txt); localStorage.setItem(SAVE_KEY,txt); finish(s); }).catch(()=>finish(null)); };
@@ -435,8 +456,9 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   // сеанс: меню в терминале, одна клавиша
   // Enter = первый вариант в списке
   const key=async(keys)=>{ const cur=document.createElement('span'); cur.className='cur'; el.appendChild(cur); const k=await new Promise(res=>{ const h=e=>{ let k=e.key.toLowerCase(); if(k==='enter') k=keys[0]; if(keys.includes(k)){ document.removeEventListener('keydown',h); res(k); } }; document.addEventListener('keydown',h); }); cur.remove(); el.textContent+=k+'\n'; return k; };
-  let s=readSave();
-  for(;;){
+  let s=LAB?null:readSave();
+  if(LAB){ line('lab mode: session store bypassed, link unlimited'); $('#save-state').textContent='лаборатория: не сохраняется'; }
+  else for(;;){
     if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); if((s.v||0)!==SAVE_VERSION) line(`  warning: session build v${s.v||0}, current v${SAVE_VERSION} — resume may misbehave, [n] recommended`); el.textContent+='[r/enter] resume  [n] new  [i] import file  [e] export file  ';
       const k=await key(['r','n','i','e']);
       if(k==='r'){ applySave(s); line('session restored, world clock paused since'); break; }

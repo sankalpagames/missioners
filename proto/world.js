@@ -1,6 +1,7 @@
 // МИР. Web Worker. Ничего не знает о консоли.
 // Наружу: (а) байтовые сообщения для канала, (б) физика линии по каждому миссионеру.
-const VER=self.location.search.slice(3)||'0'; importScripts('codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);
+const LAB=/&lab\b/.test(self.location.search);   // лаборатория лидара: существо спит, тело не умирает; остальное — как в игре
+const VER=self.location.search.slice(3).replace(/&lab\b/,'')||'0'; importScripts('codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);
 CAM.load(VER);   // атлас спрайтов грузится асинхронно; до загрузки объекты в кадре — серые блоки
 
 const DT = 0.1;
@@ -148,20 +149,32 @@ function decPos(b,o){ return { x:(((b[o]<<8)|b[o+1])-32768)/10, y:(((b[o+2]<<8)|
 function rayCircle(ox,oy,dx,dy,c){ const fx=ox-c.x, fy=oy-c.y; const b=2*(fx*dx+fy*dy), cc=fx*fx+fy*fy-c.r*c.r; const D=b*b-4*cc; if(D<0) return Infinity; const s=Math.sqrt(D); const t1=(-b-s)/2, t2=(-b+s)/2; if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
 // что отражает лидар: только тела с объёмом (радиус, м); следы, надписи, кабели, вода — нет
 const SONAR_R={13:0.8,14:0.8,17:0.3,18:0.6,20:1.5,21:0.15,22:0.4,23:3,28:0.4,29:1.5,32:0.2,33:0.3};   // люки и прожектор — часть корпуса, он отражает сам
-// Лидар: 64 луча по кругу под наклоном tilt° к горизонту с высоты 1,2 м над грунтом; на луч — байт
-// наклонной дальности и бит «сплошное»: поверхность в точке попадания круче 45° (стены, обрыв, корпус) — эхо по всей высоте.
+// Лидар: 64 луча по кругу под наклоном tilt° к горизонту с высоты SONAR_H над грунтом; на луч — байт наклонной дальности
+// и бит «сплошное». Бит — измерение, а не подсказка мира: на каждый азимут датчик даёт второй луч на SONAR_DT выше, две точки
+// попадания лежат на поверхности, и крутизна хорды между ними — уклон поверхности вдоль луча. Хорда круче MAX_SLOPE (40°, куда
+// тело не пройдёт) — «сплошное»: стены, обрыв, корпус. Вертикальная стена вертикальна с любого азимута; склон наискось кажется положе.
 // Наклон вниз даёт эхо от грунта: подъём впереди укорачивает дальность, понижение удлиняет — профиль рельефа за те же байты.
-// Пакет: [x,y съёмки (4), наклон+90 (1), высота датчика (1), маска (8), дальности (64)] = 78 Б
+// Пакет: [x,y съёмки (4), наклон+90 (1), высота датчика (2), маска (8), дальности (64)] = 79 Б
+const SONAR_H=1.7, SONAR_DT=3*Math.PI/180;   // высота датчика над грунтом (голова; глаза камеры — 1,6) и разнос пары лучей по вертикали
 const OBJ_H={13:1,14:1,17:7,18:1.8,20:0.7,21:1.1,22:0.5,23:4,28:0.4,29:1.4,32:0.25,33:0.4};   // высота отражателя, м; тела и существо — 1,6 / 0,5
+// декорации (`TER.decor`) отражают тоже — кадр и лидар видят одно: радиус футпринта в долях высоты спрайта `Hs`, высота — `Hs`;
+// сухостой — нет (тонкие стебли), столбик кабеля — 8 см, луч в него почти не попадает
+const DECOR_R={boulder:0.45,boulder2:0.5,rocks:0.8,outcrop:0.6,hoodoo:0.3,debris:0.6,cairn:0.4,post:0};
+function decorR(o){ return o.type==='post'?0.08:(DECOR_R[o.type]||0)*o.Hs; }
+// один луч: первое препятствие по направлению (ca,sa) под наклоном tilt; возвращает наклонную дальность (100 — нет эха) и точку попадания
+function castRay(u,z0,ca,sa,tilt,objs){ const ch=Math.cos(tilt), sh=Math.sin(tilt), dx=ca*ch, dy=sa*ch; const hitZ=(t)=>z0+sh*t; let best=100;   // dx,dy — шаг по горизонтали на метр наклонной дальности
+  for(const c of HULLS){ const t=rayHull(u.x,u.y,ca,sa,c)/ch; if(t<best && hitZ(t)<TER.H(c.x,c.y)+c.h) best=t; }
+  for(let t=0.5;t<best;t+=0.5){ const px=u.x+dx*t, py=u.y+dy*t; if(hitZ(t)<=TER.H(px,py)){ let lo=t-0.5, hi=t; for(let k=0;k<5;k++){ const m=(lo+hi)/2; if(hitZ(m)<=TER.H(u.x+dx*m,u.y+dy*m)) hi=m; else lo=m; } best=hi; break; } }
+  for(const o of objs){ if(o.landmark) continue; const r=o.creature?0.5:o.unit?0.5:o.decor?decorR(o):(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,ca,sa,{x:o.x,y:o.y,r})/ch; const oh=o.creature?(creature.awake?1.6:0.6):o.unit?(o.unit.alive?1.8:0.5):o.decor?o.Hs:(OBJ_H[o.type]||1);
+    if(t<best && hitZ(t)<TER.H(o.x,o.y)+oh && hitZ(t)>TER.H(o.x,o.y)-0.5) best=t; }
+  return {t:best, x:u.x+dx*best, y:u.y+dy*best, z:hitZ(best)}; }
 function sonar(u, cls='cmd'){
-  const b=new Uint8Array(64), mask=new Uint8Array(8); const objs=objectsAround(u,100); const tilt=(u.sonarTilt||0)*Math.PI/180;
-  const z0=TER.H(u.x,u.y)+1.2, ch=Math.cos(tilt), sh=Math.sin(tilt); const hitZ=(t)=>z0+sh*t;
-  for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, ca=Math.cos(a), sa=Math.sin(a), dx=ca*ch, dy=sa*ch; let best=100, solid=false;   // dx,dy — шаг по горизонтали на метр наклонной дальности
-    for(const c of HULLS){ const t=rayHull(u.x,u.y,ca,sa,c)/ch; if(t<best && hitZ(t)<TER.H(c.x,c.y)+c.h){ best=t; solid=true; } }
-    for(let t=0.5;t<best;t+=0.5){ const px=u.x+dx*t, py=u.y+dy*t; if(hitZ(t)<=TER.H(px,py)){ let lo=t-0.5, hi=t; for(let k=0;k<5;k++){ const m=(lo+hi)/2; if(hitZ(m)<=TER.H(u.x+dx*m,u.y+dy*m)) hi=m; else lo=m; } best=hi; solid=TER.slope(u.x+dx*hi,u.y+dy*hi)>1; break; } }   // рельеф: стена, если круто
-    for(const o of objs){ if(o.landmark) continue; const r=o.creature?0.5:o.unit?0.5:(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,ca,sa,{x:o.x,y:o.y,r})/ch; const oh=o.creature?(creature.awake?1.6:0.6):o.unit?(o.unit.alive?1.8:0.5):(OBJ_H[o.type]||1);
-      if(t<best && hitZ(t)<TER.H(o.x,o.y)+oh && hitZ(t)>TER.H(o.x,o.y)-0.5){ best=t; solid=false; } }
-    b[i]=Math.round(Math.min(100,best)/100*255); if(solid&&best<100) mask[i>>3]|=1<<(i&7); }
+  const b=new Uint8Array(64), mask=new Uint8Array(8); const objs=objectsAround(u,100).concat(TER.decor(u,100)); const tilt=(u.sonarTilt||0)*Math.PI/180;
+  const z0=TER.H(u.x,u.y)+SONAR_H;
+  for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, ca=Math.cos(a), sa=Math.sin(a);
+    const p=castRay(u,z0,ca,sa,tilt,objs); b[i]=Math.round(Math.min(100,p.t)/100*255); if(p.t>=100) continue;
+    const q=castRay(u,z0,ca,sa,tilt+SONAR_DT,objs); if(q.t>=100) continue;   // второй луч ушёл в пустоту — поверхность не круче луча
+    if(Math.abs(q.z-p.z)>MAX_SLOPE*Math.hypot(q.x-p.x,q.y-p.y)) mask[i>>3]|=1<<(i&7); }
   const zs=Math.max(0,Math.min(65535,Math.round((z0+40)*10)));   // высота датчика над уровнем станции: барометр тела, 2 Б, шаг 0,1 м от −40 м
   emit(cls,'SONAR',u.id,new Uint8Array([...posBytes(u),Math.round(u.sonarTilt||0)+90,zs>>8,zs&255,...mask,...b]));
 }
@@ -314,7 +327,7 @@ function tick(){
   // существо выбирает ближайшего живого
   let nearest=null, nd=1e9; for(const u of units){ if(!u.alive) continue; const d=dist(u,creature); if(d<nd){ nd=d; nearest=u; } }
   creature.cooldown=Math.max(0,creature.cooldown-dt);
-  if(!creature.awake && !creature.fleeing && !creature.cooldown && nearest && nd<detectRadius(nearest.mode)) creature.awake=true;
+  if(!LAB && !creature.awake && !creature.fleeing && !creature.cooldown && nearest && nd<detectRadius(nearest.mode)) creature.awake=true;
   if(creature.awake){
     if(creature.fleeing){ const h=Math.atan2(creature.lair.y-creature.y,creature.lair.x-creature.x); creature.x+=Math.cos(h)*2*dt; creature.y+=Math.sin(h)*2*dt; if(dist(creature,creature.lair)<2){creature.fleeing=false;creature.awake=false;creature.hp=3;creature.cooldown=120;} }
     else if(!nearest || nd>160){ creature.awake=false; creature.x=creature.home.x; creature.y=creature.home.y; }
@@ -341,6 +354,7 @@ function tick(){
       u.psyche=Math.max(0,Math.min(100,u.psyche+dt*(rest?0.05:-(0.01+0.15*u.fear+(inT&&!u.lightOn?0.04:0)))));
       u.cons=0.6+0.8*u.exertion+Math.pow(10,u.txDbm/10)*0.4+(u.lightOn?0.2:0)+(u.sub.img.interval?0.3:0)-(rest?0.4:0); u.gen=0.8-0.3*u.fear;
       u.charge=Math.max(0,Math.min(100,u.charge+(u.gen-u.cons)*dt*0.01));   // ходьба с фонарём: ~3 ч; стоя — почти ровно; отдых восстанавливает
+      if(LAB){ u.glucose=u.electro=u.charge=100; }
       if(u.skin<=0||u.bone<=0||u.glucose<=0||u.charge<=0){ u.alive=false; u.target=null; evt(5,u.id); }
       if(u.sub.tlm){ u.tlmTimer+=dt; if(u.tlmTimer>=u.sub.tlm){ u.tlmTimer=0; emit('bg','TLM',u.id,telemetry(u)); } }
       if(u.sub.desc){ u.subT.desc+=dt; if(u.subT.desc>=u.sub.desc){ u.subT.desc=0; describe(u,'bg'); } }

@@ -145,3 +145,6 @@ button{white-space:nowrap}
 /* данные старше порога — приглушены */
 .bb.stale{opacity:.45}
 .bb{transition:opacity .4s}
+/* лаборатория лидара (index.html?lab): лишние панели и команды скрыты */
+body.lab #blk-img,body.lab #blk-desc,body.lab .cmds{display:none}
+#blk-lab{display:none} body.lab #blk-lab{display:block}
