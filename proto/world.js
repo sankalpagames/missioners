@@ -66,6 +66,13 @@ function blocked(x,y,fromX,fromY){
   for(const c of HULLS){ if(hullIn(x,y,c,BODY_R)) return true; }
   return false;
 }
+// цель внутри корпуса (платформа, обломки — сам ориентир стоит в их центре) → ближайшая точка снаружи, к ней и идти
+// (радиально от центра корпуса; цель в самом центре — со стороны тела)
+function outsideHulls(x,y,from){ for(const c of HULLS){ if(!hullIn(x,y,c,BODY_R)) continue; const pad=BODY_R+0.4; let vx=x-c.x, vy=y-c.y; if(Math.hypot(vx,vy)<0.5){ vx=from.x-c.x; vy=from.y-c.y; }
+    if(c.r!==undefined){ const d=Math.hypot(vx,vy)||1; return {x:c.x+vx/d*(c.r+pad), y:c.y+vy/d*(c.r+pad)}; }
+    const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=vx*ca+vy*sa, ly=-vx*sa+vy*ca; const k=Math.hypot(lx/(c.rx+pad),ly/(c.ry+pad))||1; const ox=lx/k, oy=ly/k;   // в осях эллипса
+    return {x:c.x+ox*ca-oy*sa, y:c.y+ox*sa+oy*ca}; }
+  return {x,y}; }
 function stepBody(u,len){
   const dx=Math.cos(u.heading)*len, dy=Math.sin(u.heading)*len;
   if(!blocked(u.x+dx,u.y+dy,u.x,u.y)){ u.x+=dx; u.y+=dy; return true; }
@@ -263,7 +270,7 @@ onmessage = e => {
     case 22: beginAction(u,'put',m.bytes[3],arg); break;    // положить: [22,item,unit,objId] (objId 0 — на грунт)
     case 23: beginAction(u,'take',m.bytes[3],arg); break;   // взять:    [23,item,unit,objId]
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
-    case 6: if(u.alive){ const {x,y}=decPos(m.bytes,3); u.goal={x,y}; if(blocked(x,y)){ evt(23,u.id); break; } u.target={x,y}; u.bestD=undefined; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
+    case 6: if(u.alive){ const g=decPos(m.bytes,3); u.goal={x:g.x,y:g.y}; const {x,y}=outsideHulls(g.x,g.y,u); u.target={x,y}; u.bestD=undefined; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
     case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ u.target={x:16,y:0}; u.goal={x:16,y:0}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
     case 8: beginAction(u,'act',arg); break;
