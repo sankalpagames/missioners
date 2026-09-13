@@ -52,12 +52,12 @@
       </div>
     </div>
     <div class="block" id="blk-sonar">
-      <div class="bh"><span class="bt" data-tip="Сонар, базовый датчик. 64 луча по кругу с высоты 1,2 м под заданным наклоном: байт наклонной дальности (шаг 0,4 м, до 100 м) и бит «сплошное» — поверхность круче 45° (корпус, стены, обрыв); плюс координаты съёмки и наклон = 85 Б с заголовком. Центр — тело; кольца — 25, 50, 75, 100 м; ориентация как на карте (0° — вправо). Отсчёт на луче — первое препятствие в этом направлении. Сплошные (зелёные) соединяются в линии — стены, корпуса; низкие (жёлтые точки) — ящики, тела, существо. Луч без отсчёта — до 100 м пусто. На карту ложатся только сплошные. Что именно найдено, сонар не различает; для этого — описание.">СОНАР</span>
-        <select class="sub" id="sub-sonar" data-tip="Автообновление сонара. Снимок — 85 Б, с последним заданным наклоном."><option value="0">по запросу</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
-        <select class="sub" id="sonar-tilt" data-tip="Наклон лучей к горизонту. Вниз — эхо от грунта: подъём впереди укорачивает дальность, понижение удлиняет; на карте — тусклые точки рельефа. Поверхность круче 45° даёт бит «сплошное» при любом наклоне. Применяется со следующего снимка, автосъёмка использует последний наклон."><option value="5">+5°</option><option value="0" selected>0°</option><option value="-3">−3°</option><option value="-6">−6°</option><option value="-12">−12°</option></select>
-        <button class="mini" id="btn-sonar" data-tip="Снимок сонара, 85 Б.">снять ●</button>
+      <div class="bh"><span class="bt" data-tip="Лидар, базовый датчик. 64 луча по кругу с высоты 1,2 м под заданным наклоном: байт наклонной дальности (шаг 0,4 м, до 100 м) и бит «сплошное» — поверхность круче 45° (корпус, стены, обрыв); плюс координаты съёмки, наклон и высота датчика (барометр) = 86 Б с заголовком. Из дальности, наклона и высоты консоль считает высоту каждой точки попадания и копит карту высот. Центр — тело; кольца — 25, 50, 75, 100 м; ориентация как на карте (0° — вправо). Отсчёт на луче — первое препятствие в этом направлении. Сплошные (зелёные) соединяются в линии — стены, корпуса; низкие (жёлтые точки) — ящики, тела, существо. Луч без отсчёта — до 100 м пусто. На карту ложатся только сплошные. Что именно найдено, лидар не различает; для этого — описание.">ЛИДАР</span>
+        <select class="sub" id="sub-sonar" data-tip="Автообновление лидара. Снимок — 86 Б, с последним заданным наклоном."><option value="0">по запросу</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
+        <select class="sub" id="sonar-tilt" data-tip="Наклон лучей к горизонту. Вниз — эхо от грунта: подъём впереди укорачивает дальность, понижение удлиняет; каждая точка попадания получает высоту и идёт в карту высот на карте. Поверхность круче 45° даёт бит «сплошное» при любом наклоне. Применяется со следующего снимка, автосъёмка использует последний наклон."><option value="5">+5°</option><option value="0" selected>0°</option><option value="-3">−3°</option><option value="-6">−6°</option><option value="-12">−12°</option></select>
+        <button class="mini" id="btn-sonar" data-tip="Снимок лидара, 86 Б.">снять ●</button>
 <span class="bw" id="bw-sonar"></span></div>
-      <div class="bb" id="sonar-body"><canvas id="sonar" width="200" height="200"></canvas><div id="sonar-age" class="dim small">нет данных</div></div><div class="bb dim small" id="sonar-none" hidden>сонар не установлен</div>
+      <div class="bb" id="sonar-body"><canvas id="sonar" width="200" height="200"></canvas><div id="sonar-age" class="dim small">нет данных</div></div><div class="bb dim small" id="sonar-none" hidden>лидар не установлен</div>
     </div>
   </section>
 
@@ -67,7 +67,7 @@
     </nav>
     <div class="tab on" id="tab-map">
       <canvas id="map" width="720" height="460"></canvas>
-      <div class="row small dim"><button class="mini" id="map-minus">−</button><button class="mini" id="map-plus">+</button><button class="mini" id="map-reset">сброс</button><button class="mini" id="map-tracks" data-tip="Стереть пройденные пути на карте. Данные не теряются, только линии.">пути ✕</button><span id="map-scale"></span><span class="grow"></span><span id="map-hint">колёсико/кнопки — масштаб · перетаскивание — сдвиг · клик — выбор объекта или точки (локально) · тусклые объекты — не в описаниях этого миссионера</span><span class="grow"></span><span id="map-count"></span></div>
+      <div class="row small dim"><button class="mini" id="map-minus">−</button><button class="mini" id="map-plus">+</button><button class="mini" id="map-reset">сброс</button><button class="mini" id="map-tracks" data-tip="Стереть пройденные пути на карте. Данные не теряются, только линии.">пути ✕</button><span id="map-scale"></span><span class="grow"></span><span id="map-hint">колёсико/кнопки — масштаб · перетаскивание — сдвиг · клик — выбор объекта или точки (локально) · тусклые объекты — не в описаниях этого миссионера · светлые линии — стены, изогипсы через 0,5 м — карта высот с лидара</span><span class="grow"></span><span id="map-count"></span></div>
     </div>
     <div class="tab" id="tab-charts">
       <div class="row"><label class="small">миссионер <select id="ch-unit"></select></label><label class="small">величина <select id="ch-field"><option value="pulse">пульс</option><option value="glucose">глюкоза</option><option value="electro">электролиты</option><option value="toxin">токсины</option><option value="skin">кожа</option><option value="bone">опорно-двиг.</option><option value="psyche">психика</option><option value="charge">заряд</option><option value="cons">потребление</option></select></label></div>
@@ -92,7 +92,7 @@
       <h3>подготовка миссионера</h3>
       <div class="row">
         <label class="small" id="g-cam-l"><input type="checkbox" id="g-cam"> камера</label>
-        <label class="small"><input type="checkbox" id="g-sonar" checked> сонар</label>
+        <label class="small"><input type="checkbox" id="g-sonar" checked> лидар</label>
         <button id="btn-grow" data-tip="Вырастить миссионера с выбранными датчиками. 3 минуты, одна единица биоматериала. Пока идёт выращивание, следующее не начать.">Подготовить ●</button>
       </div>
       <div id="grow-state" class="small dim"></div>
@@ -110,7 +110,7 @@
     </div>
     <div class="tab" id="tab-channel">
       <canvas id="chart-ch" width="720" height="220"></canvas>
-      <div class="legend small"><i class="k-TLM"></i>тело <i class="k-HB"></i>станция <i class="k-SONAR"></i>сонар <i class="k-DESC"></i>описания <i class="k-IMG"></i>изображения <i class="k-EVT"></i>события <i class="k-drop"></i>потери <i class="k-cap"></i>ёмкость</div>
+      <div class="legend small"><i class="k-TLM"></i>тело <i class="k-HB"></i>станция <i class="k-SONAR"></i>лидар <i class="k-DESC"></i>описания <i class="k-IMG"></i>изображения <i class="k-EVT"></i>события <i class="k-drop"></i>потери <i class="k-cap"></i>ёмкость</div>
       <table id="ch-table"><thead><tr><th>панель</th><th>Б/с сейчас</th><th>Б всего</th></tr></thead><tbody></tbody></table>
       <h3>в очереди</h3>
       <table id="queue"><thead><tr><th>запрос</th><th>от</th><th>пакеты</th><th>байт</th><th>ETA</th></tr></thead><tbody></tbody></table>

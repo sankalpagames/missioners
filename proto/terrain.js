@@ -44,9 +44,9 @@ const TER = (()=>{
   function H(x,y,lod=0){ const c=canyon(x,y); let r=ridgeH(x,y); if(c.along<0 && c.along>-60){ const strip=(1-ss(6,11,Math.abs(c.perp)))*ss(-50,-25,c.along); r*=1-strip; }   // подход через осыпь расчищен
     const h=hills(x,y)+dunes(x,y)+(lod?0:micro(x,y))+r; if(c.d>c.w/2+4) return h;
     if(c.along>-6 && c.along<1 && Math.abs(c.perp)<5.5){ const k=ss(-6,-2,c.along)*(1-ss(4,5.5,Math.abs(c.perp))); return h*(1-k)+floorZ(c.along,c.perp)*k; }
-    const wall=c.w/2; const k=1-ss(wall,wall+1.6,c.d);   // стена начинается ровно на полуширине — там же, где явная стена для сонара и ходьбы
+    const wall=c.w/2; const k=1-ss(wall,wall+1.6,c.d);   // стена начинается ровно на полуширине — там же, где явная стена для лидара и ходьбы
     if(k<=0) return h; return h*(1-k)+floorZ(c.along,c.perp)*k; }
-  // крутизна поверхности: tg угла наклона (для сонара — бит «сплошное», для ходьбы — непроходимый склон)
+  // крутизна поверхности: tg угла наклона (для лидара — бит «сплошное», для ходьбы — непроходимый склон)
   function slope(x,y){ const e=0.3; const dx=(H(x+e,y,1)-H(x-e,y,1))/(2*e), dy=(H(x,y+e,1)-H(x,y-e,1))/(2*e); return Math.hypot(dx,dy); }
 
   // ---- альбедо ----

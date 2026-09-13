@@ -17,7 +17,7 @@ const POIS = [
   { id:7, x:336, y:216,  subs:[[29,1.8,2.9],[30,-0.6,-1.8],[31,-4.4,-0.5],[32,0.8,0.1]] },   // на дне последнего колена расщелины
 ];
 const TUN_A = TER.CANYON.pts[0];                                             // вход в расщелину (ориентир 6)
-const CIRCLES = [ {x:0,y:0,r:10,h:7}, {x:-200,y:60,r:4,h:4} ];                        // корпус платформы, обломки: непроходимы и отражают сонар; остальное — рельеф
+const CIRCLES = [ {x:0,y:0,r:10,h:7}, {x:-200,y:60,r:4,h:4} ];                        // корпус платформы, обломки: непроходимы и отражают лидар; остальное — рельеф
 // t ∈ [0,1] — доля пути вглубь расщелины, −1 — снаружи. Дальше от входа — глубже, сильнее затухание радио
 function tunnelT(x,y){ const c=TER.inside(x,y); return c && c.along>0 ? Math.min(1,c.along/TER.LEN) : -1; }
 function inCorridor(x,y,margin=0){ return !!TER.inside(x,y,margin); }
@@ -129,12 +129,12 @@ function describe(u, cls='cmd'){
 function posBytes(u){ const x=Math.round(u.x*10)+32768, y=Math.round(u.y*10)+32768; return [x>>8,x&255,y>>8,y&255]; }   // дециметры, 16 бит: ±3276 м
 function decPos(b,o){ return { x:(((b[o]<<8)|b[o+1])-32768)/10, y:(((b[o+2]<<8)|b[o+3])-32768)/10 }; }
 function rayCircle(ox,oy,dx,dy,c){ const fx=ox-c.x, fy=oy-c.y; const b=2*(fx*dx+fy*dy), cc=fx*fx+fy*fy-c.r*c.r; const D=b*b-4*cc; if(D<0) return Infinity; const s=Math.sqrt(D); const t1=(-b-s)/2, t2=(-b+s)/2; if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
-// что отражает сонар: только тела с объёмом (радиус, м); следы, надписи, кабели, вода — нет
+// что отражает лидар: только тела с объёмом (радиус, м); следы, надписи, кабели, вода — нет
 const SONAR_R={13:0.8,14:0.8,17:0.3,18:0.6,20:1.5,21:0.15,22:0.4,23:3,28:0.4,29:1.5,32:0.2,33:0.3};   // люки и прожектор — часть корпуса, он отражает сам
-// Сонар (по поведению — плоский лидар): 64 луча по кругу под наклоном tilt° к горизонту с высоты 1,2 м над грунтом; на луч — байт
+// Лидар: 64 луча по кругу под наклоном tilt° к горизонту с высоты 1,2 м над грунтом; на луч — байт
 // наклонной дальности и бит «сплошное»: поверхность в точке попадания круче 45° (стены, обрыв, корпус) — эхо по всей высоте.
 // Наклон вниз даёт эхо от грунта: подъём впереди укорачивает дальность, понижение удлиняет — профиль рельефа за те же байты.
-// Пакет: [x,y съёмки (4), наклон+90 (1), маска (8), дальности (64)] = 77 Б
+// Пакет: [x,y съёмки (4), наклон+90 (1), высота датчика (1), маска (8), дальности (64)] = 78 Б
 const OBJ_H={13:1,14:1,17:7,18:1.8,20:0.7,21:1.1,22:0.5,23:4,28:0.4,29:1.4,32:0.25,33:0.4};   // высота отражателя, м; тела и существо — 1,6 / 0,5
 function sonar(u, cls='cmd'){
   const b=new Uint8Array(64), mask=new Uint8Array(8); const objs=objectsAround(u,100); const tilt=(u.sonarTilt||0)*Math.PI/180;
@@ -145,7 +145,8 @@ function sonar(u, cls='cmd'){
     for(const o of objs){ if(o.landmark) continue; const r=o.creature?0.5:o.unit?0.5:(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,ca,sa,{x:o.x,y:o.y,r})/ch; const oh=o.creature?(creature.awake?1.6:0.6):o.unit?(o.unit.alive?1.8:0.5):(OBJ_H[o.type]||1);
       if(t<best && hitZ(t)<TER.H(o.x,o.y)+oh && hitZ(t)>TER.H(o.x,o.y)-0.5){ best=t; solid=false; } }
     b[i]=Math.round(Math.min(100,best)/100*255); if(solid&&best<100) mask[i>>3]|=1<<(i&7); }
-  emit(cls,'SONAR',u.id,new Uint8Array([...posBytes(u),Math.round(u.sonarTilt||0)+90,...mask,...b]));
+  const zs=Math.max(0,Math.min(255,Math.round((z0+40)*2)));   // высота датчика над уровнем станции, шаг 0,5 м, −40…+87 м — барометр тела
+  emit(cls,'SONAR',u.id,new Uint8Array([...posBytes(u),Math.round(u.sonarTilt||0)+90,zs,...mask,...b]));
 }
 
 // ---------- камера ----------
