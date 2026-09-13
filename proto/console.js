@@ -78,9 +78,11 @@ function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.c
 // Описание: [id, класс, пеленг/2, дальность, длина, текст]*. Класс: 0 объект, 1 ориентир, 2 неопознанное, 3 тело, 4 миссионер.
 function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit); const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const items=[];   // позиция съёмки — из пакета, дециметры
   for(let i=4;i+4<b.length;){ const len=b[i+4]; const it={id:b[i],cls:b[i+1],bearing:b[i+2]*2,range:b[i+3],name:decText(b.slice(i+5,i+5+len))}; i+=5+len;
-    it.x=Math.round(p.x+Math.cos(it.bearing*Math.PI/180)*it.range); it.y=Math.round(p.y+Math.sin(it.bearing*Math.PI/180)*it.range); items.push(it);
+    it.x=p.x+Math.cos(it.bearing*Math.PI/180)*it.range; it.y=p.y+Math.sin(it.bearing*Math.PI/180)*it.range; items.push(it);
     const key=it.cls===2?'creature':'o'+it.id; const prev=known.get(key); const seen=prev?prev.seenBy:new Set(); seen.add(pkt.unit);
-    known.set(key,{id:it.id,cls:it.cls,x:it.x,y:it.y,at:tNow,unit:pkt.unit,seenBy:seen,name:it.name}); }
+    // ошибка места ∝ дальности (пеленг шагом 2°): для неподвижного объекта остаётся оценка с самой близкой съёмки; существо — всегда свежая
+    const keep=prev&&it.cls!==2&&prev.range!==undefined&&prev.range<it.range;
+    known.set(key,{id:it.id,cls:it.cls,x:keep?prev.x:it.x,y:keep?prev.y:it.y,range:keep?prev.range:it.range,at:tNow,unit:pkt.unit,seenBy:seen,name:it.name}); }
   u.desc=items; u.descAt=tNow; u.descPts.push({x:p.x,y:p.y,t:tNow}); if(pkt.unit===active) renderDesc();
   log(`М${pkt.unit} описание: ${items.length} — ${items.map(i=>i.name).join(', ')}`,'desc'); }
 // Осмотр и действие: [id, код, длина, текст] — текст составила станция, консоль его только печатает.
@@ -194,7 +196,7 @@ function renderJournal(){ const el=$('#journal'); el.innerHTML=''; const fu=$('#
   if(!rows.length){ el.innerHTML='<div class="dim">записей нет</div>'; return; }
   for(const r of f){ const d=document.createElement('div'); d.className='row-e'; d.innerHTML=`<span class="t">${fmtT(r.t)}</span><span class="u">М${r.unit}</span><span class="n">${r.name}</span>${r.text} <span class="lm">· ${r.lm}</span>`; if(r.o) d.onclick=()=>setTarget({id:r.o.id,cls:r.o.cls,x:r.o.x,y:r.o.y,name:r.name}); el.appendChild(d); } }
 ['#jf-unit','#jf-lm'].forEach(s=>$(s).onchange=renderJournal);
-function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`выбрано: ${tg.name} (${tg.x}, ${tg.y})`:'выбор: нет'; }
+function updateTarget(){ const tg=T(); $('#target-label').textContent=tg?`выбрано: ${tg.name} (${Math.round(tg.x)}, ${Math.round(tg.y)})`:'выбор: нет'; }
 function setTarget(tg){ units.get(active).sel=tg; renderDesc(); updateTarget(); }   // выбор — локальный, ничего не уходит
 function setGoal(name,p){ const u=units.get(active); u.goalName=name; if(p) u.goalPos={x:p.x,y:p.y}; else if(T()) u.goalPos={x:T().x,y:T().y}; $('#img-look').textContent=`смотрит: ${name?'на «'+name+'»':'вперёд'}`; }
 
@@ -237,9 +239,10 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   ctx.font='10px monospace';
   const tg=T(), au0=units.get(active), gp=au0&&au0.goalPos;
   // ориентир — место: ромб с ножкой и имя ПРОПИСНЫМИ над ним; предмет, тело, существо — точка и имя строчными справа
-  for(const o of known.values()){ const age=tNow-o.at, mine=o.seenBy.has(active); ctx.globalAlpha=(mine?Math.max(0.4,1-age/600):0.22); const col=o.cls===2?'#ff5c5c':o.cls===3?'#888':o.cls===1?'#e0a94a':'#9fb59f'; const X=sx(o.x), Y=sy(o.y);
-    if(o.cls===1){ ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(X,Y-10); ctx.lineTo(X+4,Y-6); ctx.lineTo(X,Y-2); ctx.lineTo(X-4,Y-6); ctx.closePath(); ctx.moveTo(X,Y-2); ctx.lineTo(X,Y); ctx.stroke(); ctx.lineWidth=1; if(mine){ ctx.fillStyle=col; ctx.font='bold 9px monospace'; ctx.fillText(o.name.toUpperCase(),X+7,Y-5); ctx.font='10px monospace'; } }
-    else { ctx.fillStyle=col; ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(X,Y,2,0,7); if(mine) ctx.fill(); else ctx.stroke(); if(mine&&(o.cls!==0||sc>1.2)) ctx.fillText(o.name,X+5,Y+3); } }
+  const labels=[]; const place=(x,y,w)=>{ let yy=y; for(let k=0;k<6;k++){ if(!labels.some(l=>Math.abs(l.y-yy)<10&&x<l.x+l.w&&x+w>l.x)) break; yy+=10; } labels.push({x,y:yy,w}); return yy; };   // подписи не налезают: сдвиг вниз
+  for(const o of [...known.values()].sort((a,b)=>(b.cls===1)-(a.cls===1))){ const age=tNow-o.at, mine=o.seenBy.has(active); ctx.globalAlpha=(mine?Math.max(0.4,1-age/600):0.22); const col=o.cls===2?'#ff5c5c':o.cls===3?'#888':o.cls===1?'#e0a94a':'#9fb59f'; const X=sx(o.x), Y=sy(o.y);   // ориентиры первыми: их подписи на месте, предметы уступают
+    if(o.cls===1){ ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(X,Y-10); ctx.lineTo(X+4,Y-6); ctx.lineTo(X,Y-2); ctx.lineTo(X-4,Y-6); ctx.closePath(); ctx.moveTo(X,Y-2); ctx.lineTo(X,Y); ctx.stroke(); ctx.lineWidth=1; if(mine){ ctx.fillStyle=col; ctx.font='bold 9px monospace'; const nm=o.name.toUpperCase(); place(X+7,Y-5,ctx.measureText(nm).width); ctx.fillText(nm,X+7,Y-5); ctx.font='10px monospace'; } }
+    else { ctx.fillStyle=col; ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(X,Y,2,0,7); if(mine) ctx.fill(); else ctx.stroke(); if(mine&&(o.cls!==0||sc>1.2)){ const yy=place(X+5,Y+3,ctx.measureText(o.name).width); if(yy!==Y+3){ ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+4,yy-3); ctx.stroke(); } ctx.fillText(o.name,X+5,yy); } } }
   { const au=units.get(active); if(au){ const p=pos(active); let ang=null; if(gp&&Math.hypot(gp.x-p.x,gp.y-p.y)>1.5) ang=Math.atan2(gp.y-p.y,gp.x-p.x); else if(au.track.length>1){ const a=au.track[au.track.length-2], b=au.track[au.track.length-1]; ang=Math.atan2(b.y-a.y,b.x-a.x); } else ang=0;
       const R=80*sc, f=52*Math.PI/180; ctx.fillStyle='rgba(224,169,74,0.10)'; ctx.beginPath(); ctx.moveTo(sx(p.x),sy(p.y)); ctx.arc(sx(p.x),sy(p.y),R,ang-f,ang+f); ctx.closePath(); ctx.fill(); } }
   ctx.globalAlpha=1; if(gp){ ctx.strokeStyle='#e0a94a'; ctx.beginPath(); ctx.arc(sx(gp.x),sy(gp.y),5,0,7); ctx.stroke(); } if(tg){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(sx(tg.x),sy(tg.y),7,0,7); ctx.stroke(); ctx.fillStyle='#fff'; ctx.fillText('выбрано',sx(tg.x)+9,sy(tg.y)-8); }
