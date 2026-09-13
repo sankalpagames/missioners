@@ -49,7 +49,7 @@ link.onDeliver=pkt=>{
     case 'TLM': decodeTlm(pkt); break;
     case 'HB': decodeHb(pkt.bytes); break;
     case 'DESC': decodeDesc(pkt); break;
-    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const o=b.length>=78?2:b.length>=77?1:0; const tilt=o?b[4]-90:0; const zs=o>1?b[5]/2-40:null; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o); u.sonarData=rays; u.sonarMask=mask; u.sonarTilt=tilt; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays],m:mask,k:tilt}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(zs!==null) hmapAdd(p.x,p.y,tilt,zs,rays,mask); if(pkt.unit===active) drawSonar(rays,mask,tilt); break; }
+    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const o=b.length>=79?3:b.length>=78?2:b.length>=77?1:0; const tilt=o?b[4]-90:0; const zs=o>2?((b[5]<<8)|b[6])/10-40:o>1?b[5]/2-40:null; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o);   /* o — сдвиг: наклон, барометр 2 Б (шаг 0,1 м; старые форматы — 1 Б по 0,5 м или без) */ u.sonarData=rays; u.sonarMask=mask; u.sonarTilt=tilt; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays],m:mask,k:tilt}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(zs!==null) hmapAdd(p.x,p.y,tilt,zs,rays,mask); if(pkt.unit===active) drawSonar(rays,mask,tilt); break; }
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
@@ -118,15 +118,33 @@ function decodeImd(pkt){ const u=holderOf(pkt.unit), im=u.img, lvl=+pkt.kind[3],
 // ---------- отрисовка ----------
 function drawGray(cv,buf,side){ const ctx=cv.getContext('2d'), im=ctx.createImageData(side,side); for(let i=0;i<side*side;i++){ im.data[i*4]=im.data[i*4+1]=im.data[i*4+2]=buf[i]; im.data[i*4+3]=255; } ctx.putImageData(im,0,0); }
 // лидар: 64 дальности по кругу. Соседние отсчёты с близкой дальностью — одна поверхность (линия), одиночные — точки
-// Карта высот — из отсчётов лидара: дальность, наклон и высота датчика дают высоту точки попадания. Сетка 2 м, в ячейке — среднее и число отсчётов.
-const HCELL=2, hmap=new Map();   // 'i,j' → {z,n} — сырые отсчёты по ячейкам
+// ---------- карта высот (чистые функции без DOM; tools/hmap-check.js вырезает этот блок по маркерам) ----------
+// Из отсчётов лидара: дальность, наклон и высота датчика дают высоту точки попадания. Сетка 2 м, в ячейке — среднее и число отсчётов.
+const HCELL=2, hmap=new Map();   // 'i,j' → {z,n}. Ошибка одного отсчёта ≈ 0,05 м (барометр ±0,05, квантование дальности 0,4·sin наклона)
 let hsm=new Map(), hsmDirty=true;   // сглаженное поле: отсчёты растянуты на соседние ячейки (радиус 2), чтобы между кольцами снимков появились изогипсы
+// Увязка снимков между собой (сдвиг нового к уже снятому по перекрытию) проверялась в tools/hmap-check.js: при барометре 0,1 м она только
+// добавляет дрейф (ошибка ячейки 0,03 → 0,17 м), поэтому снимки кладутся как есть.
 function hmapAdd(x0,y0,tilt,zs,rays,mask){ const tr=tilt*Math.PI/180, ch=Math.cos(tr), sh=Math.sin(tr);
   for(let i=0;i<64;i++){ const r=rays[i]/255*100; if(r>=99.5) continue; const a=i/64*Math.PI*2; const x=x0+Math.cos(a)*r*ch, y=y0+Math.sin(a)*r*ch, z=zs+r*sh;
     const key=Math.floor(x/HCELL)+','+Math.floor(y/HCELL); const c=hmap.get(key); if(c){ c.z+=(z-c.z)/Math.min(c.n+1,8); c.n++; } else hmap.set(key,{z,n:1}); } hsmDirty=true; }
 function hmapSmooth(){ if(!hsmDirty) return hsm; hsm=new Map(); const R=2;
   for(const [k,c] of hmap){ const [i,j]=k.split(',').map(Number); for(let di=-R;di<=R;di++)for(let dj=-R;dj<=R;dj++){ const w=Math.min(c.n,4)/(1+di*di+dj*dj); const kk=(i+di)+','+(j+dj); const t=hsm.get(kk); if(t){ t.z+=c.z*w; t.w+=w; } else hsm.set(kk,{z:c.z*w,w}); } }
   for(const [k,t] of hsm){ if(t.w<0.7) hsm.delete(k); else t.z/=t.w; } hsmDirty=false; return hsm; }
+// Изогипсы через STEP по центрам ячеек (marching squares) в окне ячеек [i0..i1]×[j0..j1]; отрезки в метрах: [x1,y1,x2,y2].
+// Отрезки собираются в цепочки по общим концам; цепочка короче HMIN отрезков — обрывок: на плоском его даёт шум измерения, а не рельеф.
+// Проверено tools/hmap-check.js: изогипса ложится в 1 м (медиана) от истинной того же уровня; порог по уклону ячейки (ошибка/уклон) точности не добавлял.
+const HMIN=4;
+function hmapContours(sm,i0,i1,j0,j1,STEP=0.5){ const seg=[]; const get=(i,j)=>sm.get(i+','+j);
+  for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const a=get(i,j), b=get(i+1,j), c=get(i+1,j+1), d=get(i,j+1); if(!a||!b||!c||!d) continue; const v=[a.z,b.z,c.z,d.z]; const lo=Math.ceil(Math.min(...v)/STEP)*STEP, hi=Math.max(...v);
+    const P=[[i,j],[i+1,j],[i+1,j+1],[i,j+1]].map(([q,w])=>[(q+0.5)*HCELL,(w+0.5)*HCELL]);
+    for(let L=lo;L<=hi;L+=STEP){ const pts=[]; for(let e=0;e<4;e++){ const va=v[e], vb=v[(e+1)%4]; if((va<L)!==(vb<L)){ const k=(L-va)/(vb-va); pts.push([P[e][0]+(P[(e+1)%4][0]-P[e][0])*k, P[e][1]+(P[(e+1)%4][1]-P[e][1])*k]); } }
+      if(pts.length>=2) seg.push([...pts[0],...pts[1],L]); if(pts.length===4) seg.push([...pts[2],...pts[3],L]); } }
+  // цепочки: объединение по общим концам (ключ — сантиметры и уровень)
+  const par=seg.map((_,i)=>i); const find=i=>{ while(par[i]!==i) i=par[i]=par[par[i]]; return i; }; const ends=new Map();
+  seg.forEach((s,i)=>{ for(const k of [Math.round(s[0]*100)+','+Math.round(s[1]*100)+','+s[4], Math.round(s[2]*100)+','+Math.round(s[3]*100)+','+s[4]]){ const j=ends.get(k); if(j!==undefined) par[find(i)]=find(j); else ends.set(k,i); } });
+  const len=new Map(); for(let i=0;i<seg.length;i++){ const r=find(i); len.set(r,(len.get(r)||0)+1); }
+  return seg.filter((_,i)=>len.get(find(i))>=HMIN); }
+// ---------- /карта высот ----------
 function sonarSegments(b,m,tilt=0){ const pts=[]; const ch=Math.cos(tilt*Math.PI/180); for(let i=0;i<64;i++){ const r=b[i]/255*100; const solid=m?!!(m[i>>3]&(1<<(i&7))):true; pts.push(r>=99.5?null:{a:i/64*Math.PI*2,r:r*ch,solid}); }   // r — горизонтальная проекция наклонной дальности
   // соединяем только сплошные отсчёты; допуск по дальности растёт с дальностью (лучи расходятся на 0,1·r; поверхность под углом до ~70° даёт Δr ≈ 0,27·r)
   const joined=i=>{ const p=pts[i], q=pts[(i+1)%64]; return p&&q&&p.solid===q.solid&&Math.abs(p.r-q.r)<0.5+0.3*Math.min(p.r,q.r); };   // соседи одного рода: стена со стеной, грунт с грунтом
@@ -205,12 +223,7 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   // карта высот: заливка тоном по высоте (ниже — темнее) и изогипсы через 0,5 м по центрам ячеек (marching squares)
   if(hmap.size&&(map.hm||map.iso)){ const sm=hmapSmooth(); const i0=Math.floor((cx-W/2/sc)/HCELL)-1, i1=Math.floor((cx+W/2/sc)/HCELL)+1, j0=Math.floor((cy-H/2/sc)/HCELL)-1, j1=Math.floor((cy+H/2/sc)/HCELL)+1; const get=(i,j)=>sm.get(i+','+j);
     const cs=HCELL*sc; if(map.hm) for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const c=get(i,j); if(!c) continue; const t=Math.max(0,Math.min(1,(c.z+3)/30)); ctx.fillStyle=`rgba(${70+120*t},${110+90*t},${100+70*t},${0.12+0.05*Math.min(c.w,4)})`; ctx.fillRect(sx(i*HCELL),sy(j*HCELL),cs+0.5,cs+0.5); }
-    if(map.iso&&cs>=2){ ctx.strokeStyle='rgba(140,210,185,0.7)'; ctx.lineWidth=1; ctx.beginPath(); const STEP=0.5;
-      for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const a=get(i,j), b=get(i+1,j), c=get(i+1,j+1), d=get(i,j+1); if(!a||!b||!c||!d) continue; const v=[a.z,b.z,c.z,d.z]; const lo=Math.ceil(Math.min(...v)/STEP)*STEP, hi=Math.max(...v);
-        const P=[[i,j],[i+1,j],[i+1,j+1],[i,j+1]].map(([q,w])=>[sx((q+0.5)*HCELL),sy((w+0.5)*HCELL)]);
-        for(let L=lo;L<=hi;L+=STEP){ const pts=[]; for(let e=0;e<4;e++){ const va=v[e], vb=v[(e+1)%4]; if((va<L)!==(vb<L)){ const k=(L-va)/(vb-va); pts.push([P[e][0]+(P[(e+1)%4][0]-P[e][0])*k, P[e][1]+(P[(e+1)%4][1]-P[e][1])*k]); } }
-          if(pts.length>=2){ ctx.moveTo(pts[0][0],pts[0][1]); ctx.lineTo(pts[1][0],pts[1][1]); } if(pts.length===4){ ctx.moveTo(pts[2][0],pts[2][1]); ctx.lineTo(pts[3][0],pts[3][1]); } } }
-      ctx.stroke(); } }
+    if(map.iso&&cs>=2){ ctx.strokeStyle='rgba(140,210,185,0.7)'; ctx.lineWidth=1; ctx.beginPath(); for(const [x1,y1,x2,y2] of hmapContours(sm,i0,i1,j0,j1)){ ctx.moveTo(sx(x1),sy(y1)); ctx.lineTo(sx(x2),sy(y2)); } ctx.stroke(); } }
   // геометрия с лидара: стены светлыми линиями; грунт наклонного лидара идёт в карту высот
   for(const s of sonarSnaps){ const age=tNow-s.t; const al=Math.max(0.15,0.7-age/3000); const {pts,joined,chainLen}=sonarSegments(s.b,s.m,s.k||0); const X=p=>sx(s.x+Math.cos(p.a)*p.r), Y=p=>sy(s.y+Math.sin(p.a)*p.r);
     // на карту — только поверхности (цепочки отсчётов); одиночные отражения (ящики, столбики) остаются в панели лидара
@@ -218,11 +231,15 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
     const inChain=new Array(64).fill(false); for(let i=0;i<64;i++){ if(joined((i+63)%64)) continue; const n=chainLen(i); if(n>=(s.m?2:4)) for(let k=0;k<n;k++) inChain[(i+k)%64]=true; }
     if(!inChain.some(Boolean) && joined(0)) inChain.fill(true);   // все 64 соединены — замкнутая стена вокруг
     ctx.strokeStyle=`rgba(226,240,255,${al})`; ctx.lineWidth=1.2; for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!p.solid||!joined(i)||!inChain[i]) continue; const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1; }
-  ctx.strokeStyle='#555'; ctx.beginPath(); ctx.arc(sx(0),sy(0),14*sc,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(0)+16*sc,sy(0)-4);
+  // знак станции — контур корпуса из кодовой книги (эллипс, люк на +x); лидар отражается от того же контура
+  ctx.strokeStyle='#666'; ctx.beginPath(); ctx.ellipse(sx(STATION.x),sy(STATION.y),STATION.rx*sc,STATION.ry*sc,STATION.ang,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(STATION.x)-8*sc-44,sy(STATION.y)+3);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); const t0=map.trackLife?tNow-map.trackLife:-1; u.track.filter(p=>!(p.t<t0)).forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
   const tg=T(), au0=units.get(active), gp=au0&&au0.goalPos;
-  for(const o of known.values()){ const age=tNow-o.at, mine=o.seenBy.has(active); ctx.globalAlpha=(mine?Math.max(0.4,1-age/600):0.22); const col=o.cls===2?'#ff5c5c':o.cls===3?'#888':o.cls===1?'#e0a94a':'#9fb59f'; const r=o.cls===1?3:2; if(mine){ ctx.fillStyle=col; ctx.fillRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } else { ctx.strokeStyle=col; ctx.strokeRect(sx(o.x)-r,sy(o.y)-r,r*2,r*2); } if(mine&&(o.cls!==0||sc>1.2)) ctx.fillText(o.name,sx(o.x)+5,sy(o.y)+3); }
+  // ориентир — место: ромб с ножкой и имя ПРОПИСНЫМИ над ним; предмет, тело, существо — точка и имя строчными справа
+  for(const o of known.values()){ const age=tNow-o.at, mine=o.seenBy.has(active); ctx.globalAlpha=(mine?Math.max(0.4,1-age/600):0.22); const col=o.cls===2?'#ff5c5c':o.cls===3?'#888':o.cls===1?'#e0a94a':'#9fb59f'; const X=sx(o.x), Y=sy(o.y);
+    if(o.cls===1){ ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(X,Y-10); ctx.lineTo(X+4,Y-6); ctx.lineTo(X,Y-2); ctx.lineTo(X-4,Y-6); ctx.closePath(); ctx.moveTo(X,Y-2); ctx.lineTo(X,Y); ctx.stroke(); ctx.lineWidth=1; if(mine){ ctx.fillStyle=col; ctx.font='bold 9px monospace'; ctx.fillText(o.name.toUpperCase(),X+7,Y-5); ctx.font='10px monospace'; } }
+    else { ctx.fillStyle=col; ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(X,Y,2,0,7); if(mine) ctx.fill(); else ctx.stroke(); if(mine&&(o.cls!==0||sc>1.2)) ctx.fillText(o.name,X+5,Y+3); } }
   { const au=units.get(active); if(au){ const p=pos(active); let ang=null; if(gp&&Math.hypot(gp.x-p.x,gp.y-p.y)>1.5) ang=Math.atan2(gp.y-p.y,gp.x-p.x); else if(au.track.length>1){ const a=au.track[au.track.length-2], b=au.track[au.track.length-1]; ang=Math.atan2(b.y-a.y,b.x-a.x); } else ang=0;
       const R=80*sc, f=52*Math.PI/180; ctx.fillStyle='rgba(224,169,74,0.10)'; ctx.beginPath(); ctx.moveTo(sx(p.x),sy(p.y)); ctx.arc(sx(p.x),sy(p.y),R,ang-f,ang+f); ctx.closePath(); ctx.fill(); } }
   ctx.globalAlpha=1; if(gp){ ctx.strokeStyle='#e0a94a'; ctx.beginPath(); ctx.arc(sx(gp.x),sy(gp.y),5,0,7); ctx.stroke(); } if(tg){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(sx(tg.x),sy(tg.y),7,0,7); ctx.stroke(); ctx.fillStyle='#fff'; ctx.fillText('выбрано',sx(tg.x)+9,sy(tg.y)-8); }
@@ -258,7 +275,7 @@ function drawChartCh(){ const cv=$('#chart-ch'); fitCanvas(cv); const ctx=cv.get
   h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd; let y=H; for(const k of kinds){ const hh=s[k]/max*H; ctx.fillStyle=KIND_COL[k]; ctx.fillRect(x,y-hh,bwd-1,hh); y-=hh; } });
   ctx.strokeStyle='#fff'; ctx.beginPath(); h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd+bwd/2, y=H-s.cap/max*H; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.fillStyle='#888'; ctx.font='10px monospace'; ctx.fillText(Math.round(max)+' Б/с',4,10); ctx.fillText('90 с',W-30,H-4); }
 function bwRate(k){ const arr=bw[k]||[]; while(arr.length&&tNow-arr[0].t>5) arr.shift(); return arr.reduce((a,p)=>a+p.b,0)/5; }
-function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.arc(sx(0),sy(0),7,0,7); ctx.stroke(); ctx.strokeStyle='#444'; ctx.beginPath(); [[260,150],[284,158],[300,184],[321,191],[326,213],[341,219]].forEach(([x,y],i)=>i?ctx.lineTo(sx(x),sy(y)):ctx.moveTo(sx(x),sy(y))); ctx.moveTo(sx(300),sy(184)); ctx.lineTo(sx(291),sy(198)); ctx.lineTo(sx(286),sy(214)); ctx.stroke();   // расщелина с отростком — как в terrain.js
+function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.ellipse(sx(STATION.x),sy(STATION.y),STATION.rx*0.5,STATION.ry*0.5,STATION.ang,0,7); ctx.stroke(); ctx.strokeStyle='#444'; ctx.beginPath(); [[260,150],[284,158],[300,184],[321,191],[326,213],[341,219]].forEach(([x,y],i)=>i?ctx.lineTo(sx(x),sy(y)):ctx.moveTo(sx(x),sy(y))); ctx.moveTo(sx(300),sy(184)); ctx.lineTo(sx(291),sy(198)); ctx.lineTo(sx(286),sy(214)); ctx.stroke();   // расщелина с отростком — как в terrain.js
   ctx.fillStyle='#666'; ctx.font='10px monospace'; for(const [id,x,y] of [[1,16,0],[2,40,14],[3,120,-80],[4,90,140],[5,-200,60],[6,260,150],[7,336,216]]){ ctx.fillRect(sx(x)-1,sy(y)-1,3,3); ctx.fillText(id,sx(x)+4,sy(y)+3); }
   if(dbg){ for(const u of dbg.units){ ctx.fillStyle=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666'; ctx.fillRect(sx(u.x)-2,sy(u.y)-2,5,5); ctx.fillText('М'+u.id,sx(u.x)+5,sy(u.y)+3); } ctx.fillStyle=dbg.awake?'#ff5c5c':'#663'; ctx.fillRect(sx(dbg.cx)-2,sy(dbg.cy)-2,5,5); } }
 $('#truth').onclick=e=>{ const r=$('#truth').getBoundingClientRect(); const x=((e.clientX-r.left)*(360/r.width)-180)/0.5, y=((e.clientY-r.top)*(200/r.height)-100)/0.5; world.postMessage({t:'tp',unit:active,x,y}); log(`[отладка] телепорт М${active} в ${x.toFixed(0)}, ${y.toFixed(0)}`,'sys'); };

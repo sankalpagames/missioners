@@ -17,7 +17,11 @@ const POIS = [
   { id:7, x:336, y:216,  subs:[[29,1.8,2.9],[30,-0.6,-1.8],[31,-4.4,-0.5],[32,0.8,0.1]] },   // на дне последнего колена расщелины
 ];
 const TUN_A = TER.CANYON.pts[0];                                             // вход в расщелину (ориентир 6)
-const CIRCLES = [ {x:0,y:0,r:10,h:7}, {x:-200,y:60,r:4,h:4} ];                        // корпус платформы, обломки: непроходимы и отражают лидар; остальное — рельеф
+const HULLS = [ {...STATION}, {x:-200,y:60,r:4,h:4} ];                          // корпус платформы (эллипс из кодовой книги), обломки (круг): непроходимы и отражают лидар; остальное — рельеф
+// точка внутри корпуса (с запасом pad); луч в корпус: эллипс приводится к единичному кругу, параметр t — в метрах по лучу
+function hullIn(x,y,c,pad=0){ if(c.r!==undefined) return Math.hypot(x-c.x,y-c.y)<c.r+pad; const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=(x-c.x)*ca+(y-c.y)*sa, ly=-(x-c.x)*sa+(y-c.y)*ca; return (lx/(c.rx+pad))**2+(ly/(c.ry+pad))**2<1; }
+function rayHull(ox,oy,dx,dy,c){ if(c.r!==undefined) return rayCircle(ox,oy,dx,dy,c); const ca=Math.cos(c.ang), sa=Math.sin(c.ang); const fx=((ox-c.x)*ca+(oy-c.y)*sa)/c.rx, fy=(-(ox-c.x)*sa+(oy-c.y)*ca)/c.ry, ex=(dx*ca+dy*sa)/c.rx, ey=(-dx*sa+dy*ca)/c.ry;
+  const a=ex*ex+ey*ey, b=2*(fx*ex+fy*ey), cc=fx*fx+fy*fy-1, D=b*b-4*a*cc; if(D<0) return Infinity; const s=Math.sqrt(D), t1=(-b-s)/(2*a), t2=(-b+s)/(2*a); if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
 // t ∈ [0,1] — доля пути вглубь расщелины, −1 — снаружи. Дальше от входа — глубже, сильнее затухание радио
 function tunnelT(x,y){ const c=TER.inside(x,y); return c && c.along>0 ? Math.min(1,c.along/TER.LEN) : -1; }
 function inCorridor(x,y,margin=0){ return !!TER.inside(x,y,margin); }
@@ -59,7 +63,7 @@ const BODY_R = 0.6;
 const MAX_SLOPE=0.84;   // tg 40°: круче тело не идёт — стены расщелины, обрыв; дюны, осыпь, завал проходимы
 function blocked(x,y,fromX,fromY){
   const len=Math.hypot(x-fromX,y-fromY)||1; if((TER.H(x,y)-TER.H(fromX,fromY))/len>MAX_SLOPE) return true;
-  for(const c of CIRCLES){ if(Math.hypot(x-c.x,y-c.y) < c.r+BODY_R) return true; }
+  for(const c of HULLS){ if(hullIn(x,y,c,BODY_R)) return true; }
   return false;
 }
 function stepBody(u,len){
@@ -140,13 +144,13 @@ function sonar(u, cls='cmd'){
   const b=new Uint8Array(64), mask=new Uint8Array(8); const objs=objectsAround(u,100); const tilt=(u.sonarTilt||0)*Math.PI/180;
   const z0=TER.H(u.x,u.y)+1.2, ch=Math.cos(tilt), sh=Math.sin(tilt); const hitZ=(t)=>z0+sh*t;
   for(let i=0;i<64;i++){ const a=i/64*Math.PI*2, ca=Math.cos(a), sa=Math.sin(a), dx=ca*ch, dy=sa*ch; let best=100, solid=false;   // dx,dy — шаг по горизонтали на метр наклонной дальности
-    for(const c of CIRCLES){ const t=rayCircle(u.x,u.y,ca,sa,c)/ch; if(t<best && hitZ(t)<TER.H(c.x,c.y)+c.h){ best=t; solid=true; } }
+    for(const c of HULLS){ const t=rayHull(u.x,u.y,ca,sa,c)/ch; if(t<best && hitZ(t)<TER.H(c.x,c.y)+c.h){ best=t; solid=true; } }
     for(let t=0.5;t<best;t+=0.5){ const px=u.x+dx*t, py=u.y+dy*t; if(hitZ(t)<=TER.H(px,py)){ let lo=t-0.5, hi=t; for(let k=0;k<5;k++){ const m=(lo+hi)/2; if(hitZ(m)<=TER.H(u.x+dx*m,u.y+dy*m)) hi=m; else lo=m; } best=hi; solid=TER.slope(u.x+dx*hi,u.y+dy*hi)>1; break; } }   // рельеф: стена, если круто
     for(const o of objs){ if(o.landmark) continue; const r=o.creature?0.5:o.unit?0.5:(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,ca,sa,{x:o.x,y:o.y,r})/ch; const oh=o.creature?(creature.awake?1.6:0.6):o.unit?(o.unit.alive?1.8:0.5):(OBJ_H[o.type]||1);
       if(t<best && hitZ(t)<TER.H(o.x,o.y)+oh && hitZ(t)>TER.H(o.x,o.y)-0.5){ best=t; solid=false; } }
     b[i]=Math.round(Math.min(100,best)/100*255); if(solid&&best<100) mask[i>>3]|=1<<(i&7); }
-  const zs=Math.max(0,Math.min(255,Math.round((z0+40)*2)));   // высота датчика над уровнем станции, шаг 0,5 м, −40…+87 м — барометр тела
-  emit(cls,'SONAR',u.id,new Uint8Array([...posBytes(u),Math.round(u.sonarTilt||0)+90,zs,...mask,...b]));
+  const zs=Math.max(0,Math.min(65535,Math.round((z0+40)*10)));   // высота датчика над уровнем станции: барометр тела, 2 Б, шаг 0,1 м от −40 м
+  emit(cls,'SONAR',u.id,new Uint8Array([...posBytes(u),Math.round(u.sonarTilt||0)+90,zs>>8,zs&255,...mask,...b]));
 }
 
 // ---------- камера ----------
@@ -157,7 +161,7 @@ function sceneObjects(u){ const out=[];
     let type=o.type; if(o.creature) type=creature.awake?250:'sleep'; if(o.unit) type=o.unit.alive?(o.unit.target?'walk':252):251;
     if(!SPRITES[type]) continue; const facing=o.unit?o.unit.heading:(o.creature?Math.atan2(u.y-o.y,u.x-o.x):undefined);   // тела смотрят по курсу, существо — на камеру
     out.push({id:o.id,type,x:o.x,y:o.y,facing}); }
-  out.push({id:900,type:'station',x:0,y:0,facing:0}); return out.concat(TER.decor(u,120)); }
+  out.push({id:900,type:'station',x:STATION.x,y:STATION.y,facing:STATION.ang}); return out.concat(TER.decor(u,120)); }
 function render(u,size){ return CAM.render(u,size,sceneObjects(u)); }   // size×size, 8 бит; внутри — удвоенное разрешение и усреднение
 function downsample(img,size,to){ const f=size/to, out=new Uint8Array(to*to); for(let y=0;y<to;y++)for(let x=0;x<to;x++){ let s=0; for(let j=0;j<f;j++)for(let i=0;i<f;i++) s+=img[(y*f+j)*size+x*f+i]; out[y*to+x]=s/(f*f);} return out; }
 // Изображение. Пирамида уровней 8→16→32→64 (kind IMG0..3), либо дельта-кадр на одном уровне (kind IMDn):
