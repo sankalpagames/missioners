@@ -6,7 +6,7 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LAB=/[?&]lab\b/.test(location.search) && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);   // только локально: на опубликованном сайте флаг не действует
 const link=new Link(); const world=new Worker('world.js?v='+window.__v+(LAB?'&lab':''));
 if(LAB){ Object.assign(link.cfg,{deepCapBps:1e8,noiseDbm:-500,rtt:0,deepBer:0}); document.body.classList.add('lab'); document.title='лаборатория лидара'; }
-let speed=1, tNow=0, active=1, dbg=null;
+let speed=1, tNow=0, active=1, dbg=null, dbgLevel=null;   // dbg, dbgLevel — правда о мире для шторки, игрок этого не видит
 const units=new Map();          // id → знание о миссионере
 const station={bio:null,cam:null,grow:null,brik:0,cut:0,at:-1e9};
 const known=new Map();          // ключ → объект с координатами (только из полученных данных)
@@ -39,7 +39,7 @@ function log(txt,cls='sys',t=tNow){ logEntries.push({t,txt,cls}); if(logEntries.
 function fmtT(t){ if(!isFinite(t)) return '—'; const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 
 // ---------- мир → канал → консоль ----------
-world.onmessage=e=>{ const m=e.data; if(m.t==='msg') link.enqueue(m); else if(m.t==='phys'){ link.setPhys(m); dbg=m.dbg; } else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data); };
+world.onmessage=e=>{ const m=e.data; if(m.t==='msg') link.enqueue(m); else if(m.t==='phys'){ link.setPhys(m); dbg=m.dbg; } else if(m.t==='level') dbgLevel=m; else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data); };
 link.onUplink=bytes=>world.postMessage({t:'cmd',bytes});
 link.onFrame=(msg,ok)=>world.postMessage({t:'imgAck',unit:msg.unit,level:+msg.kind[3],ok});
 // Сборка многопакетных текстовых сообщений: декодируем, когда пришли все пакеты
@@ -297,10 +297,15 @@ function drawChartCh(){ const cv=$('#chart-ch'); fitCanvas(cv); const ctx=cv.get
   h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd; let y=H; for(const k of kinds){ const hh=s[k]/max*H; ctx.fillStyle=KIND_COL[k]; ctx.fillRect(x,y-hh,bwd-1,hh); y-=hh; } });
   ctx.strokeStyle='#fff'; ctx.beginPath(); h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd+bwd/2, y=H-s.cap/max*H; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.fillStyle='#888'; ctx.font='10px monospace'; ctx.fillText(Math.round(max)+' Б/с',4,10); ctx.fillText('90 с',W-30,H-4); }
 function bwRate(k){ const arr=bw[k]||[]; while(arr.length&&tNow-arr[0].t>5) arr.shift(); return arr.reduce((a,p)=>a+p.b,0)/5; }
-function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.ellipse(sx(STATION.x),sy(STATION.y),STATION.rx*0.5,STATION.ry*0.5,STATION.ang,0,7); ctx.stroke(); ctx.strokeStyle='#444'; ctx.beginPath(); [[260,150],[284,158],[300,184],[321,191],[326,213],[341,219]].forEach(([x,y],i)=>i?ctx.lineTo(sx(x),sy(y)):ctx.moveTo(sx(x),sy(y))); ctx.moveTo(sx(300),sy(184)); ctx.lineTo(sx(291),sy(198)); ctx.lineTo(sx(286),sy(214)); ctx.stroke();   // расщелина с отростком — как в terrain.js
-  ctx.fillStyle='#666'; ctx.font='10px monospace'; for(const [id,x,y] of [[1,16,0],[2,40,14],[3,120,-80],[4,90,140],[5,-200,60],[6,260,150],[7,336,216]]){ ctx.fillRect(sx(x)-1,sy(y)-1,3,3); ctx.fillText(id,sx(x)+4,sy(y)+3); }
-  if(dbg){ for(const u of dbg.units){ ctx.fillStyle=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666'; ctx.fillRect(sx(u.x)-2,sy(u.y)-2,5,5); ctx.fillText('М'+u.id,sx(u.x)+5,sy(u.y)+3); } ctx.fillStyle=dbg.awake?'#ff5c5c':'#663'; ctx.fillRect(sx(dbg.cx)-2,sy(dbg.cy)-2,5,5); } }
-$('#truth').onclick=e=>{ const r=$('#truth').getBoundingClientRect(); const x=((e.clientX-r.left)*(360/r.width)-180)/0.5, y=((e.clientY-r.top)*(200/r.height)-100)/0.5; world.postMessage({t:'tp',unit:active,x,y}); log(`[отладка] телепорт М${active} в ${x.toFixed(0)}, ${y.toFixed(0)}`,'sys'); };
+function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.ellipse(sx(STATION.x),sy(STATION.y),STATION.rx*0.5,STATION.ry*0.5,STATION.ang,0,7); ctx.stroke();
+  if(dbgLevel){ ctx.strokeStyle='#444'; ctx.beginPath(); for(const pts of [dbgLevel.canyon.pts,dbgLevel.canyon.branch]) pts.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke();   // расщелина с отростком и ориентиры — из уровня, присланы миром при старте
+    ctx.fillStyle='#666'; ctx.font='10px monospace'; for(const p of dbgLevel.pois){ ctx.fillRect(sx(p.x)-1,sy(p.y)-1,3,3); ctx.fillText(p.id,sx(p.x)+4,sy(p.y)+3); } }
+  if(dbg){ ctx.font='10px monospace'; for(const u of dbg.units){ ctx.fillStyle=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666'; ctx.fillRect(sx(u.x)-2,sy(u.y)-2,5,5); ctx.fillText('М'+u.id,sx(u.x)+5,sy(u.y)+3); } ctx.fillStyle=dbg.awake?'#ff5c5c':'#663'; ctx.fillRect(sx(dbg.cx)-2,sy(dbg.cy)-2,5,5); } }
+// телепорт: клик — в точку, перетаскивание — тело едет за курсором (мимо канала)
+{ const cv=$('#truth'); let drag=false; const at=e=>{ const r=cv.getBoundingClientRect(); return { x:((e.clientX-r.left)*(360/r.width)-180)/0.5, y:((e.clientY-r.top)*(200/r.height)-100)/0.5 }; };
+  const tp=p=>world.postMessage({t:'tp',unit:active,x:p.x,y:p.y});
+  cv.onmousedown=e=>{ drag=true; tp(at(e)); e.preventDefault(); }; cv.onmousemove=e=>{ if(drag) tp(at(e)); };
+  window.addEventListener('mouseup',e=>{ if(!drag) return; drag=false; const p=at(e); tp(p); log(`[отладка] телепорт М${active} в ${p.x.toFixed(0)}, ${p.y.toFixed(0)}`,'sys'); }); }
 
 // ---------- команды ----------
 function send(bytes,label){ if(!link.sendUplink(bytes)){ log(`${label}: нет связи со станцией`,'err'); return false; } if(label) log(`→ ${label}`,'cmd'); return true; }

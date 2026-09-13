@@ -7,8 +7,8 @@ const CAM = (()=>{
   let atlas=null;   // {views:{sheet:[{w,h,gray,alpha,sa,sg}]}}
 
   // ---- атлас ----
-  async function load(v){ try{
-    const [png,json]=await Promise.all([fetch('sprites.png?v='+v).then(r=>r.blob()), fetch('sprites.json?v='+v).then(r=>r.json())]);
+  async function load(v,base=''){ try{   // base — каталог атласа, когда скрипт живёт не рядом с ним (воркер редактора из blob)
+    const [png,json]=await Promise.all([fetch(base+'sprites.png?v='+v).then(r=>r.blob()), fetch(base+'sprites.json?v='+v).then(r=>r.json())]);
     const bmp=await createImageBitmap(png); const cv=new OffscreenCanvas(json.w,json.h); const ctx=cv.getContext('2d',{willReadFrequently:true}); ctx.drawImage(bmp,0,0); const px=ctx.getImageData(0,0,json.w,json.h).data;
     build(json,px); return true; } catch(e){ atlas=null; return false; } }
   // px — RGBA атласа; серый в R, альфа в A
@@ -35,11 +35,12 @@ const CAM = (()=>{
     for(let y=0;y<size;y++)for(let x=0;x<size;x++) out[y*size+x]=(big[(2*y)*size*2+2*x]+big[(2*y)*size*2+2*x+1]+big[(2*y+1)*size*2+2*x]+big[(2*y+1)*size*2+2*x+1])/4;
     for(let i=0;i<out.length;i++) out[i]=clamp(out[i]+(Math.random()-0.5)*8);   // шум матрицы
     return out; }
-  // opt: {H, fov} — кадр W×H с другим полем зрения (широкие кадры для tools/banner.js); игра рендерит квадрат size×size с FOV
+  // opt: {H, fov, heading, z} — кадр W×H с другим полем зрения, курсом и высотой глаз (широкие кадры для tools/banner.js, свободная камера редактора);
+  // игра рендерит квадрат size×size с FOV, курс — camHeading из world.js, глаза на CAM_Z
   function renderRaw(u,size,objs,opt={}){ const W=size, H=opt.H||size, fov=opt.fov||FOV;
-    const f=(W/2)/Math.tan(fov/2*Math.PI/180); const hd=camHeading(u); const SUN=TER.SUN;
+    const f=(W/2)/Math.tan(fov/2*Math.PI/180); const hd=opt.heading!==undefined?opt.heading:camHeading(u); const SUN=TER.SUN;
     const cU=TER.canyon(u.x,u.y); const inT=!!(cU && cU.d<cU.w/2+1 && cU.along>2); const light=u.lightOn&&u.charge>0;
-    const eye=TER.H(u.x,u.y)+CAM_Z; const horizon=H/2;
+    const eye=TER.H(u.x,u.y)+(opt.z||CAM_Z); const horizon=H/2;
     const img=new Uint8Array(W*H), depth=new Float32Array(W*H).fill(Infinity), gx=new Float32Array(W*H), gy=new Float32Array(W*H), floor=new Uint8Array(W*H);
     const lamp=(t,lam)=> (light? 1.0/(1+(t/8)**2)*(0.25+0.75*lam) : 0.8/(1+(t/1.0)**2)*(0.6+0.4*lam))+0.03;   // фонарь; без него — только ближний метр
     const fog=(v,t)=>v+(118-v)*Math.min(1,Math.pow(t/260,1.1));

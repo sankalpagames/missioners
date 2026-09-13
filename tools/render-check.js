@@ -5,7 +5,7 @@
 //   node tools/render-check.js 120 60 300 180   — один кадр из (120,60) в сторону (300,180)
 const fs=require('fs'), path=require('path'), zlib=require('zlib'); const {decodePNG}=require('./png.js');
 const P=path.join(__dirname,'..','proto')+'/';
-const src=['codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+
+const src=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+
   '\nreturn {render, POIS, units, creature, objState, CAM, TER, dist};';
 const shims={ self:{location:{search:'?v=0'}}, importScripts(){}, postMessage(){}, setInterval(){return 1}, clearInterval(){}, setTimeout(){return 1}, onmessage:null, fetch(){ return Promise.reject(new Error('no fetch')); } };
 const W=new Function(...Object.keys(shims), src)(...Object.values(shims));

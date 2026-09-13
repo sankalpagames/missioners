@@ -22,7 +22,9 @@ GitHub Pages из корня (`.github/workflows/static.yml`). Корневой 
 Чистый JS, без сборки. Запуск: `python3 proto/serve.py` (есть конфиг `proto` в `.claude/launch.json`).
 
 - `world.js` — мир, Web Worker. Не знает о консоли.
+- `level.js` — уровень: где что стоит (ориентиры, расщелина, корпуса, существо, сюжетные декорации). Пишет редактор; читают мир и рельеф.
 - `terrain.js` — рельеф, расщелина, декорации (объект `TER`); `camera.js` — рендер кадра (объект `CAM`); `sprites.png` + `sprites.json` — атлас спрайтов, собирается `tools/sprites-build.js` из `tools/raw/` (не в репозитории; id ассетов — `tools/spritecook-assets.json`). Всё это — часть мира.
+- `editor.html`, `editor.js` — редактор уровня, только localhost (`docs/tech.md` §11). Инструмент, не игра: читает мир напрямую, сохраняет `level.js` через POST в `serve.py`.
 - `link.js` — канал. Единственный путь мир → консоль.
 - `console.js` — консоль оператора. Видит только `link.onDeliver`.
 - `codebook.js` — кодовая книга типов; подключается и в мир, и в консоль.
@@ -43,5 +45,5 @@ GitHub Pages из корня (`.github/workflows/static.yml`). Корневой 
 
 ## Проверка
 
-Синтаксис: `node -e "for(const f of ['proto/world.js','proto/link.js','proto/console.js','proto/codebook.js','proto/terrain.js','proto/camera.js']) new Function(require('fs').readFileSync(f,'utf8'))"`.
-Кадры камеры без браузера: `node tools/render-check.js` → `tools/out/render-check.png` (набор сцен или `x y gx gy` для одного кадра). Карта высот и изогипсы против рельефа: `node tools/hmap-check.js` (`old` — как было, для сравнения). Широкий кадр для шапки лендинга (`banner.png`): `node tools/banner.js` — варианты ракурсов, `node tools/banner.js k 480 120 3` — выбранный в полный размер. Поведение проверяется в браузере; в отладочной шторке есть телепорт (клик по карте «правда о мире») — ускоряет сценарии. Ускорение времени ×4 — в шапке. Лаборатория лидара: `index.html?lab` (с `serve.py` — `http://localhost:8765/index.html?lab`) — та же консоль и мир, канал без ограничений, клик по карте / стрелки — телепорт со снимком, сеанс не сохраняется. Работает только на localhost — на опубликованном сайте флаг игнорируется.
+Синтаксис: `node -e "for(const f of ['proto/world.js','proto/link.js','proto/console.js','proto/codebook.js','proto/terrain.js','proto/camera.js','proto/level.js','proto/editor.js']) new Function(require('fs').readFileSync(f,'utf8'))"`.
+Кадры камеры без браузера: `node tools/render-check.js` → `tools/out/render-check.png` (набор сцен или `x y gx gy` для одного кадра). Карта высот и изогипсы против рельефа: `node tools/hmap-check.js` (`old` — как было, для сравнения). Широкий кадр для шапки лендинга (`banner.png`): `node tools/banner.js` — варианты ракурсов, `node tools/banner.js k 480 120 3` — выбранный в полный размер. Поведение проверяется в браузере; в отладочной шторке есть телепорт (клик по карте «правда о мире») — ускоряет сценарии. Ускорение времени ×4 — в шапке. Лаборатория лидара: `index.html?lab` (с `serve.py` — `http://localhost:8765/index.html?lab`) — та же консоль и мир, канал без ограничений, клик по карте / стрелки — телепорт со снимком, сеанс не сохраняется. Работает только на localhost — на опубликованном сайте флаг игнорируется. Редактор уровня: `http://localhost:8765/editor.html` — карта высот, объекты, свободная камера, сохранение в `level.js`; после правки уровня прогнать `render-check` и `hmap-check`.

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>ARK-041 — редактор уровня</title>
+<style>
+:root{--bg:#0b0d10;--panel:#12151a;--line:#232830;--fg:#c9d1d9;--dim:#6b7480;--acc:#e0a94a;--red:#d9534f;--grn:#5cb85c;--blu:#4a8fe0}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.35 ui-monospace,Menlo,monospace;display:flex;flex-direction:column;overflow:hidden}
+#top{display:flex;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel);white-space:nowrap}
+#top .t{font-size:11px;letter-spacing:.12em;color:var(--acc)}
+#app{display:grid;grid-template-columns:1fr 360px;flex:1;min-height:0}
+#mapwrap{position:relative;min-width:0;min-height:0;background:#000}
+#map{position:absolute;inset:0;width:100%;height:100%;cursor:default}
+#map.place,#map.ruler{cursor:crosshair}
+#map.grab{cursor:grabbing}
+#side{border-left:1px solid var(--line);background:var(--panel);overflow:auto;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+h3{font-size:11px;letter-spacing:.1em;color:var(--dim);margin:8px 0 2px}
+.dim{color:var(--dim)}.small{font-size:11px}.grow{flex:1}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:11px}
+.kv label{color:var(--dim)}.kv b{font-weight:normal}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+button{background:#1c2129;color:var(--fg);border:1px solid #2e3642;border-radius:4px;padding:4px 9px;font:inherit;cursor:pointer}
+button:hover{background:#262d38}button.on{background:#3a2f16;border-color:var(--acc)}button:disabled{opacity:.4;cursor:default}
+button.ghost{background:transparent;border-color:var(--line);color:var(--dim)}
+select,input,textarea{font:inherit;background:#000;color:var(--fg);border:1px solid var(--line);border-radius:3px;padding:2px 4px}
+input[type=number]{width:72px}input[type=range]{width:120px;padding:0}
+.props{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;align-items:center;font-size:11px}
+.props label{color:var(--dim)}.props .wide{grid-column:1/3}
+#frame{width:100%;aspect-ratio:8/5;image-rendering:pixelated;background:#000;border:1px solid var(--line);display:block}
+#status{color:var(--dim)}#status.err{color:var(--red)}#status.ok{color:var(--grn)}
+#gate{margin:auto;max-width:520px;color:var(--dim);line-height:1.6}
+#gate b{color:var(--fg);font-weight:normal}
+#text{width:100%;height:220px;font-size:11px;white-space:pre;resize:vertical}
+.hint{font-size:11px;color:var(--dim);line-height:1.5}
+kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--fg)}
+</style>
+</head>
+<body>
+<div id="gate" hidden>Редактор уровня работает только с localhost.<br>Запуск: <b>python3 proto/serve.py</b> → <b>http://localhost:8765/editor.html</b></div>
+<header id="top" hidden>
+  <span class="t">РЕДАКТОР УРОВНЯ · level.js</span>
+  <button id="btn-save" title="POST в serve.py → proto/level.js">сохранить</button>
+  <button id="btn-text" class="ghost" title="Текст файла — скопировать, если сервер не принимает">текст</button>
+  <button id="btn-reload" class="ghost" title="Перечитать level.js с диска">перечитать</button>
+  <button id="btn-undo" class="ghost" title="⌘Z / Ctrl+Z">отменить</button>
+  <span id="status"></span>
+  <span class="grow"></span>
+  <span class="dim small">слои</span>
+  <button class="on" data-layer="hm">высоты</button>
+  <button class="on" data-layer="iso">изогипсы</button>
+  <button class="on" data-layer="steep">непроходимое</button>
+  <button data-layer="decor">процедурные декорации</button>
+  <button class="on" data-layer="grid">сетка</button>
+  <button class="on" data-layer="ret">радиус возврата</button>
+  <button class="on" data-layer="labels">подписи</button>
+</header>
+<div id="app" hidden>
+  <div id="mapwrap"><canvas id="map"></canvas></div>
+  <aside id="side">
+    <h3>КУРСОР</h3>
+    <div class="kv" id="cur"></div>
+    <div class="row small"><label><input type="checkbox" id="boost"> усилитель +6 дБ</label><span class="dim">SNR — тело в точке, станция слушает; линия как в игре (link.js)</span></div>
+    <h3>ВЫБРАНО <span id="sel-title" class="dim"></span></h3>
+    <div id="props" class="props"><span class="dim wide">клик по объекту на карте</span></div>
+    <h3>ДОБАВИТЬ <span class="dim">— выбрать, затем клик по карте</span></h3>
+    <div class="row">
+      <button data-add="sub" title="Подобъект к ближайшему (или выбранному) ориентиру">объект</button>
+      <select id="add-sub-type"></select>
+    </div>
+    <div class="row">
+      <button data-add="poi" title="Новый ориентир: id = свободный тип 1…9 из кодовой книги">ориентир</button>
+      <select id="add-poi-type"></select>
+      <button data-add="decor">декорация</button>
+      <select id="add-decor-type"></select>
+      <button data-add="hull" title="Круглый корпус: непроходим, отражает лидар">корпус</button>
+      <button id="btn-ruler" title="R: линейка — растянуть отрезок">линейка</button>
+    </div>
+    <h3>КАМЕРА <span id="cam-info" class="dim"></span></h3>
+    <canvas id="frame" width="160" height="100"></canvas>
+    <div class="props">
+      <label>размер</label><select id="cam-size"><option value="128">128×80</option><option value="160" selected>160×100</option><option value="192">192×120</option><option value="256">256×160</option></select>
+      <label>поле зрения</label><span><input type="range" id="cam-fov" min="25" max="100" value="50" step="1"> <b id="cam-fov-v">50°</b></span>
+      <label>высота глаз</label><span><input type="range" id="cam-z" min="0.3" max="40" value="1.6" step="0.1"> <b id="cam-z-v">1,6 м</b></span>
+      <label>фонарь</label><span><input type="checkbox" id="cam-light" checked></span>
+      <span class="wide row"><button id="cam-shot">снять</button><button id="cam-auto" class="on" title="Перерисовывать при любом изменении">авто</button><button id="cam-to-sel" title="Камера в 8 м от выбранного, смотрит на него">кадр на выбранное</button></span>
+    </div>
+    <div class="hint">камера и её цель — на карте, перетаскиваются · <kbd>↑</kbd><kbd>↓</kbd> вперёд/назад 2 м (<kbd>⇧</kbd> 10) · <kbd>←</kbd><kbd>→</kbd> поворот 5° · <kbd>PgUp</kbd><kbd>PgDn</kbd> высота · кадр — тот же CAM.renderRaw, что в игре; фигура в точке старта — масштаб</div>
+    <h3>КАРТА</h3>
+    <div class="hint">колёсико — масштаб · перетаскивание пустого места — сдвиг · перетаскивание объекта, колена, лёжки, корпуса, камеры — переместить (<kbd>⇧</kbd> — шаг 1 м) · двойной клик по расщелине — новое колено · <kbd>Del</kbd> — удалить · <kbd>Esc</kbd> — снять выбор · красное — склон круче 40°, тело не пройдёт · пунктир — радиус возврата ПС-2</div>
+    <div id="textwrap" hidden><textarea id="text" spellcheck="false"></textarea><div class="row"><button id="btn-copy">скопировать</button><button id="btn-text-close" class="ghost">закрыть</button></div></div>
+  </aside>
+</div>
+<script>
+// только localhost: на опубликованном сайте страница показывает подсказку и ничего не грузит
+(function(){ if(!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)){ document.getElementById('gate').hidden=false; return; }
+  document.getElementById('top').hidden=false; document.getElementById('app').hidden=false;
+  const v=Date.now(); window.__v=v; for(const f of ['level.js','codebook.js','terrain.js','camera.js','link.js','editor.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
+</script>
+</body>
+</html>

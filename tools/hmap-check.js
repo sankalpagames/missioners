@@ -7,7 +7,7 @@
 const fs=require('fs'), path=require('path'); const P=path.join(__dirname,'..','proto')+'/';
 const OLD=process.argv[2]==='old';
 const msgs=[]; const shims={ self:{location:{search:'?v=0'}}, importScripts(){}, postMessage(m){ msgs.push(m); }, setInterval(){return 1}, clearInterval(){}, setTimeout(){return 1}, onmessage:null, fetch(){ return Promise.reject(new Error('no fetch')); } };
-const wsrc=['codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+'\nreturn {sonar, TER, units};';
+const wsrc=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+'\nreturn {sonar, TER, units};';
 const W=new Function(...Object.keys(shims), wsrc)(...Object.values(shims));
 let csrc=fs.readFileSync(P+'console.js','utf8'); csrc=csrc.slice(csrc.indexOf('// ---------- карта высот'), csrc.indexOf('// ---------- /карта высот'));
 if(OLD) csrc=csrc.replace('HMIN=4','HMIN=1'); if(process.env.HMIN) csrc=csrc.replace('HMIN=4','HMIN='+process.env.HMIN);

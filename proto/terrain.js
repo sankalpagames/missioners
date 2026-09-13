@@ -7,14 +7,16 @@ const TER = (()=>{
   function vnoise(x,y){ const ix=Math.floor(x), iy=Math.floor(y), fx=x-ix, fy=y-iy, sx=fx*fx*(3-2*fx), sy=fy*fy*(3-2*fy);
     const a=hash(ix,iy), b=hash(ix+1,iy), c=hash(ix,iy+1), d=hash(ix+1,iy+1); const t=a+(b-a)*sx; return t+((c+(d-c)*sx)-t)*sy; }
 
-  // ---- расщелина: ломаная с тупиковым отростком, ширина по коленам; начинается у входа (ориентир 6) ----
-  const CANYON = { pts:[{x:260,y:150}, {x:284,y:158}, {x:300,y:184}, {x:321,y:191}, {x:326,y:213}, {x:341,y:219}], w:[9,7,6,5.5,5,4.5],
-    branch:{ pts:[{x:300,y:184},{x:291,y:198},{x:286,y:214}], w:[5,4] } };
-  const A0=CANYON.pts[0], D0=(()=>{ const q=CANYON.pts[1]; const dx=q.x-A0.x, dy=q.y-A0.y, L=Math.hypot(dx,dy); return {x:dx/L,y:dy/L}; })();   // направление входа
-  const LEN=(()=>{ let L=0; for(let i=0;i<CANYON.pts.length-1;i++) L+=Math.hypot(CANYON.pts[i+1].x-CANYON.pts[i].x,CANYON.pts[i+1].y-CANYON.pts[i].y); return L; })();
+  // ---- расщелина: ломаная с тупиковым отростком, ширина по коленам; начинается у входа (ориентир 6). Колена и ширины — LEVEL.canyon ----
+  // Производные (направление входа, длина, хребет, сюжетные декорации) считаются в reload(); редактор зовёт его после правки уровня.
+  let CANYON, A0, D0, LEN, RIDGE, FIXED, CBOX;   // CBOX — прямоугольник, вне которого расщелина и подход не влияют
+  function reload(){ CANYON=LEVEL.canyon; A0=CANYON.pts[0]; { const q=CANYON.pts[1]; const dx=q.x-A0.x, dy=q.y-A0.y, L=Math.hypot(dx,dy)||1; D0={x:dx/L,y:dy/L}; }   // направление входа
+    LEN=0; for(let i=0;i<CANYON.pts.length-1;i++) LEN+=Math.hypot(CANYON.pts[i+1].x-CANYON.pts[i].x,CANYON.pts[i+1].y-CANYON.pts[i].y);
+    RIDGE={ c:{x:A0.x+D0.x*28, y:A0.y+D0.y*28}, d:{x:-D0.y,y:D0.x}, n:{x:D0.x,y:D0.y} };   // позвоночник в 28 м за входом, поперёк входа
+    FIXED=LEVEL.decor.map(o=>({id:o.id,type:o.type,x:o.x,y:o.y,facing:o.f*Math.PI/180,Hs:o.Hs,decor:true}));
+    const ps=[...CANYON.pts,...CANYON.branch.pts,{x:A0.x-D0.x*60,y:A0.y-D0.y*60}]; CBOX={x0:Math.min(...ps.map(p=>p.x))-16,x1:Math.max(...ps.map(p=>p.x))+16,y0:Math.min(...ps.map(p=>p.y))-16,y1:Math.max(...ps.map(p=>p.y))+16}; }
   function segInfo(p,q,x,y){ const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy); const t=Math.max(0,Math.min(1,((x-p.x)*dx+(y-p.y)*dy)/(L*L))); const px=p.x+dx*t, py=p.y+dy*t; return { d:Math.hypot(x-px,y-py), t, L, perp:(-(x-p.x)*dy+(y-p.y)*dx)/L, dir:{x:dx/L,y:dy/L} }; }
   // ближайшее колено: {d — до оси, w — ширина, along — путь от входа (м), perp, dir, branch}; перед входом along < 0
-  const CBOX={x0:195,y0:120,x1:355,y1:235};   // прямоугольник, вне которого расщелина и подход не влияют
   function canyon(x,y){ if(x<CBOX.x0||x>CBOX.x1||y<CBOX.y0||y>CBOX.y1) return FAR; let best=null, acc=0;
     for(let i=0;i<CANYON.pts.length-1;i++){ const si=segInfo(CANYON.pts[i],CANYON.pts[i+1],x,y); const w=CANYON.w[i]+(CANYON.w[i+1]-CANYON.w[i])*si.t; const c={d:si.d,w,along:acc+si.t*si.L,perp:si.perp,dir:si.dir,branch:false}; if(!best||si.d-w/2<best.d-best.w/2) best=c; acc+=si.L; }
     const br=CANYON.branch; let bacc=0; for(let i=0;i<br.pts.length-1;i++){ const si=segInfo(br.pts[i],br.pts[i+1],x,y); const w=br.w[i]; const c={d:si.d,w,along:60+bacc+si.t*si.L,perp:si.perp,dir:si.dir,branch:true}; if(si.d-w/2<best.d-best.w/2) best=c; bacc+=si.L; }
@@ -27,7 +29,6 @@ const TER = (()=>{
 
   // ---- макро: равнина и хребет ----
   const WIND={x:0.94,y:0.34};
-  const RIDGE={ c:{x:A0.x+D0.x*28, y:A0.y+D0.y*28}, d:{x:-D0.y,y:D0.x}, n:{x:D0.x,y:D0.y} };   // позвоночник в 28 м за входом, поперёк входа
   function ridgeH(x,y){ const rx=x-RIDGE.c.x, ry=y-RIDGE.c.y; const s=rx*RIDGE.d.x+ry*RIDGE.d.y, n=rx*RIDGE.n.x+ry*RIDGE.n.y; if(n<-90||n>175) return 0;
     const crest=26+9*Math.sin(s/60+1)+4*(vnoise(s/25,3)-0.5); let k;
     if(n<0){ const edge=18+6*(vnoise(s/20,7)-0.5); const dcl=-n-edge;                          // сторона станции: гребень → обрыв с террасами → осыпь
@@ -69,12 +70,7 @@ const TER = (()=>{
   };
 
   // ---- декорации: объекты кадра, но не объекты мира (не в описании, не на карте) ----
-  // сюжетные: завал в конце расщелины, обломки вокруг корабля, пирамидки по тропе ящики → расщелина, столбики кабеля станция → мачта
-  const FIXED=(()=>{ const out=[{id:7001,type:'boulder',x:339,y:221,facing:1.2,Hs:2.6},{id:7002,type:'boulder',x:343,y:217,facing:2.9,Hs:2.2},{id:7003,type:'rocks',x:337,y:219,facing:0.4,Hs:0.6},{id:7004,type:'boulder2',x:341,y:214,facing:4.1,Hs:1.4}];
-    for(let i=0;i<8;i++){ const a=hash(i*3+1,9)*6.28, r=12+30*hash(i*5+2,4); out.push({id:7100+i,type:'debris',x:-200+Math.cos(a)*r,y:60+Math.sin(a)*r,facing:hash(i,17)*6.28,Hs:0.7+0.8*hash(i,23)}); }
-    for(let i=0;i<7;i++){ const t=(i+0.5)/7; const x=40+(260-40)*t, y=14+(150-14)*t; const off=(hash(i,31)-0.5)*10; out.push({id:7200+i,type:'cairn',x:x-0.53*off,y:y+0.85*off,facing:hash(i,37)*6.28,Hs:0.8+0.4*hash(i,41)}); }
-    for(let i=0;i<8;i++){ const t=i/8; out.push({id:7300+i,type:'post',x:10+(117-10)*t,y:-8+(-77+8)*t,facing:Math.atan2(-69,107),Hs:1.5}); }
-    return out.map(o=>({...o,decor:true})); })();
+  // сюжетные (FIXED, из LEVEL.decor): завал в конце расщелины, обломки вокруг корабля, пирамидки по тропе ящики → расщелина, столбики кабеля станция → мачта
   function decor(u,R){ const out=FIXED.filter(o=>Math.abs(o.x-u.x)<R&&Math.abs(o.y-u.y)<R); const cell=9; const i0=Math.floor((u.x-R)/cell), i1=Math.floor((u.x+R)/cell), j0=Math.floor((u.y-R)/cell), j1=Math.floor((u.y+R)/cell);
     for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const h=hash(i*31+7,j*17+3), h2=hash(i*13+1,j*29+5), h3=hash(i*7+11,j*3+13); const x=(i+0.15+0.7*h2)*cell, y=(j+0.15+0.7*h3)*cell;
       const rx=x-RIDGE.c.x, ry=y-RIDGE.c.y; const n=rx*RIDGE.n.x+ry*RIDGE.n.y; const c=corridor(x,y);
@@ -95,5 +91,6 @@ const TER = (()=>{
   const SUN=(()=>{ const az=Math.PI*0.75, el=Math.PI/5; return {x:Math.cos(az)*Math.cos(el),y:Math.sin(az)*Math.cos(el),z:Math.sin(el),shx:-Math.cos(az),shy:-Math.sin(az),len:1/Math.tan(el)}; })();
   function mountains(bearing){ const b=bearing*3; return { far: 0.02+0.10*Math.pow(Math.abs(vnoise(b*1.1+40,1)*2-1),0.8)+0.025*vnoise(b*4+9,2), near: 0.005+0.035*vnoise(b*2.5+77,5)+0.012*vnoise(b*9+3,6) }; }   // угол возвышения по пеленгу
 
-  return { ss, hash, vnoise, CANYON, LEN, canyon, inside, corridor, canyonPoint, RIDGE, ridgeH, hills, dunes, landing, H, floorZ, slope, groundTone, rockTone, wallTone, DECAL, decor, SUN, mountains };
+  reload();
+  return { reload, ss, hash, vnoise, get CANYON(){ return CANYON; }, get LEN(){ return LEN; }, get RIDGE(){ return RIDGE; }, canyon, inside, corridor, canyonPoint, ridgeH, hills, dunes, landing, H, floorZ, slope, groundTone, rockTone, wallTone, DECAL, decor, SUN, mountains };
 })();

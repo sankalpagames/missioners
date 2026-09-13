@@ -1,30 +1,28 @@
 // МИР. Web Worker. Ничего не знает о консоли.
 // Наружу: (а) байтовые сообщения для канала, (б) физика линии по каждому миссионеру.
 const LAB=/&lab\b/.test(self.location.search);   // лаборатория лидара: существо спит, тело не умирает; остальное — как в игре
-const VER=self.location.search.slice(3).replace(/&lab\b/,'')||'0'; importScripts('codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);
+const VER=self.location.search.slice(3).replace(/&lab\b/,'')||'0'; importScripts('level.js?v='+VER,'codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);
 CAM.load(VER);   // атлас спрайтов грузится асинхронно; до загрузки объекты в кадре — серые блоки
 
 const DT = 0.1;
 let speed = 1, msgId = 1, t = 0;
 
-// ---------- геометрия ----------
-const POIS = [
-  { id:1, x:16,  y:0,    subs:[[10,3,2],[11,-2,5],[12,6,-4]] },
-  { id:2, x:40,  y:14,   subs:[[13,0.8,0.6],[13,-1,0.7],[14,0.9,-0.8],[15,-0.5,-1],[16,8,-6]] },   // ящики и надпись — в самом штабеле (спрайт 3 м), кабель уходит к мачте
-  { id:3, x:120, y:-80,  subs:[[17,0,0],[18,4,3],[19,-3,-2]] },
-  { id:4, x:90,  y:140,  subs:[[20,0,0],[20,3,0],[20,6,0],[20,9,0],[20,12,0],[20,15,0],[21,6,-3],[22,-4,4]] },
-  { id:5, x:-200,y:60,   subs:[[23,0,0],[24,6,-5],[25,-15,10]] },
-  { id:6, x:260, y:150,  subs:[[26,10,8],[27,-3,-2],[28,-6,3]] },
-  { id:7, x:336, y:216,  subs:[[29,1.8,2.9],[30,-0.6,-1.8],[31,-4.4,-0.5],[32,0.8,0.1]] },   // на дне последнего колена расщелины
-];
+// ---------- геометрия: уровень (level.js) ----------
+// Ориентиры: id = тип из кодовой книги; подобъект получает id = id ориентира·10 + индекс, положение — смещение от ориентира, курс — из уровня (нет — по хешу id).
+const POIS = LEVEL.pois.map(p=>({ id:p.id, x:p.x, y:p.y, subs:p.subs.map(s=>[s.type,s.dx,s.dy,s.f===undefined?undefined:s.f*Math.PI/180]) }));
+function poi(id){ return POIS.find(p=>p.id===id); }
+// видимость по расщелине — из геометрии: ориентир внутри расщелины (вход, глубина) виден изнутри; глубокий (дальше 5 % пути) снаружи — только у входа
+function poiInCanyon(p){ return !!TER.inside(p.x,p.y); }
+function poiDeep(p){ return tunnelT(p.x,p.y)>0.05; }
 const TUN_A = TER.CANYON.pts[0];                                             // вход в расщелину (ориентир 6)
+const SPAWN = LEVEL.spawn;                                                  // где появляется миссионер; сюда же — «отступление»
 // ПС-2, радиус гарантированного возврата: цель дальше RETURN_R от ближайшего узла (станция, работающий ретранслятор) станция не принимает —
 // потеря биоматериала гарантирована. Бюджет линии (дБ) к границе не привязан: далеко уйти можно, если есть узел
 const RETURN_R = 500;
-function nodes(){ const n=[{x:STATION.x,y:STATION.y}]; if(antennaBoost) n.push(POIS[2]); return n; }   // ретранслятор — мачта (ориентир 3) с включённым усилителем
+function nodes(){ const n=[{x:STATION.x,y:STATION.y}]; if(antennaBoost) n.push(poi(3)); return n; }   // ретранслятор — мачта (ориентир 3) с включённым усилителем
 function nodeDist(p){ return Math.min(...nodes().map(n=>dist(p,n))); }
 function beyondReturn(u,p){ const d=nodeDist(p); if(d<=RETURN_R) return false; evt(28,u.id,Math.min(255,Math.ceil(d/10))); return true; }   // отказ: arg — расстояние до узла, десятки метров
-const HULLS = [ {...STATION}, {x:-200,y:60,r:4,h:4} ];                          // корпус платформы (эллипс из кодовой книги), обломки (круг): непроходимы и отражают лидар; остальное — рельеф
+const HULLS = [ {...STATION}, ...LEVEL.hulls.map(h=>({...h})) ];                // корпус платформы (эллипс из кодовой книги), корпуса уровня (круги: обломки): непроходимы и отражают лидар; остальное — рельеф
 // точка внутри корпуса (с запасом pad); луч в корпус: эллипс приводится к единичному кругу, параметр t — в метрах по лучу
 function hullIn(x,y,c,pad=0){ if(c.r!==undefined) return Math.hypot(x-c.x,y-c.y)<c.r+pad; const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=(x-c.x)*ca+(y-c.y)*sa, ly=-(x-c.x)*sa+(y-c.y)*ca; return (lx/(c.rx+pad))**2+(ly/(c.ry+pad))**2<1; }
 function rayHull(ox,oy,dx,dy,c){ if(c.r!==undefined) return rayCircle(ox,oy,dx,dy,c); const ca=Math.cos(c.ang), sa=Math.sin(c.ang); const fx=((ox-c.x)*ca+(oy-c.y)*sa)/c.rx, fy=(-(ox-c.x)*sa+(oy-c.y)*ca)/c.ry, ex=(dx*ca+dy*sa)/c.rx, ey=(-dx*sa+dy*ca)/c.ry;
@@ -37,10 +35,11 @@ function bearingDeg(from,to){ return (Math.atan2(to.y-from.y,to.x-from.x)*180/Ma
 
 // ---------- состояние ----------
 const station = { bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:null, taskOpen:true };
-function atAirlock(u){ return u.alive && dist(u,POIS[0])<12; }
-const objState = {};                       // id объекта → состояние (по умолчанию 0)
+function atAirlock(u){ return u.alive && dist(u,poi(1))<12; }
+const objState = {};                       // id объекта → состояние (по умолчанию 0); начальные — из уровня
 function stateOf(id){ return objState[id]||0; }
-const contents = { 20:[40], 21:[40], 62:[41], 70:[42] };   // содержимое контейнеров: id объекта → предметы
+const contents = {};                        // содержимое контейнеров: id объекта → предметы; начальное — из уровня
+for(const p of LEVEL.pois) p.subs.forEach((s,i)=>{ const id=p.id*10+i; if(s.state) objState[id]=s.state; if(s.items&&s.items.length) contents[id]=s.items.slice(); });
 const ground = [];                          // свёртки на грунте: {id, x, y}; id 100…199
 let nextGround = 100;
 function isContainer(o){ if(o.unit) return !o.unit.alive; const cb=CODEBOOK[o.type]; return !!cb && cb.container!==undefined; }
@@ -48,7 +47,7 @@ function containerOpen(o){ if(o.unit) return true; const cb=CODEBOOK[o.type]; re
 function contentsOf(o){ if(o.unit){ const v=o.unit; return [...(v.sensors.camera?[42]:[]), ...v.items]; } return contents[o.id]||[]; }
 const units = []; let nextUnit = 1;
 function spawn(sensors){
-  const u = { id:nextUnit++, alive:true, x:16, y:0, heading:0, target:null, mode:1, lightOn:true,
+  const u = { id:nextUnit++, alive:true, x:SPAWN.x, y:SPAWN.y, heading:0, target:null, mode:1, lightOn:true,
     pulse:72, glucose:92, electro:96, toxin:0, skin:100, bone:100, psyche:88, charge:100, gen:0.8, cons:1.0,
     fear:0, pain:0, exertion:0, txDbm:0, dmgTimer:0, atkTimer:0,
     sensors:{ camera:!!sensors.camera, sonar:!!sensors.sonar },
@@ -59,7 +58,7 @@ function spawn(sensors){
 spawn({camera:true, sonar:true});          // первый миссионер уже готов и несёт единственную камеру
 // стационарная камера у шлюза: смотрит от люка наружу (+x), сигнала не требует — она на станции
 const stationCam = { id:0, x:12, y:0, heading:0, goal:{x:60,y:8}, lightOn:true, charge:100, alive:true, lastImg:{}, pendingImg:null, frameNo:0, sensors:{camera:true}, sub:{img:{interval:0,level:2,delta:true}}, subT:{img:0}, items:[] };
-const creature = { x:338, y:216, home:{x:338,y:216}, lair:{x:350,y:226}, awake:false, hp:3, fleeing:false, cooldown:0 };   // после отпора уходит в логово и не трогает 2 минуты
+const creature = { x:LEVEL.creature.home.x, y:LEVEL.creature.home.y, home:{...LEVEL.creature.home}, lair:{...LEVEL.creature.lair}, awake:false, hp:3, fleeing:false, cooldown:0 };   // после отпора уходит в логово и не трогает 2 минуты
 let antennaBoost = 0, hbTimer = 0, hbInterval = 2;
 
 function speedFor(m){ return m===2?0.6 : m===3?2.6 : m===4?0 : m===5?1.0 : 1.4; }
@@ -113,12 +112,12 @@ function heartbeat(){
 function objectsAround(u, maxR){
   const out=[]; const inT=tunnelT(u.x,u.y)>=0;
   for(const p of POIS){
-    const pInT=(p.id===7)||(p.id===6);
-    const lmVisible = inT ? pInT : (p.id!==7 || dist(u,TUN_A)<=30);
+    const pInT=poiInCanyon(p), deep=poiDeep(p);
+    const lmVisible = inT ? pInT : (!deep || dist(u,TUN_A)<=30);
     if(lmVisible && dist(u,p)<=300) out.push({id:p.id,type:p.id,x:p.x,y:p.y,landmark:true});
     if(inT && !pInT) continue;
-    if(!inT && p.id===7) continue;
-    for(let i=0;i<p.subs.length;i++){ const s=p.subs[i]; const o={id:p.id*10+i,type:s[0],x:p.x+s[1],y:p.y+s[2]}; if(dist(u,o)<=maxR) out.push(o); }
+    if(!inT && deep) continue;
+    for(let i=0;i<p.subs.length;i++){ const s=p.subs[i]; const o={id:p.id*10+i,type:s[0],x:p.x+s[1],y:p.y+s[2],facing:s[3]}; if(dist(u,o)<=maxR) out.push(o); }
   }
   for(const v of units){ if(v===u) continue; if(dist(u,v)<=maxR) out.push({id:200+v.id,type:v.alive?252:251,x:v.x,y:v.y,unit:v}); }
   for(const g of ground){ if(dist(u,g)<=maxR) out.push({id:g.id,type:33,x:g.x,y:g.y}); }
@@ -185,7 +184,7 @@ function camHeading(u){ return u.goal && dist(u,u.goal)>1.5 ? Math.atan2(u.goal.
 function sceneObjects(u){ const out=[];
   for(const o of objectsAround(u,140)){ if(o.landmark && !SPRITES[o.type]) continue; if(o.type===26) continue;
     let type=o.type; if(o.creature) type=creature.awake?250:'sleep'; if(o.unit) type=o.unit.alive?(o.unit.target?'walk':252):251;
-    if(!SPRITES[type]) continue; const facing=o.unit?o.unit.heading:(o.creature?Math.atan2(u.y-o.y,u.x-o.x):undefined);   // тела смотрят по курсу, существо — на камеру
+    if(!SPRITES[type]) continue; const facing=o.unit?o.unit.heading:(o.creature?Math.atan2(u.y-o.y,u.x-o.x):o.facing);   // тела смотрят по курсу, существо — на камеру, объекты — по уровню
     out.push({id:o.id,type,x:o.x,y:o.y,facing}); }
   out.push({id:900,type:'station',x:STATION.x,y:STATION.y,facing:STATION.ang}); return out.concat(TER.decor(u,120)); }
 function render(u,size){ return CAM.render(u,size,sceneObjects(u)); }   // size×size, 8 бит; внутри — удвоенное разрешение и усреднение
@@ -292,7 +291,7 @@ onmessage = e => {
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
     case 6: if(u.alive){ const g=decPos(m.bytes,3); if(beyondReturn(u,g)) break; u.goal={x:g.x,y:g.y}; const {x,y}=outsideHulls(g.x,g.y,u); u.target={x,y}; u.bestD=undefined; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
-    case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ u.target={x:16,y:0}; u.goal={x:16,y:0}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
+    case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ u.target={x:SPAWN.x,y:SPAWN.y}; u.goal={x:SPAWN.x,y:SPAWN.y}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
     case 8: beginAction(u,'act',arg); break;
     case 19: beginAction(u,'exam',arg); break;
     case 9: u.txDbm=arg-20; evt(8,u.id,9); break;
@@ -338,7 +337,7 @@ function tick(){
   }
   for(const u of units){
     if(u.alive){
-      if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; if(u.autonomy===1) u.target=null; if(u.autonomy===2){ u.target={x:16,y:0}; u.mode=3; } } }
+      if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; if(u.autonomy===1) u.target=null; if(u.autonomy===2){ u.target={x:SPAWN.x,y:SPAWN.y}; u.mode=3; } } }
       else { u.linkLostFor=0; u.autoDone=false; }
       const sp=speedFor(u.mode);
       if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:0.5)){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); }
@@ -372,4 +371,6 @@ function tick(){
     units:units.map(u=>{ const tT=tunnelT(u.x,u.y); return {id:u.id, dist:Math.max(1,Math.hypot(u.x,u.y)), obstDb:tT>=0?8+22*tT:0, txDbm:u.charge>0?u.txDbm:-99, alive:u.alive}; }),   // без заряда передатчик молчит
     dbg:{ units:units.map(u=>({id:u.id,x:u.x,y:u.y,alive:u.alive})), cx:creature.x, cy:creature.y, awake:creature.awake } });
 }
+// правда о мире для отладочной шторки (игрок этого не видит): расщелина и ориентиры — один раз при старте
+postMessage({ t:'level', canyon:{pts:LEVEL.canyon.pts, branch:LEVEL.canyon.branch.pts}, pois:POIS.map(p=>({id:p.id,x:p.x,y:p.y})) });
 let timer=null; function schedule(){ if(timer) clearInterval(timer); timer=setInterval(tick, DT*1000/speed); } schedule();
