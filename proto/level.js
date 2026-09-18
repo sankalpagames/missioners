@@ -23,6 +23,14 @@ const LEVEL = {
       {type:10, dx:3, dy:2},   // люк
       {type:11, dx:-2, dy:5},   // прожектор
     ] },
+    { x:60, y:220, ang:0, spawn:{x:70, y:220}, airlock:{x:70, y:220}, subs:[   // ARK-043
+      {type:10, dx:3, dy:2},   // люк
+      {type:11, dx:-2, dy:5},   // прожектор
+    ] },
+    { x:250, y:-60, ang:0, spawn:{x:260, y:-60}, airlock:{x:260, y:-60}, subs:[   // ARK-044
+      {type:10, dx:3, dy:2},   // люк
+      {type:11, dx:-2, dy:5},   // прожектор
+    ] },
   ],
   pois: [
     { id:2, x:40, y:14, subs:[   // штабель ящиков

@@ -11,7 +11,7 @@ const ROOT=path.join(__dirname,'..'), P=path.join(ROOT,'proto')+'/';
 const PORT=+process.argv[2]||+process.env.PORT||8765, DEBUG=!!process.env.DEBUG||process.argv.includes('debug');
 const DATA=process.env.DATA_DIR||(process.env.WEBSITE_SITE_NAME?'/home/data':path.join(ROOT,'data'));   // WEBSITE_SITE_NAME — признак App Service
 fs.mkdirSync(DATA,{recursive:true});
-const RING=20000, SAVE_EVERY=10000, TAIL=5000, NST=2;   // платформ в комнате
+const RING=20000, SAVE_EVERY=10000, TAIL=5000;
 
 // станция и мир — теми же исходниками, что в браузере
 const read=f=>fs.readFileSync(P+f,'utf8');
@@ -21,17 +21,19 @@ const atlas=(()=>{ const a=decodePNG(fs.readFileSync(P+'sprites.png')); const js
 const replacer=(k,v)=>v instanceof Uint8Array?Array.from(v):v;
 const enc=m=>JSON.stringify(m,replacer);
 
-// настройки комнаты задаёт создатель в лобби, одинаковы для обеих платформ: ёмкость дальней линии и ускорение времени
-const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4];
-const roomCfg=q=>({ cap:CAPS.includes(+q.cap)?+q.cap:512, speed:SPEEDS.includes(+q.speed)?+q.speed:1 });
+// настройки комнаты задаёт создатель в лобби, одинаковы для всех платформ: число платформ, ёмкость дальней линии, ускорение времени
+const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4], MAXN=new Function(read('level.js')+'\nreturn LEVEL;')().stations.length;   // не больше слотов платформ в уровне
+const roomCfg=q=>({ n:Math.max(2,Math.min(MAXN,+q.n||2)), cap:CAPS.includes(+q.cap)?+q.cap:512, speed:SPEEDS.includes(+q.speed)?+q.speed:1 });
 class Room {
   constructor(code,cfg){ this.code=code; this.file=path.join(DATA,code+'.json'); this.clients=new Set(); this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → {name, st}, все операторы, что были в комнате
-    this.cfg=roomCfg(cfg||{});
-    this.st=makeStation({ worldSrc, search:'?v=0&st='+NST, debug:DEBUG, out:m=>this.out(m) }); this.rings=this.st.links.map(()=>[]);
+    let d=null; try{ d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==2){ log(`${code}: старый формат сохранения v${d.v}, новая планета`); d=null; } }
+    catch(e){ if(e.code!=='ENOENT') log(`${code}: сохранение не прочитано (${e.message}), новая планета`); }
+    this.cfg=roomCfg(d?(d.cfg||{}):(cfg||{}));   // число платформ — из сохранения, если оно есть: мир уже с ним
+    this.st=makeStation({ worldSrc, search:'?v=0&st='+this.cfg.n, debug:DEBUG, out:m=>this.out(m) }); this.rings=this.st.links.map(()=>[]);
     // атлас — после того, как отвергнутый fetch в CAM.load отработает (иначе он обнулит атлас)
     setImmediate(()=>this.st.W.CAM.build(atlas.json,atlas.px));
-    try{ const d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==2) throw Object.assign(new Error('старый формат сохранения v'+d.v),{code:'VER'}); this.st.restore(d.world,d.n); (d.rings||[]).forEach((r,k)=>{ if(this.rings[k]) this.rings[k]=r; }); this.seen=d.seen||{}; this.cfg=roomCfg(d.cfg||{speed:d.speed}); log(`${code}: восстановлена, t=${d.world.t|0} с, пакетов ${[].concat(d.n).join('/')}`); }
-    catch(e){ if(e.code!=='ENOENT') log(`${code}: сохранение не прочитано (${e.message}), новая станция`); else log(`${code}: новая станция`); }
+    if(d){ this.st.restore(d.world,d.n); (d.rings||[]).forEach((r,k)=>{ if(this.rings[k]) this.rings[k]=r; }); this.seen=d.seen||{}; log(`${code}: восстановлена, t=${d.world.t|0} с, платформ ${this.cfg.n}, пакетов ${[].concat(d.n).join('/')}`); }
+    else log(`${code}: новая планета, платформ ${this.cfg.n}`);
     for(const L of this.st.links) L.link.cfg.deepCapBps=this.cfg.cap; this.st.handle({t:'speed',v:this.cfg.speed});
   }
   out(m){
@@ -41,7 +43,7 @@ class Room {
   }
   ops(k){ return [...this.clients].filter(c=>c.live&&(k===undefined||c.st===k)).map(c=>c.op.name); }
   stationsInfo(){ const u=this.st.snapshot().units; return this.st.links.map((L,k)=>({k, name:'ARK-04'+(1+k), ops:this.ops(k), units:u.filter(x=>x.st===k).length, alive:u.filter(x=>x.st===k&&x.alive).length})); }
-  info(){ const u=this.st.snapshot().units; return {code:this.code, cfg:this.cfg, ops:this.ops(), t:this.st.links[0].link.t, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:Date.now(), stations:this.stationsInfo()}; }
+  info(){ const u=this.st.snapshot().units; return {code:this.code, cfg:this.cfg, running:!!this.timer, lastCmd:this.lastCmd||0, ops:this.ops(), t:this.st.links[0].link.t, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:Date.now(), stations:this.stationsInfo()}; }
   sendOps(){ const st=this.stationsInfo(); for(const c of this.clients) if(c.live) c.send(enc({t:'ops', ops:this.ops(c.st), stations:st})); }
   join(ws){ this.clients.add(ws); if(!this.timer){ this.schedule(); this.saveTimer=setInterval(()=>this.save(),SAVE_EVERY); log(`${this.code}: мир идёт`); } }
   leave(ws){ this.clients.delete(ws); this.sendOps(); if(!this.clients.size){ clearInterval(this.timer); clearInterval(this.saveTimer); this.timer=this.saveTimer=null; this.save(); log(`${this.code}: операторов нет, мир стоит`); } }
@@ -59,7 +61,7 @@ class Room {
     if(m.t==='hello'){ this.hello(ws,+m.since||0,m.op,+m.st||0); return; }
     if(!ws.live) return;
     m.st=ws.st;   // станция — та, к которой подключён оператор, а не та, что назвал клиент
-    if(m.t==='up'||m.t==='autonomy'){ this.st.handle(m); return; }
+    if(m.t==='up'||m.t==='autonomy'){ this.st.handle(m); this.lastCmd=Date.now(); return; }   // lastCmd — для лобби: не просто сидят, а что-то делают
     if(DEBUG&&(m.t==='cfg'||m.t==='tp'||m.t==='peek')) this.st.handle(m);   // speed/load/save от клиентов не принимаются: ускорение — настройка комнаты, мир — у сервера
   }
   save(){ const d={v:2, savedAt:Date.now(), world:this.st.snapshot(), n:this.st.rxN(), cfg:this.cfg, seen:this.seen, rings:this.rings.map(r=>r.slice(-TAIL))};
@@ -72,7 +74,7 @@ function listRooms(){ const out=[]; const codes=new Set(rooms.keys());
   for(const f of fs.readdirSync(DATA)){ if(!f.endsWith('.json')) continue; const code=f.slice(0,-5); if(codes.has(code)) continue; codes.add(code);
     try{ const st=fs.statSync(path.join(DATA,f)); const c=diskInfo[code]; if(c&&c.mtime===st.mtimeMs){ out.push(c.info); continue; }
       const d=JSON.parse(fs.readFileSync(path.join(DATA,f),'utf8')); if(d.v!==2) continue; const u=d.world.units; const info={code, cfg:roomCfg(d.cfg||{}), ops:[], t:d.world.t||0, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:d.savedAt,
-        stations:(d.world.stations||[]).map(S=>({k:S.k, name:S.name, ops:[], units:u.filter(x=>x.st===S.k).length, alive:u.filter(x=>x.st===S.k&&x.alive).length}))}; diskInfo[code]={mtime:st.mtimeMs,info}; out.push(info); }catch(e){} }
+        running:false, lastCmd:0, stations:(d.world.stations||[]).map(S=>({k:S.k, name:S.name, ops:[], units:u.filter(x=>x.st===S.k).length, alive:u.filter(x=>x.st===S.k&&x.alive).length}))}; diskInfo[code]={mtime:st.mtimeMs,info}; out.push(info); }catch(e){} }
   for(const r of rooms.values()) out.push(r.info());
   return out.sort((a,b)=>(b.ops.length-a.ops.length)||(b.savedAt-a.savedAt)); }
 const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);

@@ -26,9 +26,9 @@ body{overflow:auto;background:#000;color:#9fb59f;font:15px/1.6 ui-monospace,Menl
 <h1>$ ares-tk --key ~/old/dse.key stations</h1>
 <div class="row">оператор: <input id="op" maxlength="24" spellcheck="false"> <span class="dim">имя видят другие операторы той же станции; хранится в этом браузере</span></div>
 <div class="row">станции по кэшированной таблице DSE:</div>
-<table><thead><tr><th>код</th><th>платформа</th><th>операторы</th><th>миссионеры</th><th>часы мира</th><th>канал</th><th>время</th><th>последняя связь</th><th></th></tr></thead><tbody id="rooms"><tr><td class="dim" colspan="9">…</td></tr></tbody></table>
-<div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> · канал <select id="cap"><option value="512">512 бит/с</option><option value="1024">1024 бит/с</option><option value="2048">2048 бит/с</option><option value="4096">4096 бит/с</option></select> · время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select> <button id="go">создать</button></div>
-<div class="row dim">На планете две платформы, ARK-041 и ARK-042; у каждой свои миссионеры, запасы и канал. Ёмкость дальней линии и ускорение времени задаются при создании, одинаковы для обеих платформ и потом не меняются; штатно — 512 бит/с и ×1</div>
+<table><thead><tr><th>код</th><th>мир</th><th>платформа</th><th>операторы</th><th>миссионеры</th><th>часы мира</th><th>канал</th><th>время</th><th></th></tr></thead><tbody id="rooms"><tr><td class="dim" colspan="9">…</td></tr></tbody></table>
+<div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> · платформ <select id="n"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select> · канал <select id="cap"><option value="512">512 бит/с</option><option value="1024">1024 бит/с</option><option value="2048">2048 бит/с</option><option value="4096">4096 бит/с</option></select> · время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select> <button id="go">создать</button></div>
+<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Число платформ, ёмкость дальней линии и ускорение времени задаются при создании, одинаковы для всех платформ и потом не меняются; штатно — 512 бит/с и ×1. Мир идёт, пока хоть один оператор подключён; без операторов стоит</div>
 <div class="row dim" id="err"></div>
 </div>
 <script>
@@ -43,12 +43,14 @@ const fmtT=t=>{ const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m
 const ago=ms=>{ const s=ms/1000; if(s<90) return `${s.toFixed(0)} с назад`; if(s<5400) return `${(s/60).toFixed(0)} мин назад`; if(s<172800) return `${(s/3600).toFixed(1)} ч назад`; return `${(s/86400).toFixed(1)} д назад`; };
 function join(code,st=0){ code=code.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; } saveOp($('#op').value); location.href='index.html?room='+encodeURIComponent(code)+'&st='+st; }
 async function create(){ const code=$('#code').value.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; }
-  try{ const r=await fetch('rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,cap:+$('#cap').value,speed:+$('#speed').value})}); if(!r.ok) throw new Error(r.status); }catch(e){ $('#err').textContent='сервер не ответил: '+e.message; return; }
+  try{ const r=await fetch('rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,n:+$('#n').value,cap:+$('#cap').value,speed:+$('#speed').value})}); if(!r.ok) throw new Error(r.status); }catch(e){ $('#err').textContent='сервер не ответил: '+e.message; return; }
   join(code,0); }
 $('#go').onclick=create; $('#code').onkeydown=e=>{ if(e.key==='Enter') create(); };
 async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()); const tb=$('#rooms'); tb.innerHTML='';
     if(!rooms.length) tb.innerHTML='<tr><td class="dim" colspan="9">планет нет — создать новую</td></tr>';
-    for(const r of rooms) r.stations.forEach((s,i)=>{ const tr=document.createElement('tr'); const c=r.cfg||{cap:512,speed:1}; const cells=[i?'':r.code, s.name, s.ops.length?s.ops.join(', '):'—', `${s.alive} жив. из ${s.units}`, i?'':fmtT(r.t), i?'':c.cap+' бит/с', i?'':'×'+c.speed, i?'':(r.ops.length?'сейчас':r.savedAt?ago(Date.now()-r.savedAt):'—')];
+    for(const r of rooms) r.stations.forEach((s,i)=>{ const tr=document.createElement('tr'); const c=r.cfg||{cap:512,speed:1};
+      const state=!r.running?'стоит'+(r.savedAt?' · '+ago(Date.now()-r.savedAt):''):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина');   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
+      const cells=[i?'':r.code, i?'':state, s.name, s.ops.length?s.ops.join(', '):'—', `${s.alive} жив. из ${s.units}`, i?'':fmtT(r.t), i?'':c.cap+' бит/с', i?'':'×'+c.speed];
       for(const c of cells){ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }
       const td=document.createElement('td'); const b=document.createElement('button'); b.textContent=s.ops.length?'присоединиться':'подключиться'; b.onclick=()=>join(r.code,s.k); td.appendChild(b); tr.appendChild(td); tb.appendChild(tr); });
   }catch(e){ $('#rooms').innerHTML='<tr><td class="dim" colspan="9">список недоступен</td></tr>'; } }
