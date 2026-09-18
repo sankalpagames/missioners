@@ -105,7 +105,7 @@
         <button class="mini" id="st-btn-img">снять ●</button>
         <span class="bw" id="bw-stimg"></span>
       </div>
-      <div class="row" style="align-items:flex-start"><canvas id="st-img" width="64" height="64" style="width:192px;height:192px;image-rendering:pixelated;background:#000;border:1px solid var(--line)"></canvas><div><div id="st-img-state" class="dim small"></div><div class="pbar" style="width:120px"><i id="st-img-prog"></i></div></div></div>
+      <div class="row" style="align-items:flex-start"><canvas id="st-img" width="64" height="64" style="width:192px;height:192px;image-rendering:pixelated;background:#000;border:1px solid var(--line)"></canvas><div><div id="st-img-state" class="dim small"><span id="st-img-state-t"></span> <button class="mini" id="st-img-cancel" hidden data-tip="Отменить запрос кадра камеры шлюза.">✕ отменить</button></div><div class="pbar" style="width:120px"><i id="st-img-prog"></i></div></div></div>
       <div class="row"><label class="small cg" data-tip="Пульс станции — фоновый пакет: запасы, список миссионеров с флагами.">пульс станции <select id="sub-hb"><option value="2">каждые 2 с</option><option value="10">каждые 10 с</option><option value="0">выкл</option></select></label><span class="bw" id="bw-hb"></span></div>
     </div>
     <div class="tab" id="tab-channel">
@@ -113,7 +113,7 @@
       <div class="legend small"><i class="k-TLM"></i>тело <i class="k-HB"></i>станция <i class="k-SONAR"></i>лидар <i class="k-DESC"></i>описания <i class="k-IMG"></i>изображения <i class="k-EVT"></i>события <i class="k-drop"></i>потери <i class="k-cap"></i>ёмкость</div>
       <table id="ch-table"><thead><tr><th>панель</th><th>Б/с сейчас</th><th>Б всего</th></tr></thead><tbody></tbody></table>
       <h3>в очереди</h3>
-      <table id="queue"><thead><tr><th>запрос</th><th>от</th><th>пакеты</th><th>байт</th><th>ETA</th></tr></thead><tbody></tbody></table>
+      <table id="queue"><thead><tr><th>запрос</th><th>от</th><th>пакеты</th><th>байт</th><th>ETA</th><th></th></tr></thead><tbody></tbody></table>
     </div>
     <div id="splitter" data-tip="Перетащить: высота лога"></div>
     <div id="logwrap">
@@ -150,7 +150,7 @@
           <label data-tip="Дельта: передаются только блоки (из 64), изменившиеся с предыдущего кадра того же разрешения. Первый кадр — полный. Движение в кадре увеличивает расход."><input type="checkbox" id="img-delta" checked> дельта</label>
           <button class="mini" id="btn-img" data-tip="Один кадр выбранного разрешения. Направление камеры — по последней команде: перемещение, изучить, взаимодействовать, смотреть; иначе по ходу.">снять ●</button>
         </div>
-        <div id="img-look" class="dim small"></div><canvas id="img" width="64" height="64"></canvas><div class="pbar"><i id="img-prog"></i></div><div id="img-state" class="dim small"></div><div id="img-est" class="dim small"></div>
+        <div id="img-look" class="dim small"></div><canvas id="img" width="64" height="64"></canvas><div class="pbar"><i id="img-prog"></i></div><div id="img-state" class="dim small"><span id="img-state-t"></span> <button class="mini" id="img-cancel" hidden data-tip="Отменить запрос: станция выбрасывает из буфера ещё не переданные пакеты кадра, линия освобождается. Ушедшие байты не возвращаются; следующий дельта-кадр будет ключевым.">✕ отменить</button></div><div id="img-est" class="dim small"></div>
       </div>
     </div>
     <div class="block grow" id="blk-desc">

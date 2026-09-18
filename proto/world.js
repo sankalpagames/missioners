@@ -269,6 +269,7 @@ onmessage = e => {
   if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ u.carrier=!!m.carriers[u.id]; u.snr=m.snr?m.snr[u.id]:0; } return; }   // станция измеряет уровень сигнала каждого тела   // миссионер сам слышит несущую станции — физика, не данные
   if(m.t==='imgAck'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='autonomy'){ const u=units.find(u=>u.id===m.unit); if(u) u.autonomy=m.v; return; }
+  if(m.t==='imgCancel'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u){ u.pendingImg=null; delete u.lastImg[m.level]; } return; }   // кадр не дошёл: следующий на этом уровне — ключевой
   if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; } return; }
   if(m.t==='peek'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u) postMessage({t:'peekImg',unit:u.id,img:render(u,64)}); return; }   // отладка: чистый рендер мимо канала
   if(m.t==='save'){ postMessage({t:'state',data:snapshot()}); return; }

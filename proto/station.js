@@ -20,7 +20,8 @@ function makeStation(opts){
   const links=[]; for(let k=0;k<W.NST;k++){ const link=new Link(); const L={k, link, rxN:0, lastSec:-1}; links.push(L);
     link.onDeliver=p=>out({t:'pkt', st:k, n:++L.rxN, at:link.t, ...p});
     link.onDrop=p=>out({t:'drop', st:k, at:link.t, ...p});
-    link.onUplink=bytes=>W.handle({t:'cmd',st:k,bytes});
+    // команда 27 — отмена запроса: её выполняет буфер станции, до мира она не доходит; кадр отменён — миру сказать, чтобы следующий был ключевым
+    link.onUplink=bytes=>{ if(bytes[0]===27){ const c=link.cancel((bytes[3]<<8)|bytes[4]); if(c&&/^IM[GD]/.test(c.kind)) W.handle({t:'imgCancel',st:k,unit:c.unit,level:+c.kind[3]}); return; } W.handle({t:'cmd',st:k,bytes}); };
     link.onFrame=(msg,ok)=>W.handle({t:'imgAck',st:k,unit:msg.unit,level:+msg.kind[3],ok}); }
 
   // мир → станция: пакеты в канал своей платформы, физика линии — по телам платформы, остальное — хосту
