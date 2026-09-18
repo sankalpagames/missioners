@@ -25,8 +25,8 @@ body{overflow:auto;background:#000;color:#9fb59f;font:15px/1.6 ui-monospace,Menl
 <h1>$ ares-tk --key ~/old/dse.key stations</h1>
 <div class="row">оператор: <input id="op" maxlength="24" spellcheck="false"> <span class="dim">имя видят другие операторы той же станции; хранится в этом браузере</span></div>
 <div class="row">станции по кэшированной таблице DSE:</div>
-<table><thead><tr><th>код</th><th>операторы</th><th>часы мира</th><th>миссионеры</th><th>последняя связь</th><th></th></tr></thead><tbody id="rooms"><tr><td class="dim" colspan="6">…</td></tr></tbody></table>
-<div class="row">новая станция: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> <button id="go">подключиться</button> <span class="dim">код — ключ доступа; кто знает код, тот оператор</span></div>
+<table><thead><tr><th>код</th><th>платформа</th><th>операторы</th><th>миссионеры</th><th>часы мира</th><th>последняя связь</th><th></th></tr></thead><tbody id="rooms"><tr><td class="dim" colspan="7">…</td></tr></tbody></table>
+<div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> <button id="go">создать</button> <span class="dim">код — ключ доступа; кто знает код, тот оператор. На планете две платформы, ARK-041 и ARK-042; у каждой свои миссионеры, запасы и канал</span></div>
 <div class="row dim" id="err"></div>
 </div>
 <script>
@@ -39,14 +39,14 @@ $('#op').value=op().name||''; $('#code').value=genCode();
 $('#op').onchange=()=>saveOp($('#op').value);
 const fmtT=t=>{ const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; };
 const ago=ms=>{ const s=ms/1000; if(s<90) return `${s.toFixed(0)} с назад`; if(s<5400) return `${(s/60).toFixed(0)} мин назад`; if(s<172800) return `${(s/3600).toFixed(1)} ч назад`; return `${(s/86400).toFixed(1)} д назад`; };
-function join(code){ code=code.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; } saveOp($('#op').value); location.href='index.html?room='+encodeURIComponent(code); }
+function join(code,st=0){ code=code.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; } saveOp($('#op').value); location.href='index.html?room='+encodeURIComponent(code)+'&st='+st; }
 $('#go').onclick=()=>join($('#code').value); $('#code').onkeydown=e=>{ if(e.key==='Enter') join($('#code').value); };
 async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()); const tb=$('#rooms'); tb.innerHTML='';
-    if(!rooms.length) tb.innerHTML='<tr><td class="dim" colspan="6">станций нет — создать новую</td></tr>';
-    for(const r of rooms){ const tr=document.createElement('tr'); const cells=[r.code, r.ops.length?r.ops.join(', '):'—', fmtT(r.t), `${r.alive} жив. из ${r.units}`, r.ops.length?'сейчас':r.savedAt?ago(Date.now()-r.savedAt):'—'];
+    if(!rooms.length) tb.innerHTML='<tr><td class="dim" colspan="7">планет нет — создать новую</td></tr>';
+    for(const r of rooms) r.stations.forEach((s,i)=>{ const tr=document.createElement('tr'); const cells=[i?'':r.code, s.name, s.ops.length?s.ops.join(', '):'—', `${s.alive} жив. из ${s.units}`, i?'':fmtT(r.t), i?'':(r.ops.length?'сейчас':r.savedAt?ago(Date.now()-r.savedAt):'—')];
       for(const c of cells){ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }
-      const td=document.createElement('td'); const b=document.createElement('button'); b.textContent='подключиться'; b.onclick=()=>join(r.code); td.appendChild(b); tr.appendChild(td); tb.appendChild(tr); }
-  }catch(e){ $('#rooms').innerHTML='<tr><td class="dim" colspan="6">список недоступен</td></tr>'; } }
+      const td=document.createElement('td'); const b=document.createElement('button'); b.textContent=s.ops.length?'присоединиться':'подключиться'; b.onclick=()=>join(r.code,s.k); td.appendChild(b); tr.appendChild(td); tb.appendChild(tr); });
+  }catch(e){ $('#rooms').innerHTML='<tr><td class="dim" colspan="7">список недоступен</td></tr>'; } }
 refresh(); setInterval(refresh,5000);
 </script>
 </body>

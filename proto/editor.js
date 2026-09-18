@@ -24,8 +24,10 @@ function levelText(){ const L=LEVEL; const o=[];
 // Подключается в мир (world.js, terrain.js), в редактор (editor.html, только localhost) и в headless-проверки; консоль этого файла не видит.
 // Файл пишет редактор — комментарии-имена он восстанавливает из кодовой книги, прочие комментарии при сохранении не сохраняются.
 // Типы и их свойства (имя, состояния, действия, спрайт, высота отражателя) — в codebook.js и world.js; здесь только положение и начальное состояние.
-//   spawn    — где появляется новый миссионер и куда идёт «отступление».
-//   pois     — ориентиры: id = тип из кодовой книги (1…9). subs — подобъекты, id = id ориентира·10 + индекс (не больше 10 штук):
+//   stations — посадочные платформы: центр корпуса (эллипс STATION из кодовой книги) и курс ang в градусах; airlock — шлюз (ориентир
+//              типа 1, id 240+k) с подобъектами subs (id 160+k·4+i, не больше 4); spawn — где появляется миссионер и куда идёт «отступление».
+//              Сколько платформ поднимать, решает хост: одиночная игра — первую, сетевая комната — по числу операторов.
+//   pois     — ориентиры: id = тип из кодовой книги (2…9). subs — подобъекты, id = id ориентира·10 + индекс (не больше 10 штук):
 //              type — тип из кодовой книги, dx/dy — смещение от ориентира, м; f — курс, градусы (нет — по хешу id);
 //              state — начальное состояние (нет — 0); items — содержимое контейнера.
 //   canyon   — расщелина: колена pts и ширина w в каждом колене, м; branch — тупиковый отросток (первое колено — на оси расщелины).
@@ -33,7 +35,11 @@ function levelText(){ const L=LEVEL; const o=[];
 //   creature — лёжка (home) и логово (lair) существа.
 //   decor    — сюжетные декорации: type — лист из SPRITES, f — курс в градусах, Hs — высота, м. Процедурные декорации — в terrain.js.
 const LEVEL = {`);
-  o.push(`  spawn: {x:${num(L.spawn.x)}, y:${num(L.spawn.y)}},`);
+  o.push(`  stations: [`);
+  L.stations.forEach((S,k)=>{ o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}, spawn:{x:${num(S.spawn.x)}, y:${num(S.spawn.y)}}, airlock:{x:${num(S.airlock.x)}, y:${num(S.airlock.y)}}, subs:[   // ARK-04${1+k}`);
+    for(const s of S.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
+    o.push(`    ] },`); });
+  o.push(`  ],`);
   o.push(`  pois: [`);
   for(const p of L.pois){ o.push(`    { id:${p.id}, x:${num(p.x)}, y:${num(p.y)}, subs:[   // ${nameOf(p.id)}`);
     for(const s of p.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
@@ -60,7 +66,7 @@ window.addEventListener('beforeunload',e=>{ if(dirty){ e.preventDefault(); e.ret
 // ---------- физика линии в точке: тот же Link, что в игре; расстояние и затухание — как считает мир ----------
 const link=new Link();
 function tunnelT(x,y){ const c=TER.inside(x,y); return c && c.along>0 ? Math.min(1,c.along/TER.LEN) : -1; }
-function lineAt(x,y,tx){ const tT=tunnelT(x,y); link.phys.units[1]={id:1,dist:Math.max(1,Math.hypot(x,y)),obstDb:tT>=0?8+22*tT:0,txDbm:tx,alive:true}; link.phys.extraGain=$('#boost').checked?6:0;
+function lineAt(x,y,tx){ const tT=tunnelT(x,y); link.phys.units[1]={id:1,dist:Math.max(1,Math.min(...LEVEL.stations.map(st=>Math.hypot(x-st.x,y-st.y)))),obstDb:tT>=0?8+22*tT:0,txDbm:tx,alive:true}; link.phys.extraGain=$('#boost').checked?6:0;
   return {snr:link.snrDb(1),cap:link.localCapBps(1),per:link.per(1,72)}; }
 
 // ---------- карта высот: сетка отсчётов по виду, тон по высоте + светотень, красное — склон круче 40°, изогипсы (marching squares) ----------
@@ -94,7 +100,7 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     for(let x=Math.ceil(iS(0)/g)*g;x<=iS(W);x+=g){ ctx.beginPath(); ctx.moveTo(S(x)+0.5,0); ctx.lineTo(S(x)+0.5,H); ctx.stroke(); ctx.fillText(x,S(x)+3,8); }
     for(let y=Math.ceil(iSy(0)/g)*g;y<=iSy(H);y+=g){ ctx.beginPath(); ctx.moveTo(0,Sy(y)+0.5); ctx.lineTo(W,Sy(y)+0.5); ctx.stroke(); ctx.fillText(y,3,Sy(y)-7); } }
   // радиус возврата: станция и мачта (с усилителем)
-  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; ctx.lineWidth=1; const m=poiOf(3); for(const n of [STATION, ...( $('#boost').checked&&m?[m]:[] )]){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),RETURN_R*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
+  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; ctx.lineWidth=1; const m=poiOf(3); for(const n of [...LEVEL.stations, ...( $('#boost').checked&&m?[m]:[] )]){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),RETURN_R*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
   // расщелина: полоса шириной w (интерполяция по колену), ось, колена
   // ширина: у расщелины — по коленам (интерполяция вдоль сегмента), у отростка — по сегментам
   const C=LEVEL.canyon; const band=(pts,w,col,perSeg)=>{ for(let i=0;i<pts.length-1;i++){ const p=pts[i], q=pts[i+1]; const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L; const w0=(w[i]!==undefined?w[i]:w[w.length-1])/2, w1=perSeg?w0:(w[i+1]!==undefined?w[i+1]:w0*2)/2;
@@ -104,23 +110,25 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   const knee=(pts,w,br)=>pts.forEach((p,i)=>{ handles.push({kind:'knee',ref:p,pts,w,i,br,x:p.x,y:p.y,r:7}); ctx.fillStyle='#7fb0ff'; ctx.fillRect(S(p.x)-3,Sy(p.y)-3,7,7); if(layers.labels&&sc>=1.5&&w[i]!==undefined){ ctx.fillStyle='rgba(160,200,255,0.8)'; ctx.fillText((br?'отр ':'')+i+' · '+w[i]+' м',S(p.x)+6,Sy(p.y)-8); } });
   knee(C.pts,C.w,false); knee(C.branch.pts,C.branch.w,true);
   // корпуса: платформа (из кодовой книги) и круги уровня
-  ctx.strokeStyle='#aaa'; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(S(STATION.x),Sy(STATION.y),STATION.rx*sc,STATION.ry*sc,STATION.ang,0,7); ctx.stroke();
+  LEVEL.stations.forEach((st,k)=>{ const X=S(st.x),Y=Sy(st.y); handles.push({kind:'station',ref:st,x:st.x,y:st.y,r:8}); ctx.strokeStyle='#aaa'; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,(st.ang||0)*Math.PI/180,0,7); ctx.stroke();
+    if(layers.labels&&sc>=0.7){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+k),X-14,Y-STATION.ry*sc-4); } });
   for(const h of LEVEL.hulls){ handles.push({kind:'hull',ref:h,x:h.x,y:h.y,r:Math.max(6,h.r*sc)}); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(h.x),Sy(h.y),h.r*sc,0,7); ctx.stroke(); }
   // декорации: сюжетные — крестики; процедурные — точки (слой)
   if(layers.decor&&sc>=1){ ctx.fillStyle='rgba(200,200,200,0.35)'; const R=Math.max(W,H)/sc/2+20; for(const o of TER.decor({x:cx,y:cy},R)){ if(o.id>=7000&&o.id<7400&&LEVEL.decor.some(d=>d.id===o.id)) continue; const r=Math.max(1,(o.Hs||1)*0.4*sc); ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),r,0,7); ctx.fill(); } }
   for(const d of LEVEL.decor){ handles.push({kind:'decor',ref:d,x:d.x,y:d.y,r:6}); const X=S(d.x),Y=Sy(d.y); ctx.strokeStyle='rgba(220,220,220,0.7)'; ctx.beginPath(); ctx.moveTo(X-3,Y-3); ctx.lineTo(X+3,Y+3); ctx.moveTo(X-3,Y+3); ctx.lineTo(X+3,Y-3); ctx.stroke();
     if(layers.labels&&sc>=4){ ctx.fillStyle='rgba(200,200,200,0.6)'; ctx.fillText(d.type+' '+d.Hs,X+5,Y+6); } }
-  // ориентиры и подобъекты
-  for(const p of LEVEL.pois){ const X=S(p.x),Y=Sy(p.y); const on=sel&&(sel.ref===p||sel.poi===p);
+  // ориентиры и подобъекты; шлюзы платформ рисуются как ориентиры (id 240+k), их подобъекты — как подобъекты
+  const AIR=LEVEL.stations.map((st,k)=>{ const a=st.airlock; for(const [key,value] of Object.entries({id:240+k,subs:st.subs,station:st})) Object.defineProperty(a,key,{value,enumerable:false,configurable:true}); return a; });   // служебные поля не сериализуются
+  for(const p of [...LEVEL.pois, ...AIR]){ const X=S(p.x),Y=Sy(p.y); const on=sel&&(sel.ref===p||sel.poi===p);
     if(on){ ctx.strokeStyle='rgba(224,169,74,0.35)'; for(const s of p.subs){ ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(p.x+s.dx),Sy(p.y+s.dy)); ctx.stroke(); } }
     p.subs.forEach((s,i)=>{ const x=p.x+s.dx, y=p.y+s.dy; handles.push({kind:'sub',ref:s,poi:p,i,x,y,r:6}); const sx=S(x),sy=Sy(y); ctx.fillStyle='#cfd6de'; ctx.beginPath(); ctx.arc(sx,sy,2.5,0,7); ctx.fill();
       if(s.f!==undefined){ const a=s.f*Math.PI/180; ctx.strokeStyle='#cfd6de'; ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx+Math.cos(a)*9,sy+Math.sin(a)*9); ctx.stroke(); }
       if(layers.labels&&sc>=2.5){ ctx.fillStyle='rgba(207,214,222,0.8)'; ctx.fillText(nameOf(s.type),sx+5,sy+5); } });
-    handles.push({kind:'poi',ref:p,x:p.x,y:p.y,r:8}); ctx.fillStyle=UCOL; ctx.beginPath(); ctx.moveTo(X,Y-5); ctx.lineTo(X+5,Y); ctx.lineTo(X,Y+5); ctx.lineTo(X-5,Y); ctx.closePath(); ctx.fill();
-    if(layers.labels&&sc>=0.7){ ctx.fillStyle=UCOL; ctx.fillText(p.id+' '+nameOf(p.id).toUpperCase(),X+8,Y-8); } }
+    handles.push({kind:p.station?'airlock':'poi',ref:p,x:p.x,y:p.y,r:8}); ctx.fillStyle=UCOL; ctx.beginPath(); ctx.moveTo(X,Y-5); ctx.lineTo(X+5,Y); ctx.lineTo(X,Y+5); ctx.lineTo(X-5,Y); ctx.closePath(); ctx.fill();
+    if(layers.labels&&sc>=0.7){ ctx.fillStyle=UCOL; ctx.fillText(p.id+' '+(p.station?'ШЛЮЗ':nameOf(p.id).toUpperCase()),X+8,Y-8); } }
   // существо, логово, старт, камера
   const mark=(kind,ref,x,y,col,label)=>{ handles.push({kind,ref,x,y,r:7}); ctx.fillStyle=col; ctx.beginPath(); ctx.arc(S(x),Sy(y),4,0,7); ctx.fill(); if(layers.labels&&sc>=1){ ctx.fillText(label,S(x)+7,Sy(y)+1); } };
-  mark('creature',LEVEL.creature.home,LEVEL.creature.home.x,LEVEL.creature.home.y,'#ff5c5c','существо'); mark('lair',LEVEL.creature.lair,LEVEL.creature.lair.x,LEVEL.creature.lair.y,'#8a3a3a','логово'); mark('spawn',LEVEL.spawn,LEVEL.spawn.x,LEVEL.spawn.y,'#5cb85c','старт');
+  mark('creature',LEVEL.creature.home,LEVEL.creature.home.x,LEVEL.creature.home.y,'#ff5c5c','существо'); mark('lair',LEVEL.creature.lair,LEVEL.creature.lair.x,LEVEL.creature.lair.y,'#8a3a3a','логово'); LEVEL.stations.forEach(st=>mark('spawn',st.spawn,st.spawn.x,st.spawn.y,'#5cb85c','старт'));
   { const hd=Math.atan2(cam.ty-cam.y,cam.tx-cam.x), f=cam.fov/2*Math.PI/180, L=25*sc; const X=S(cam.x),Y=Sy(cam.y); ctx.strokeStyle='rgba(224,169,74,0.6)'; ctx.fillStyle='rgba(224,169,74,0.08)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(hd-f)*L,Y+Math.sin(hd-f)*L); ctx.lineTo(X+Math.cos(hd+f)*L,Y+Math.sin(hd+f)*L); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.setLineDash([3,4]); ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(cam.tx),Sy(cam.ty)); ctx.stroke(); ctx.setLineDash([]);
     mark('cam',cam,cam.x,cam.y,'#e0a94a','камера'); handles.push({kind:'camtg',ref:cam,x:cam.tx,y:cam.ty,r:7}); const TX=S(cam.tx),TY=Sy(cam.ty); ctx.strokeStyle='#e0a94a'; ctx.beginPath(); ctx.moveTo(TX-5,TY); ctx.lineTo(TX+5,TY); ctx.moveTo(TX,TY-5); ctx.lineTo(TX,TY+5); ctx.stroke(); }
@@ -131,7 +139,8 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
 // ---------- положение объекта за ручкой: чтение и перемещение ----------
 function posOf(h){ return {x:h.x,y:h.y}; }
 function moveTo(h,x,y){ switch(h.kind){
-  case 'poi': h.ref.x=x; h.ref.y=y; break;
+  case 'poi': case 'airlock': h.ref.x=x; h.ref.y=y; break;
+  case 'station': { const dx=x-h.ref.x, dy=y-h.ref.y; h.ref.x=x; h.ref.y=y; h.ref.airlock.x+=dx; h.ref.airlock.y+=dy; h.ref.spawn.x+=dx; h.ref.spawn.y+=dy; break; }   // платформа едет со шлюзом и стартом
   case 'sub': h.ref.dx=x-h.poi.x; h.ref.dy=y-h.poi.y; break;
   case 'knee': { const p=h.pts[h.i]; if(!h.br&&h.i>0){ const b=LEVEL.canyon.branch.pts[0]; if(Math.abs(b.x-p.x)<1e-6&&Math.abs(b.y-p.y)<1e-6){ b.x=x; b.y=y; } }   // корень отростка сидит на колене — едет вместе
     p.x=x; p.y=y; TER.reload(); hmDirty(150); break; }
@@ -142,7 +151,7 @@ function moveTo(h,x,y){ switch(h.kind){
 function hit(px,py){ let best=null, bd=1e9; for(const h of handles){ const d=Math.hypot(S(h.x)-px,Sy(h.y)-py); const pr=h.kind==='poi'?4:h.kind==='hull'?2:0;   // мелкое — приоритетнее крупного
     if(d<=h.r+4 && d+pr<bd){ bd=d+pr; best=h; } } return best; }
 function select(h){ sel=h?{kind:h.kind,ref:h.ref,poi:h.poi,i:h.i,pts:h.pts,w:h.w,br:h.br}:null; renderProps(); draw(); }
-function nearestPoi(x,y){ let b=null,bd=1e9; for(const p of LEVEL.pois){ const d=Math.hypot(p.x-x,p.y-y); if(d<bd){ bd=d; b=p; } } return b; }
+function nearestPoi(x,y){ let b=null,bd=1e9; for(const p of [...LEVEL.pois, ...LEVEL.stations.map(st=>st.airlock)]){ const d=Math.hypot(p.x-x,p.y-y); if(d<bd){ bd=d; b=p; } } return b; }
 function snap(v,e){ const st=e.shiftKey?1:0.1; return Math.round(v/st)*st; }
 
 // ---------- мышь ----------
@@ -159,7 +168,7 @@ cv.addEventListener('mousemove',e=>{ const wx=iS(e.offsetX), wy=iSy(e.offsetY); 
   moveTo(drag.h,snap(wx-drag.ox,e),snap(wy-drag.oy,e)); renderProps(); draw(); });
 window.addEventListener('mouseup',e=>{ if(!drag) return; const d=drag; drag=null; cv.classList.remove('grab');
   if(d.ruler){ setMode(null); draw(); return; } if(d.pan){ if(!d.moved) select(null); else hmDirty(); return; }
-  if(d.moved&&d.h.kind==='knee') hmCompute(); if(d.moved&&['poi','sub','decor','hull','creature','lair','spawn'].includes(d.h.kind)) camShot(); });
+  if(d.moved&&d.h.kind==='knee') hmCompute(); if(d.moved&&['poi','sub','decor','hull','creature','lair','spawn','station','airlock'].includes(d.h.kind)) camShot(); });
 cv.addEventListener('dblclick',e=>{ if(hit(e.offsetX,e.offsetY)) return; const wx=iS(e.offsetX), wy=iSy(e.offsetY); const c=TER.canyon(wx,wy); if(!(c.d<c.w/2+2)) return;   // новое колено на расщелине: в ближайший сегмент
   const C=LEVEL.canyon; const pts=c.branch?C.branch.pts:C.pts, w=c.branch?C.branch.w:C.w; let bi=0,bd=1e9; for(let i=0;i<pts.length-1;i++){ const p=pts[i],q=pts[i+1]; const dx=q.x-p.x,dy=q.y-p.y,L2=dx*dx+dy*dy; const t=Math.max(0,Math.min(1,((wx-p.x)*dx+(wy-p.y)*dy)/L2)); const d=Math.hypot(wx-p.x-dx*t,wy-p.y-dy*t); if(d<bd){ bd=d; bi=i; } }
   pushHist(); pts.splice(bi+1,0,{x:snap(wx,e),y:snap(wy,e)}); w.splice(bi+1,0,Math.round(((w[bi]||w[w.length-1])+(w[bi+1]||w[bi]||w[w.length-1]))/2*10)/10); TER.reload(); select({kind:'knee',pts,w,i:bi+1,br:!!c.branch,ref:pts[bi+1]}); hmCompute(); });
@@ -167,7 +176,7 @@ function setMode(m){ mode=m; $$('[data-add]').forEach(b=>b.classList.toggle('on'
 $$('[data-add]').forEach(b=>b.onclick=()=>setMode(mode&&mode.add===b.dataset.add?null:{add:b.dataset.add}));
 $('#btn-ruler').onclick=()=>setMode(mode==='ruler'?null:'ruler');
 function place(kind,x,y){ const p=kind==='sub'?((sel&&(sel.kind==='poi'?sel.ref:sel.poi))||nearestPoi(x,y)):null;
-  if(kind==='sub'&&p.subs.length>=10){ setStatus('у ориентира уже 10 подобъектов (id = id·10 + индекс)','err'); return; }
+  if(kind==='sub'&&p.subs.length>=(p.station?4:10)){ setStatus(p.station?'у шлюза не больше 4 подобъектов (id = 160 + k·4 + индекс)':'у ориентира уже 10 подобъектов (id = id·10 + индекс)','err'); return; }
   if(kind==='poi'&&!+$('#add-poi-type').value){ setStatus('свободных типов ориентиров нет — добавить в codebook.js (1…9)','err'); return; }
   pushHist();
   if(kind==='sub'){ const s={type:+$('#add-sub-type').value,dx:Math.round((x-p.x)*10)/10,dy:Math.round((y-p.y)*10)/10}; p.subs.push(s); select({kind:'sub',ref:s,poi:p,i:p.subs.length-1}); }
@@ -198,7 +207,7 @@ function showCursor(x,y){ const z=TER.H(x,y), sl=TER.slope(x,y), c=TER.canyon(x,
   const snr=l=>l.snr<-5?`${l.snr.toFixed(1)} дБ — несущей нет`:`${l.snr.toFixed(1)} дБ · ${(l.cap/1000).toFixed(2)} кбит/с · потери ${(l.per*100).toFixed(0)} %`;
   const rows=[['x, y',`${x.toFixed(1)}, ${y.toFixed(1)}`],['высота',`${z.toFixed(2)} м`],['уклон',`${(Math.atan(sl)*180/Math.PI).toFixed(0)}°${sl>MAX_SLOPE?' — непроходимо':''}`],
     ['расщелина',inC?(c.along<0?`подход: ${(-c.along).toFixed(0)} м до входа`:`внутри: ${c.along.toFixed(0)} м от входа${c.branch?', отросток':''}, ширина ${c.w.toFixed(1)}, глубина ${(Math.max(0,tunnelT(x,y))*100).toFixed(0)} % — затухание ${(8+22*Math.max(0,tunnelT(x,y))).toFixed(0)} дБ`):(c.d<c.w/2+4?'стена/кромка':'—')],
-    ['от станции',`${Math.hypot(x-STATION.x,y-STATION.y).toFixed(0)} м${Math.hypot(x,y)>RETURN_R&&!( $('#boost').checked&&poiOf(3)&&Math.hypot(x-poiOf(3).x,y-poiOf(3).y)<=RETURN_R)?' — за радиусом возврата':''}`],
+    ['от станции',`${Math.min(...LEVEL.stations.map(st=>Math.hypot(x-st.x,y-st.y))).toFixed(0)} м${Math.min(...LEVEL.stations.map(st=>Math.hypot(x-st.x,y-st.y)))>RETURN_R&&!( $('#boost').checked&&poiOf(3)&&Math.hypot(x-poiOf(3).x,y-poiOf(3).y)<=RETURN_R)?' — за радиусом возврата':''}`],
     ['SNR 0 дБм',snr(l0)],['SNR +10 дБм',snr(l10)]];
   if(sel&&sel.kind!=='cam'&&sel.kind!=='camtg'){ const h=handles.find(h=>h.ref===sel.ref); if(h) rows.push(['до выбранного',`${Math.hypot(h.x-x,h.y-y).toFixed(1)} м`]); }
   $('#cur').innerHTML=rows.map(([k,v])=>`<label>${k}</label><b>${v}</b>`).join(''); }
@@ -220,14 +229,16 @@ function renderProps(){ const P=$('#props'); if(!sel){ $('#sel-title').textConte
   if(k==='decor'){ title=`декорация ${r.id}`; rows.push({label:'тип',html:`<select>${decorTypes().map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select>`,on:v=>r.type=v}); XY(r); F('курс',()=>r.f,v=>r.f=v,'step="5"'); F('высота Hs',()=>r.Hs,v=>r.Hs=v); }
   if(k==='hull'){ title='корпус'; XY(r); F('радиус',()=>r.r,v=>r.r=v); F('высота',()=>r.h,v=>r.h=v); }
   if(k==='creature'){ title='лёжка существа'; XY(r); } if(k==='lair'){ title='логово существа'; XY(r); } if(k==='spawn'){ title='точка старта'; XY(r); }
+  if(k==='station'){ title='платформа ARK-04'+(1+LEVEL.stations.indexOf(r)); XY(r); F('курс',()=>r.ang||0,v=>r.ang=v,'step="5"'); }
+  if(k==='airlock'){ title='шлюз '+r.id; XY(r); }
   if(k==='cam'||k==='camtg'){ title=k==='cam'?'камера':'цель камеры'; const o=k==='cam'?{get x(){return cam.x},set x(v){cam.x=v},get y(){return cam.y},set y(v){cam.y=v}}:{get x(){return cam.tx},set x(v){cam.tx=v},get y(){return cam.ty},set y(v){cam.ty=v}}; XY(o); }
-  if(!['cam','camtg'].includes(k)) rows.push({label:'',html:`<button data-act="del" class="ghost">удалить</button> <button data-act="cam-here" class="ghost">кадр сюда</button>`});
+  if(!['cam','camtg','station','airlock','spawn'].includes(k)) rows.push({label:'',html:`<button data-act="del" class="ghost">удалить</button> <button data-act="cam-here" class="ghost">кадр сюда</button>`});
   $('#sel-title').textContent=title; P.innerHTML=rows.map(r=>`<label>${r.label}</label><span>${r.html}</span>`).join('');
   [...P.querySelectorAll('input,select')].forEach((el,i)=>{ const row=rows.filter(r=>r.on)[i]; if(!row) return; el.onchange=()=>{ if(!['cam','camtg'].includes(k)) pushHist(); row.on(el.value); if(k==='knee'||k==='decor') TER.reload(); if(k==='knee') hmCompute(); draw(); renderProps(); camShot(); }; });
   P.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{ const a=b.dataset.act; if(a==='del') del(); if(a==='cam-here') camToSel(); if(a==='knee-add'){ pushHist(); const p=sel.pts[sel.i], q=sel.pts[sel.i+1]||{x:p.x+10,y:p.y}; sel.pts.splice(sel.i+1,0,{x:(p.x+q.x)/2,y:(p.y+q.y)/2}); sel.w.splice(sel.i+1,0,sel.w[sel.i]); TER.reload(); select({kind:'knee',pts:sel.pts,w:sel.w,i:sel.i+1,br:sel.br,ref:sel.pts[sel.i+1]}); hmCompute(); } }); }
 function decorTypes(){ return Object.keys(SPRITES).filter(k=>isNaN(+k)&&!['sleep','walk','station'].includes(k)); }
 function fillAddSelects(){ $('#add-sub-type').innerHTML=Object.keys(CODEBOOK).filter(t=>t>=10&&t<250).map(t=>`<option value="${t}">${t} ${CODEBOOK[t].name}</option>`).join('');
-  const free=Object.keys(CODEBOOK).filter(t=>t>=1&&t<10&&!poiOf(+t)); $('#add-poi-type').innerHTML=free.length?free.map(t=>`<option value="${t}">${t} ${CODEBOOK[t].name}</option>`).join(''):'<option value="0">свободных типов нет</option>';
+  const free=Object.keys(CODEBOOK).filter(t=>t>=2&&t<10&&!poiOf(+t));   // тип 1 — шлюз, он у платформ $('#add-poi-type').innerHTML=free.length?free.map(t=>`<option value="${t}">${t} ${CODEBOOK[t].name}</option>`).join(''):'<option value="0">свободных типов нет</option>';
   $('#add-decor-type').innerHTML=decorTypes().map(t=>`<option>${t}</option>`).join(''); }
 
 // ---------- свободная камера: кадр рендерит воркер (level + codebook + terrain + camera, без world.js), сцена — весь уровень без правил видимости ----------
@@ -235,8 +246,9 @@ const camW=(()=>{ const base=new URL('.',location.href).href, v=window.__v;
   const src=`importScripts(${['level.js','codebook.js','terrain.js','camera.js'].map(f=>JSON.stringify(base+f+'?v='+v)).join(',')});
     const ready=CAM.load(${JSON.stringify(String(v))},${JSON.stringify(base)});
     function scene(u){ const out=[]; for(const p of LEVEL.pois){ if(SPRITES[p.id]) out.push({id:p.id,type:p.id,x:p.x,y:p.y}); p.subs.forEach((s,i)=>{ if(SPRITES[s.type]) out.push({id:p.id*10+i,type:s.type,x:p.x+s.dx,y:p.y+s.dy,facing:s.f===undefined?undefined:s.f*Math.PI/180}); }); }
-      const h=LEVEL.creature.home; out.push({id:250,type:'sleep',x:h.x,y:h.y,facing:Math.atan2(u.y-h.y,u.x-h.x)}); out.push({id:900,type:'station',x:STATION.x,y:STATION.y,facing:STATION.ang});
-      out.push({id:201,type:252,x:LEVEL.spawn.x,y:LEVEL.spawn.y,facing:0}); return out.concat(TER.decor(u,120)); }
+      const h=LEVEL.creature.home; out.push({id:250,type:'sleep',x:h.x,y:h.y,facing:Math.atan2(u.y-h.y,u.x-h.x)});
+      LEVEL.stations.forEach((st,k)=>{ out.push({id:900+k,type:'station',x:st.x,y:st.y,facing:(st.ang||0)*Math.PI/180}); out.push({id:201+k,type:252,x:st.spawn.x,y:st.spawn.y,facing:0}); st.subs.forEach((s,i)=>{ if(SPRITES[s.type]) out.push({id:160+k*4+i,type:s.type,x:st.airlock.x+s.dx,y:st.airlock.y+s.dy,facing:s.f===undefined?undefined:s.f*Math.PI/180}); }); });
+      return out.concat(TER.decor(u,120)); }
     onmessage=async e=>{ const m=e.data; await ready; for(const k in LEVEL) delete LEVEL[k]; Object.assign(LEVEL,m.level); TER.reload(); const t0=Date.now();
       const img=CAM.renderRaw(m.u,m.W,scene(m.u),{H:m.H,fov:m.fov,heading:m.u.heading,z:m.z}); postMessage({img,W:m.W,H:m.H,ms:Date.now()-t0,atlas:CAM.ready}); };`;
   const w=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'}))); w.busy=false; w.pending=false;
