@@ -43,6 +43,10 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 5px
   <button id="open">открыть консоль</button>
   <span class="dim">отдельным окном · прогресс сохраняется в браузере · десктоп</span>
 </div>
+<div class="launch">
+  <button id="open-mp">вдвоём</button>
+  <span class="dim">одна планета, две станции — ARK-041 и ARK-042, у каждой свои миссионеры и свой канал · сервер просыпается 10–20 с</span>
+</div>
 
 <h2>КАНАЛ СВЯЗИ</h2>
 <p>У всех данных есть реальный размер, и всё передаётся через один канал.</p>
@@ -81,6 +85,8 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 5px
 </main>
 <script>
 document.getElementById('open').onclick=()=>{ const w=window.open('proto/index.html','ark041','width=1500,height=900'); if(!w) location.href='proto/index.html'; };
+const MP='https://missioners-gvbqaqg2ajfmahh8.centralus-01.azurewebsites.net/';   // сетевая версия: ветка mp на Azure, корень — лобби
+document.getElementById('open-mp').onclick=()=>{ const w=window.open(MP,'ark041mp','width=1500,height=900'); if(!w) location.href=MP; };
 </script>
 </body>
 </html>
