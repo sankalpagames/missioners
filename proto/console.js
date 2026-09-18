@@ -6,6 +6,7 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LAB=/[?&]lab\b/.test(location.search) && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);   // только локально: на опубликованном сайте флаг не действует
 // Станция: в одиночной игре — воркер (мир + канал в браузере), в сети — WebSocket на сервер (index.html?room=КОД). Консоль разницы не видит.
 const ROOM=new URLSearchParams(location.search).get('room')||'';
+const OP=(()=>{ try{ return JSON.parse(localStorage.getItem('missioners.op'))||{}; }catch(e){ return {}; } })();   // имя и токен оператора — задаются в лобби
 const transport=ROOM?wsTransport(ROOM):workerTransport();
 function workerTransport(){ const w=new Worker('station-worker.js?v='+window.__v+(LAB?'&lab':'')); let ready=false; const q=[]; const tr={ mp:false, onmessage:null, send(m){ if(ready) w.postMessage(m); else q.push(m); } };
   w.onmessage=e=>{ const m=e.data; if(m.t==='ready'){ ready=true; for(const x of q) w.postMessage(x); q.length=0; return; } tr.onmessage&&tr.onmessage(m); }; return tr; }
@@ -13,6 +14,7 @@ function wsTransport(room){ const q=[]; const tr={ mp:true, onmessage:null, onop
   const open=()=>{ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?room='+encodeURIComponent(room)); ws.onopen=()=>{ tr.onopen&&tr.onopen(); for(const m of q) ws.send(JSON.stringify(m)); q.length=0; }; ws.onclose=()=>{ setTimeout(open,2000); };
     ws.onmessage=e=>{ const m=JSON.parse(e.data); if(m.bytes) m.bytes=new Uint8Array(m.bytes); if(m.img) m.img=new Uint8Array(m.img); tr.onmessage&&tr.onmessage(m); }; };
   open(); return tr; }
+if(ROOM){ $('#room').hidden=false; $('#room').textContent='станция '+ROOM; }
 if(LAB){ for(const [k,v] of Object.entries({deepCapBps:1e8,noiseDbm:-500,rtt:0,deepBer:0})) transport.send({t:'cfg',k,v}); document.body.classList.add('lab'); document.title='лаборатория лидара'; }
 // показания модема — последнее сообщение станции {t:'modem'}; история по секундам копится здесь
 const modem={at:0,speed:1,up:false,cap:0,orbit:null,qbg:0,qcmd:0,ncmd:0,retry:0,sec:null,cnt:{delivered:0,dropped:0,retrans:0},queue:[],dbg:null}; const modemHist=[];
@@ -57,8 +59,14 @@ transport.onmessage=m=>{
   else if(m.t==='modem'){ Object.assign(modem,m); if(m.sec){ modemHist.push(m.sec); if(modemHist.length>90) modemHist.shift(); } if(Math.abs(tNow-m.at)>0.3) tNow=m.at; if(speed!==m.speed){ speed=m.speed; $('#speed').value=String(speed); } }
   else if(m.t==='level') dbgLevel=m; else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data);
   else if(m.t==='welcome') boot.onWelcome&&boot.onWelcome(m);
+  else if(m.t==='ops') showOps(m.ops);
 };
-let joined=false; transport.onopen=()=>{ if(joined) transport.send({t:'hello',since:rxN}); };   // после обрыва: сервер дошлёт пакеты после rxN
+// операторы на станции: терминалы, подключённые к той же комнате (не пакеты — знание своего инструментария)
+let opsNow=null; const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function showOps(ops){ $('#room').textContent=`станция ${ROOM} · операторы: ${ops.join(', ')||'—'}`;
+  if(opsNow){ for(const n of ops.filter(n=>!opsNow.includes(n))) log(`терминал: оператор ${esc(n)} подключился`,'sys'); for(const n of opsNow.filter(n=>!ops.includes(n))) log(`терминал: оператор ${esc(n)} отключился`,'sys'); }
+  opsNow=ops; }
+let joined=false; const hello=()=>transport.send({t:'hello',since:rxN,op:{name:OP.name,token:OP.token}}); transport.onopen=()=>{ if(joined) hello(); };   // после обрыва: сервер дошлёт пакеты после rxN
 // Сборка многопакетных текстовых сообщений: декодируем, когда пришли все пакеты
 const asm={};
 function assemble(pkt){ if(pkt.total===1) return pkt.bytes; const a=asm[pkt.msgId]=asm[pkt.msgId]||{parts:{},total:pkt.total,at:tNow}; a.parts[pkt.seq]=pkt.bytes; a.at=tNow;
@@ -482,7 +490,7 @@ const boot={onInfo:null,onHb:null,onTlm:null,onWelcome:null};
   else if(transport.mp){   // сеть: мир живёт на сервере, местное знание подхватывается само, пропущенные пакеты досылаются
     if(s){ line(`local session store: found, last link ${fmtGap((Date.now()-s.savedAt)/1000)} ago`); if((s.v||0)!==SAVE_VERSION) line(`  warning: session build v${s.v||0}, current v${SAVE_VERSION}`); applySave(s); }
     else line('local session store: empty');
-    el.textContent+=`join ARK-041 room ${ROOM}`; transport.send({t:'hello',since:rxN}); joined=true; const w=await spin(new Promise(res=>{ boot.onWelcome=m=>{ boot.onWelcome=null; res(m); }; }));
+    el.textContent+=`join ARK-041 room ${ROOM}`; hello(); joined=true; const w=await spin(new Promise(res=>{ boot.onWelcome=m=>{ boot.onWelcome=null; res(m); }; }));
     line(`joined: operators=${w.operators}  replay=${w.replay} pkts  world clock ${fmtT(w.at)}`); }
   else for(;;){
     if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); if((s.v||0)!==SAVE_VERSION) line(`  warning: session build v${s.v||0}, current v${SAVE_VERSION} — resume may misbehave, [n] recommended`); el.textContent+='[r/enter] resume  [n] new  [i] import file  [e] export file  ';

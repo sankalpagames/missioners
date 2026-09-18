@@ -21,11 +21,11 @@ const replacer=(k,v)=>v instanceof Uint8Array?Array.from(v):v;
 const enc=m=>JSON.stringify(m,replacer);
 
 class Room {
-  constructor(code){ this.code=code; this.file=path.join(DATA,code+'.json'); this.clients=new Set(); this.ring=[]; this.timer=null; this.saveTimer=null;
+  constructor(code){ this.code=code; this.file=path.join(DATA,code+'.json'); this.clients=new Set(); this.ring=[]; this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → имя, все операторы, что были на станции
     this.st=makeStation({ worldSrc, search:'?v=0', debug:DEBUG, out:m=>this.out(m) });
     // атлас — после того, как отвергнутый fetch в CAM.load отработает (иначе он обнулит атлас)
     setImmediate(()=>this.st.W.CAM.build(atlas.json,atlas.px));
-    try{ const d=JSON.parse(fs.readFileSync(this.file,'utf8')); this.st.restore(d.world,d.n); this.ring=d.ring||[]; if(d.speed) this.st.handle({t:'speed',v:d.speed}); log(`${code}: восстановлена, t=${d.world.t|0} с, пакетов ${d.n}`); }
+    try{ const d=JSON.parse(fs.readFileSync(this.file,'utf8')); this.st.restore(d.world,d.n); this.ring=d.ring||[]; this.seen=d.seen||{}; if(d.speed) this.st.handle({t:'speed',v:d.speed}); log(`${code}: восстановлена, t=${d.world.t|0} с, пакетов ${d.n}`); }
     catch(e){ if(e.code!=='ENOENT') log(`${code}: сохранение не прочитано (${e.message}), новая станция`); else log(`${code}: новая станция`); }
   }
   out(m){
@@ -33,33 +33,46 @@ class Room {
     if(m.t==='state') return;
     const s=enc(m); for(const c of this.clients) if(c.live) c.send(s);
   }
+  ops(){ return [...this.clients].filter(c=>c.live).map(c=>c.op.name); }
+  info(){ const W=this.st.W, u=this.st.snapshot().units; return {code:this.code, ops:this.ops(), t:this.st.link.t, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:Date.now()}; }
+  sendOps(){ const s=enc({t:'ops',ops:this.ops()}); for(const c of this.clients) if(c.live) c.send(s); }
   join(ws){ this.clients.add(ws); if(!this.timer){ this.schedule(); this.saveTimer=setInterval(()=>this.save(),SAVE_EVERY); log(`${this.code}: мир идёт`); } }
-  leave(ws){ this.clients.delete(ws); if(!this.clients.size){ clearInterval(this.timer); clearInterval(this.saveTimer); this.timer=this.saveTimer=null; this.save(); log(`${this.code}: операторов нет, мир стоит`); } }
+  leave(ws){ this.clients.delete(ws); this.sendOps(); if(!this.clients.size){ clearInterval(this.timer); clearInterval(this.saveTimer); this.timer=this.saveTimer=null; this.save(); log(`${this.code}: операторов нет, мир стоит`); } }
   schedule(){ if(this.timer) clearInterval(this.timer); this.timer=setInterval(()=>this.st.tick(), 100/this.st.speed); }
-  hello(ws,since){   // досылка пропущенного, потом — живой поток
+  hello(ws,since,op){   // досылка пропущенного, потом — живой поток
+    ws.op={ name:String(op&&op.name||'').replace(/[^\p{L}\p{N} _.-]/gu,'').trim().slice(0,24)||'оператор', token:String(op&&op.token||'').slice(0,32) };
+    if(ws.op.token) this.seen[ws.op.token]=ws.op.name;
     const miss=this.ring.filter(p=>p.n>since);
     ws.send(enc({t:'welcome', operators:this.clients.size, replay:miss.length, at:this.st.link.t, speed:this.st.speed}));
     for(const p of miss) ws.send(enc({...p,replay:true}));
-    ws.send(enc(this.st.modem())); ws.live=true;
+    ws.send(enc(this.st.modem())); ws.live=true; this.sendOps();
   }
   handle(ws,m){
-    if(m.t==='hello'){ this.hello(ws,+m.since||0); return; }
+    if(m.t==='hello'){ this.hello(ws,+m.since||0,m.op); return; }
     if(!ws.live) return;
     if(m.t==='up'||m.t==='autonomy'){ this.st.handle(m); return; }
     if(m.t==='speed'){ this.st.handle(m); this.schedule(); return; }
     if(DEBUG&&(m.t==='cfg'||m.t==='tp'||m.t==='peek')) this.st.handle(m);   // load/save от клиентов не принимаются: мир — у сервера
   }
-  save(){ const d={v:1, savedAt:Date.now(), world:this.st.snapshot(), n:this.st.rxN(), speed:this.st.speed, ring:this.ring.slice(-TAIL)};
+  save(){ const d={v:1, savedAt:Date.now(), world:this.st.snapshot(), n:this.st.rxN(), speed:this.st.speed, seen:this.seen, ring:this.ring.slice(-TAIL)};
     try{ fs.writeFileSync(this.file+'.tmp',enc(d)); fs.renameSync(this.file+'.tmp',this.file); }catch(e){ log(`${this.code}: сохранение не удалось: ${e.message}`); } }
 }
 const rooms=new Map(); const room=code=>{ if(!rooms.has(code)) rooms.set(code,new Room(code)); return rooms.get(code); };
+// список станций для лобби: живые — из памяти, остальные — по файлам (читаются заново, только если файл изменился)
+const diskInfo={};
+function listRooms(){ const out=[]; const codes=new Set(rooms.keys());
+  for(const f of fs.readdirSync(DATA)){ if(!f.endsWith('.json')) continue; const code=f.slice(0,-5); if(codes.has(code)) continue; codes.add(code);
+    try{ const st=fs.statSync(path.join(DATA,f)); const c=diskInfo[code]; if(c&&c.mtime===st.mtimeMs){ out.push(c.info); continue; }
+      const d=JSON.parse(fs.readFileSync(path.join(DATA,f),'utf8')); const info={code, ops:[], t:d.world.t||0, units:d.world.units.length, alive:d.world.units.filter(u=>u.alive).length, savedAt:d.savedAt}; diskInfo[code]={mtime:st.mtimeMs,info}; out.push(info); }catch(e){} }
+  for(const r of rooms.values()) out.push(r.info());
+  return out.sort((a,b)=>(b.ops.length-a.ops.length)||(b.savedAt-a.savedAt)); }
 const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);
 
 // статика: proto/ в корне, без кэша
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon'};
 const server=http.createServer((req,res)=>{
-  const u=new URL(req.url,'http://x'); let f=decodeURIComponent(u.pathname); if(f==='/') f='/index.html';
-  if(f==='/rooms'){ res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify([...rooms.values()].map(r=>({code:r.code,operators:r.clients.size})))); return; }
+  const u=new URL(req.url,'http://x'); let f=decodeURIComponent(u.pathname); if(f==='/') f='/lobby.html';   // корень — лобби; консоль — index.html?room=КОД
+  if(f==='/rooms'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(listRooms())); return; }
   const fp=path.normalize(path.join(P,f)); if(!fp.startsWith(P)||/editor|serve\.py/.test(f)){ res.writeHead(404); res.end(); return; }   // редактор — только локально через serve.py
   fs.readFile(fp,(e,b)=>{ if(e){ res.writeHead(404); res.end('not found'); return; } res.writeHead(200,{'Content-Type':MIME[path.extname(fp)]||'application/octet-stream','Cache-Control':'no-store'}); res.end(b); });
 });

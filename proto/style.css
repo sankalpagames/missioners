@@ -148,3 +148,5 @@ button{white-space:nowrap}
 /* лаборатория лидара (index.html?lab): лишние панели и команды скрыты */
 body.lab #blk-img,body.lab #blk-desc,body.lab .cmds{display:none}
 #blk-lab{display:none} body.lab #blk-lab{display:block}
+#room{color:inherit;text-decoration:none;margin:0 10px}
+#room:hover{text-decoration:underline}
