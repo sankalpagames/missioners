@@ -127,12 +127,10 @@ function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М
   if(code===28){ const u=U(pkt.unit); if(u.prevGoal){ u.goalName=u.prevGoal.name; u.goalPos=u.prevGoal.pos; } $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }   // цель не принята — голова там же, где была
   if(code===27){ $('#fin-title').textContent='СЕРИЯ 1 ИСЧЕРПАНА'; $('#fin-text').textContent=`Живых миссионеров нет, биоматериала нет. Станция закрыла серию 1 и продолжает работу по протоколу.\n\nПС-7 остаётся открытой. Кто-то не вернулся тридцать девять лет назад; теперь — ещё ${[...units.values()].length}.\n\nПриборы на телах отвечают, пока есть заряд. Новый сеанс — в терминале при подключении: [n].`; $('#finale').hidden=false; }
   if(code===17){ $('#fin-title').textContent='ЗАДАЧА ПС-7 ЗАКРЫТА'; $('#task').textContent='задача: ПС-7 закрыта'; const last=[...journal.values()].flat().filter(e=>/прочитал запись/.test(e.text)).pop(); $('#fin-text').textContent=(last?last.text.replace(/^прочитал запись\. /,'')+'\n\n':'')+`Станция остановила протокол ПС-7. Биоматериала осталось: ${station.bio ?? '—'} ед. Миссионеров в поле: ${[...units.values()].filter(u=>u.alive).length}.\n\nЭто условная развязка прототипа. Сеанс можно продолжать.`; $('#finale').hidden=false; } }
-function showImg(u){ if(u.id===0){ drawGray($('#st-img'),u.img.buf,64); $('#st-img-state-t').textContent=u.img.state; $('#st-img-prog').style.width=(u.img.prog*100)+'%'; return; } drawGray($('#img'),u.img.buf,64); $('#img-unit').textContent='М'+u.id; $('#img-state-t').textContent=u.img.state; $('#img-prog').style.width=(u.img.prog*100)+'%'; }
+function showImg(u){ if(u.id===0){ drawGray($('#st-img'),u.img.buf,64); $('#st-img-state').textContent=u.img.state; $('#st-img-prog').style.width=(u.img.prog*100)+'%'; return; } drawGray($('#img'),u.img.buf,64); $('#img-unit').textContent='М'+u.id; $('#img-state').textContent=u.img.state; $('#img-prog').style.width=(u.img.prog*100)+'%'; }
 // отмена запроса в буфере станции: команда 27 с номером сообщения из показаний модема
 function cancelReq(g){ if(!send([27,0,g.unit,g.id>>8,g.id&255],`отмена: ${KIND_RU[kindOf(g.kind)]} М${g.unit}`)) return; if(/^IM[GD]/.test(g.kind)){ const u=holderOf(g.unit); delete u.img.asm[g.id]; u.img.state='запрос отменён'; u.img.prog=0; if(g.unit===active||g.unit===0) showImg(u); } }
-function queuedImg(unit){ return modem.queue.find(g=>g.unit===unit&&/^IM[GD]/.test(g.kind)); }
-const cancelImgs=unit=>{ for(const g of modem.queue.filter(g=>g.unit===unit&&/^IM[GD]/.test(g.kind))) cancelReq(g); };   // пирамида — несколько сообщений, отменяются все
-$('#img-cancel').onclick=()=>cancelImgs(active); $('#st-img-cancel').onclick=()=>cancelImgs(0);
+// отмена — только во вкладке «Канал», в таблице очереди: это операция с буфером станции, не с панелью
 function holderOf(unit){ return unit===0?stcam:U(unit); }
 function decodeImg(pkt){ const u=holderOf(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[8,16,32,64][lvl], block=64/side;
   if(lvl===0&&im.msg!==pkt.msgId){ im.buf.fill(0); im.levels={}; }   // новая пирамида — чистим, чтобы прогресс был виден
@@ -419,7 +417,6 @@ setInterval(()=>{
   // расход по панелям
   const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };
   setBw('#bw-tlm','TLM'); setBw('#bw-sonar','SONAR'); setBw('#bw-desc','DESC'); setBw('#bw-img','IMG'); setBw('#bw-hb','HB'); setBw('#bw-stimg','STIMG');
-  $('#img-cancel').hidden=!queuedImg(active); $('#st-img-cancel').hidden=!queuedImg(0);   // отменить можно только то, что ещё в буфере станции
   { const lvl=+$('#img-level').value, iv=+$('#sub-img').value, full=[72,72+264,72+264+1040,72+264+1040+4160][lvl]; const keyD=[2+64*2+8, 2+64*5+8*6, 2+64*17+8*18, 2+64*65+8*66][lvl]; const cap=modem.cap/8; const est=$('#img-est'); if(iv){ const per=$('#img-delta').checked?`ключевой ${keyD} Б, дальше по движению`:`${full} Б`; const rate=($('#img-delta').checked?keyD:full)/iv; est.textContent=`подписка: ${per} · до ${rate.toFixed(0)} Б/с из ${cap.toFixed(0)}`; est.style.color=rate>cap*0.8?'#d9534f':''; } else est.textContent=`один кадр: ${full} Б ≈ ${cap?(full/cap).toFixed(1):'∞'} с`; }
   // связь
   const up=modem.up; const st=$('#link-state'); st.textContent=up?'СВЯЗЬ':'НЕТ СВЯЗИ'; st.className='badge '+(up?'up':'down');
