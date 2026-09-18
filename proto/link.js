@@ -57,6 +57,11 @@ class Link {
     }
     else this.queues.cmd.push(...pkts);
   }
+  // отмена запроса: станция выбрасывает из буфера все пакеты сообщения, включая повторы; ушедшие байты не вернуть
+  cancel(msgId){ let n=0, kind=null, unit=0; const drop=p=>{ if(p.msgId!==msgId) return false; n+=p.size; kind=p.kind; unit=p.unit; return true; };
+    this.queues.cmd=this.queues.cmd.filter(p=>!drop(p)); this.retry=this.retry.filter(r=>!drop(r.pkt));
+    for(const k in this.queues.bg){ this.queues.bg[k]=this.queues.bg[k].filter(p=>!drop(p)); if(!this.queues.bg[k].length) delete this.queues.bg[k]; }
+    return n?{bytes:n,kind,unit}:null; }
   queueBytes(cls){ if(cls==='bg') return Object.values(this.queues.bg).flat().reduce((a,p)=>a+p.size,0); return (this.queues[cls]||[]).reduce((a,p)=>a+p.size,0); }
   sendUplink(bytes){ if(!this.up()) return false; this.uplinkPending.push({bytes,at:this.t+this.cfg.rtt/2}); return true; }
 

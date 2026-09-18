@@ -15,20 +15,21 @@
 
 ## Публикация
 
-GitHub Pages из корня (`.github/workflows/static.yml`). Корневой `index.html` — онбординг для плейтестеров, кнопка открывает `proto/index.html` отдельным окном. Игра статическая, сервер не нужен.
+GitHub Pages из корня (`.github/workflows/static.yml`) с ветки `main` — одиночная игра, сервер не нужен. Корневой `index.html` — онбординг для плейтестеров, кнопка открывает `proto/index.html` отдельным окном. Ветка `mp` — сетевая игра: пуш в неё деплоит всё на Azure App Service F1 (`.github/workflows/mp_missioners.yml`, Linux, Node 22, `npm start`; WebSocket на Linux включён по умолчанию), сервер сам раздаёт клиента; GitHub Pages не участвует. Адрес: `https://missioners-gvbqaqg2ajfmahh8.centralus-01.azurewebsites.net/` (корень — лобби). Данные комнат — `/home/data` на App Service.
 
 ## Прототип `proto/`
 
-Чистый JS, без сборки. Запуск: `python3 proto/serve.py` (есть конфиг `proto` в `.claude/launch.json`).
+Чистый JS, без сборки. Запуск: `python3 proto/serve.py` (конфиг `proto` в `.claude/launch.json`). Сетевой хост: `npm install` один раз, `node server/index.js 8777 debug` (конфиг `server`), консоль — `http://localhost:8777/index.html?room=test`; данные комнат — `data/` (не в репозитории). `debug` — правда о мире в шторку и телепорт; на сервере не включать.
 
 - `world.js` — мир, Web Worker. Не знает о консоли.
-- `level.js` — уровень: где что стоит (ориентиры, расщелина, корпуса, существо, сюжетные декорации). Пишет редактор; читают мир и рельеф.
+- `level.js` — уровень: где что стоит (посадочные платформы со шлюзами и точками старта, ориентиры, расщелина, корпуса, существо, сюжетные декорации). Пишет редактор; читают мир и рельеф. Платформ в мире столько, сколько поднял хост (одиночная игра — одна, сетевая комната — две).
 - `terrain.js` — рельеф, расщелина, декорации (объект `TER`); `camera.js` — рендер кадра (объект `CAM`); `sprites.png` + `sprites.json` — атлас спрайтов, собирается `tools/sprites-build.js` из `tools/raw/` (не в репозитории; id ассетов — `tools/spritecook-assets.json`). Всё это — часть мира.
 - `editor.html`, `editor.js` — редактор уровня, только localhost (`docs/tech.md` §11). Инструмент, не игра: читает мир напрямую, сохраняет `level.js` через POST в `serve.py`.
 - `link.js` — канал. Единственный путь мир → консоль.
-- `console.js` — консоль оператора. Видит только `link.onDeliver`.
+- `station.js` — станция: мир + канал на каждую платформу в одном хосте, наружу только сообщения с номером платформы `st` (пакеты, потери, показания модема). Хосты: `station-worker.js` (воркер, одиночная игра) и `server/index.js` (Node, сетевые комнаты на две платформы, `index.html?room=КОД&st=k`). Консоль разницы не видит.
+- `console.js` — консоль оператора. Видит только сообщения станции (`transport.onmessage`); канала у неё нет.
 - `codebook.js` — кодовая книга типов; подключается и в мир, и в консоль.
-- `index.html`, `style.css` — разметка; сноски через `data-tip`.
+- `index.html`, `style.css` — разметка; сноски через `data-tip`. `lobby.html` — лобби сетевой игры (корень сервера): имя оператора, список станций, вход по коду; только с сервером.
 
 ## Правила проекта
 
@@ -45,5 +46,5 @@ GitHub Pages из корня (`.github/workflows/static.yml`). Корневой 
 
 ## Проверка
 
-Синтаксис: `node -e "for(const f of ['proto/world.js','proto/link.js','proto/console.js','proto/codebook.js','proto/terrain.js','proto/camera.js','proto/level.js','proto/editor.js']) new Function(require('fs').readFileSync(f,'utf8'))"`.
+Синтаксис: `node -e "for(const f of ['proto/world.js','proto/link.js','proto/console.js','proto/codebook.js','proto/terrain.js','proto/camera.js','proto/level.js','proto/editor.js','proto/station.js','proto/station-worker.js']) new Function(require('fs').readFileSync(f,'utf8'))" && node --check server/index.js`.
 Кадры камеры без браузера: `node tools/render-check.js` → `tools/out/render-check.png` (набор сцен или `x y gx gy` для одного кадра). Карта высот и изогипсы против рельефа: `node tools/hmap-check.js` (`old` — как было, для сравнения). Широкий кадр для шапки лендинга (`banner.png`): `node tools/banner.js` — варианты ракурсов, `node tools/banner.js k 480 120 3` — выбранный в полный размер. Поведение проверяется в браузере; в отладочной шторке есть телепорт (клик по карте «правда о мире») — ускоряет сценарии. Ускорение времени ×4 — в шапке. Лаборатория лидара: `index.html?lab` (с `serve.py` — `http://localhost:8765/index.html?lab`) — та же консоль и мир, канал без ограничений, клик по карте / стрелки — телепорт со снимком, сеанс не сохраняется. Работает только на localhost — на опубликованном сайте флаг игнорируется. Редактор уровня: `http://localhost:8765/editor.html` — карта высот, объекты, свободная камера, сохранение в `level.js`; после правки уровня прогнать `render-check` и `hmap-check`.

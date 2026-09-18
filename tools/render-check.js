@@ -6,7 +6,7 @@
 const fs=require('fs'), path=require('path'), zlib=require('zlib'); const {decodePNG}=require('./png.js');
 const P=path.join(__dirname,'..','proto')+'/';
 const src=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+
-  '\nreturn {render, POIS, units, creature, objState, CAM, TER, dist};';
+  '\nreturn {render, POIS, SPOIS, stations, units, creature, objState, CAM, TER, dist};';
 const shims={ self:{location:{search:'?v=0'}}, importScripts(){}, postMessage(){}, setInterval(){return 1}, clearInterval(){}, setTimeout(){return 1}, onmessage:null, fetch(){ return Promise.reject(new Error('no fetch')); } };
 const W=new Function(...Object.keys(shims), src)(...Object.values(shims));
 const atl=decodePNG(fs.readFileSync(P+'sprites.png')); const json=JSON.parse(fs.readFileSync(P+'sprites.json','utf8'));
@@ -15,10 +15,10 @@ const px=new Uint8Array(atl.w*atl.h*4); for(let i=0;i<atl.w*atl.h;i++){ px[i*4]=
 const look=(x,y,gx,gy,o={})=>({id:9,x,y,goal:{x:gx,y:gy},heading:Math.atan2(gy-y,gx-x),lightOn:true,charge:100,alive:true,items:[],sensors:{camera:true},...o});
 const ap=(p,d,from={x:0,y:0})=>{ const dx=p.x-from.x, dy=p.y-from.y, L=Math.hypot(dx,dy); return look(p.x-dx/L*d,p.y-dy/L*d,p.x,p.y); };
 const cp=(t,o)=>{ const p=W.TER.canyonPoint(t); return look(p.x,p.y,p.x+p.dir.x*20,p.y+p.dir.y*20,o); };
-const P_=W.POIS; const argv=process.argv.slice(2).map(Number);
+const P_=W.POIS, A_=W.SPOIS[0]; const argv=process.argv.slice(2).map(Number);   // P_ — ориентиры 2…, A_ — шлюз первой платформы
 const scenes = argv.length===4 ? [['кадр',look(...argv)]] : [
-  ['штабель 6 м', ap(P_[1],6)], ['шлюз 12 м', ap(P_[0],12,{x:60,y:0})], ['насыпи 20 м', ap(P_[3],20)], ['мачта 15 м', ap(P_[2],15)],
-  ['обломки 25 м', ap(P_[4],25)], ['вход в расщелину 25 м', ap(P_[5],25)], ['расщелина 30 %', cp(0.3)], ['расщелина 93 %', cp(0.93)],
+  ['штабель 6 м', ap(P_[0],6)], ['шлюз 12 м', ap(A_,12,{x:60,y:0})], ['насыпи 20 м', ap(P_[2],20)], ['мачта 15 м', ap(P_[1],15)],
+  ['обломки 25 м', ap(P_[3],25)], ['вход в расщелину 25 м', ap(P_[4],25)], ['расщелина 30 %', cp(0.3)], ['расщелина 93 %', cp(0.93)],
   ['скрытность 50 %', cp(0.5,{lightOn:false})], ['горизонт к гряде', look(120,60,300,180)], ['пустое поле', look(-50,-150,-100,-200)] ];
 const SIZE=64, K=4; console.time('рендер'); const frames=scenes.map(([n,u])=>{ const f=W.render(u,SIZE); console.log(' ',n); return f; }); console.timeEnd('рендер');
 const n=frames.length, Wd=SIZE*K*n+10*(n-1), H=SIZE*K; const out=new Uint8Array(Wd*H).fill(30);

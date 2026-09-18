@@ -1,14 +1,27 @@
-// КОНСОЛЬ. Видит только пакеты, доставленные каналом (link.onDeliver).
-// Всё, что нарисовано на экране, восстановлено из этих байтов. Отладочная шторка читает канал и мир напрямую.
+// КОНСОЛЬ. Видит только сообщения станции: доставленные пакеты, потери и показания своего модема (transport.onmessage).
+// Всё, что нарисовано на экране, восстановлено из этих байтов. Отладочная шторка показывает правду о мире, если станция её отдаёт (только одиночная игра).
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 // Лаборатория лидара (index.html?lab): та же консоль и тот же мир, но канал без ограничений (ёмкость 1e8 бит/с, шум −500 дБм, RTT 0),
 // сеанс не сохраняется, клик по карте и стрелки — телепорт тела с мгновенным снимком лидара. Датчик и карта работают как в игре.
 const LAB=/[?&]lab\b/.test(location.search) && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);   // только локально: на опубликованном сайте флаг не действует
-const link=new Link(); const world=new Worker('world.js?v='+window.__v+(LAB?'&lab':''));
-if(LAB){ Object.assign(link.cfg,{deepCapBps:1e8,noiseDbm:-500,rtt:0,deepBer:0}); document.body.classList.add('lab'); document.title='лаборатория лидара'; }
-let speed=1, tNow=0, active=1, dbg=null, dbgLevel=null;   // dbg, dbgLevel — правда о мире для шторки, игрок этого не видит
+// Станция: в одиночной игре — воркер (мир + канал в браузере), в сети — WebSocket на сервер (index.html?room=КОД). Консоль разницы не видит.
+const ROOM=new URLSearchParams(location.search).get('room')||'', ST=+(new URLSearchParams(location.search).get('st')||0);   // комната и платформа оператора в ней
+const OP=(()=>{ try{ return JSON.parse(localStorage.getItem('missioners.op'))||{}; }catch(e){ return {}; } })();   // имя и токен оператора — задаются в лобби
+const transport=ROOM?wsTransport(ROOM):workerTransport();
+function workerTransport(){ const w=new Worker('station-worker.js?v='+window.__v+(LAB?'&lab':'')); let ready=false; const q=[]; const tr={ mp:false, onmessage:null, send(m){ if(ready) w.postMessage(m); else q.push(m); } };
+  w.onmessage=e=>{ const m=e.data; if(m.t==='ready'){ ready=true; for(const x of q) w.postMessage(x); q.length=0; return; } tr.onmessage&&tr.onmessage(m); }; return tr; }
+function wsTransport(room){ const q=[]; const tr={ mp:true, onmessage:null, onopen:null, send(m){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(m)); else q.push(m); } }; let ws=null;   // до соединения — очередь; после обрыва — переподключение
+  const open=()=>{ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?room='+encodeURIComponent(room)); ws.onopen=()=>{ tr.onopen&&tr.onopen(); for(const m of q) ws.send(JSON.stringify(m)); q.length=0; }; ws.onclose=()=>{ setTimeout(open,2000); };
+    ws.onmessage=e=>{ const m=JSON.parse(e.data); if(m.bytes) m.bytes=new Uint8Array(m.bytes); if(m.img) m.img=new Uint8Array(m.img); tr.onmessage&&tr.onmessage(m); }; };
+  open(); return tr; }
+if(ROOM){ $('#room').hidden=false; $('#room').textContent='комната '+ROOM; $('#btn-debug').hidden=true; $('#speed').disabled=true; $('#speed').title='ускорение — настройка планеты, задаётся при создании'; }   // в сети отладки нет: мир общий, крутилки были бы читом
+if(LAB){ for(const [k,v] of Object.entries({deepCapBps:1e8,noiseDbm:-500,rtt:0,deepBer:0})) transport.send({t:'cfg',k,v}); document.body.classList.add('lab'); document.title='лаборатория лидара'; }
+// показания модема — последнее сообщение станции {t:'modem'}; история по секундам копится здесь
+const modem={at:0,speed:1,up:false,cap:0,orbit:null,qbg:0,qcmd:0,ncmd:0,retry:0,sec:null,cnt:{delivered:0,dropped:0,retrans:0},queue:[],dbg:null}; const modemHist=[];
+function kindOf(k){ return /^IM[GD]/.test(k)?'IMG':k; }
+let speed=1, tNow=0, active=1, dbgLevel=null;   // dbgLevel и modem.dbg — правда о мире для шторки, игрок этого не видит
 const units=new Map();          // id → знание о миссионере
-const station={bio:null,cam:null,grow:null,brik:0,cut:0,at:-1e9};
+const station={bio:null,cam:null,grow:null,brik:0,cut:0,at:-1e9,pos:null,name:'ARK-041'};   // pos — где стоит своя платформа: из паспорта станции (INFO)
 const known=new Map();          // ключ → объект с координатами (только из полученных данных)
 const journal=new Map();        // id объекта → [{t, unit, text}] — что узнали, изучив или взаимодействуя
 function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push({t:tNow,unit,text}); if($('.tabs button.on').dataset.tab==='journal') renderJournal(); }
@@ -38,16 +51,28 @@ const logEntries=[];            // лог — тоже принятая инфо
 function log(txt,cls='sys',t=tNow){ logEntries.push({t,txt,cls}); if(logEntries.length>800) logEntries.shift(); const d=document.createElement('div'); d.innerHTML=`<span class="t">${fmtT(t)}</span><span class="${cls}">${txt}</span>`; const l=$('#log'); l.appendChild(d); l.scrollTop=l.scrollHeight; }
 function fmtT(t){ if(!isFinite(t)) return '—'; const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 
-// ---------- мир → канал → консоль ----------
-world.onmessage=e=>{ const m=e.data; if(m.t==='msg') link.enqueue(m); else if(m.t==='phys'){ link.setPhys(m); dbg=m.dbg; } else if(m.t==='level') dbgLevel=m; else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data); };
-link.onUplink=bytes=>world.postMessage({t:'cmd',bytes});
-link.onFrame=(msg,ok)=>world.postMessage({t:'imgAck',unit:msg.unit,level:+msg.kind[3],ok});
+// ---------- станция → консоль ----------
+let rxN=0;   // номер последнего принятого пакета: по нему сервер досылает пропущенное при повторном подключении
+transport.onmessage=m=>{
+  if(m.t==='pkt'){ if(m.replay) tNow=m.at; rxN=Math.max(rxN,m.n); onDeliver(m); }
+  else if(m.t==='drop') onDrop(m);
+  else if(m.t==='modem'){ Object.assign(modem,m); if(m.sec){ modemHist.push(m.sec); if(modemHist.length>90) modemHist.shift(); } if(Math.abs(tNow-m.at)>0.3) tNow=m.at; if(speed!==m.speed){ speed=m.speed; $('#speed').value=String(speed); } }
+  else if(m.t==='level') dbgLevel=m; else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data);
+  else if(m.t==='welcome') boot.onWelcome&&boot.onWelcome(m);
+  else if(m.t==='ops') showOps(m.ops,m.stations);
+};
+// операторы на станции: терминалы, подключённые к той же комнате (не пакеты — знание своего инструментария)
+let opsNow=null; const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function showOps(ops,stations){ const others=(stations||[]).filter(s=>s.k!==ST).map(s=>`${s.name}: ${s.ops.join(', ')||'—'}`).join(' · '); $('#room').textContent=`${station.name} · комната ${ROOM} · операторы: ${ops.join(', ')||'—'}${others?' · '+others:''}`;
+  if(opsNow){ for(const n of ops.filter(n=>!opsNow.includes(n))) log(`терминал: оператор ${esc(n)} подключился`,'sys'); for(const n of opsNow.filter(n=>!ops.includes(n))) log(`терминал: оператор ${esc(n)} отключился`,'sys'); }
+  opsNow=ops; }
+let joined=false; const hello=()=>transport.send({t:'hello',since:rxN,st:ST,op:{name:OP.name,token:OP.token}}); transport.onopen=()=>{ if(joined) hello(); };   // после обрыва: сервер дошлёт пакеты после rxN
 // Сборка многопакетных текстовых сообщений: декодируем, когда пришли все пакеты
 const asm={};
 function assemble(pkt){ if(pkt.total===1) return pkt.bytes; const a=asm[pkt.msgId]=asm[pkt.msgId]||{parts:{},total:pkt.total,at:tNow}; a.parts[pkt.seq]=pkt.bytes; a.at=tNow;
   if(Object.keys(a.parts).length<a.total) return null; const out=[]; for(let i=0;i<a.total;i++) out.push(...a.parts[i]); delete asm[pkt.msgId]; return new Uint8Array(out); }
-link.onDeliver=pkt=>{
-  const k=link.kindOf(pkt.kind); (bw[k]=bw[k]||[]).push({t:tNow,b:pkt.size}); totals[k]=(totals[k]||0)+pkt.size; lastRx[k]={t:tNow,b:pkt.size,msg:pkt.msgId}; if(k==='IMG'&&pkt.unit===0){ (bw.STIMG=bw.STIMG||[]).push({t:tNow,b:pkt.size}); lastRx.STIMG={t:tNow,b:pkt.size}; }
+function onDeliver(pkt){
+  const k=kindOf(pkt.kind); (bw[k]=bw[k]||[]).push({t:tNow,b:pkt.size}); totals[k]=(totals[k]||0)+pkt.size; lastRx[k]={t:tNow,b:pkt.size,msg:pkt.msgId}; if(k==='IMG'&&pkt.unit===0){ (bw.STIMG=bw.STIMG||[]).push({t:tNow,b:pkt.size}); lastRx.STIMG={t:tNow,b:pkt.size}; }
   if(pkt.kind==='DESC'||pkt.kind==='EXAM'||pkt.kind==='ACT'||pkt.kind==='INFO'||pkt.kind==='SONAR'){ const full=assemble(pkt); if(!full) return; pkt={...pkt,bytes:full}; }
   switch(pkt.kind){
     case 'TLM': decodeTlm(pkt); break;
@@ -57,13 +82,13 @@ link.onDeliver=pkt=>{
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
-    case 'INFO': { const text=decText(pkt.bytes); const tl=text.split('\n').find(l=>l.startsWith('задача:')); if(tl) $('#task').textContent=tl; const rr=/возврат:.*?(\d+) м/.exec(text); if(rr) station.returnR=+rr[1]; /* радиус возврата — из паспорта, для круга на карте */ if(boot.onInfo) boot.onInfo(text,pkt); else log('станция: '+text.replace(/\n/g,' · '),'sys'); break; }
+    case 'INFO': { const text=decText(pkt.bytes); const tl=text.split('\n').find(l=>l.startsWith('задача:')); if(tl) $('#task').textContent=tl; const rr=/возврат:.*?(\d+) м/.exec(text); if(rr) station.returnR=+rr[1]; /* радиус возврата — из паспорта, для круга на карте */ const pp=/платформа: (-?[\d.]+), (-?[\d.]+); курс (-?\d+)/.exec(text); if(pp) station.pos={x:+pp[1],y:+pp[2],ang:+pp[3]*Math.PI/180}; const nm=/^(ARK-\d+),/.exec(text); if(nm) station.name=nm[1]; if(boot.onInfo) boot.onInfo(text,pkt); else log('станция: '+text.replace(/\n/g,' · '),'sys'); break; }
     case 'CONT': { const b=pkt.bytes; contents.set(b[0],[...b.slice(2,2+b[1])]); renderDesc(); break; }
     case 'EXAM': decodeExam(pkt); break;
     case 'ACT': decodeAct(pkt); break;
   }
-};
-link.onDrop=pkt=>{ if(pkt.kind==='TLM'||pkt.kind==='HB') return; if(pkt.seq===undefined){ const u=holderOf(pkt.unit); u.img.skipped++; u.img.state=`кадр пропущен (${u.img.skipped}): ${pkt.reason.split(': ')[1]}`; if(pkt.unit===active||pkt.unit===0) showImg(u); return; } log(`М${pkt.unit} ${pkt.kind} #${pkt.msgId}/${pkt.seq}: ${pkt.reason}`,'err'); };
+}
+function onDrop(pkt){ if(pkt.kind==='TLM'||pkt.kind==='HB') return; if(pkt.seq===undefined){ const u=holderOf(pkt.unit); u.img.skipped++; u.img.state=`кадр пропущен (${u.img.skipped}): ${pkt.reason.split(': ')[1]}`; if(pkt.unit===active||pkt.unit===0) showImg(u); return; } log(`М${pkt.unit} ${pkt.kind} #${pkt.msgId}/${pkt.seq}: ${pkt.reason}`,'err'); }
 
 // ---------- декодеры ----------
 function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit); if(boot.onTlm) boot.onTlm(pkt);
@@ -78,6 +103,8 @@ function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.c
     { const was=u.snrState||'ok', now=!u.carrier?'lost':snr<5?'weak':'ok'; if(u.alive&&now!==was&&u.hbAt>-1e8){ if(now==='weak') log(`станция: несущая М${id} слабеет, ${snr>0?'+':''}${snr} дБ`,'err'); if(now==='ok'&&was!=='ok'&&u.carrier) log(`станция: несущая М${id} уверенная, +${snr} дБ`,'sys'); } u.snrState=now; }
     if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} не принимается`,'err');
     if(!wasCarrier&&u.carrier) log(`станция: несущая М${id} восстановлена`,'sys'); }
+  // пульс — перечень тел станции: чего в нём нет, того у станции нет (пустая заготовка под М1 в консоли до первого пульса)
+  { const listed=new Set(); for(let i=0;i<n;i++) listed.add(b[6+i*5]); for(const [id,u] of units) if(!listed.has(id)&&u.hbAt===undefined) units.delete(id); if(!listed.has(active)&&listed.size){ active=[...listed][0]; selectUnit(); } }
   renderUnits(); const au=units.get(active); if(au){ $('#sonar-body').hidden=!au.sonar; $('#sonar-none').hidden=au.sonar; $('#img-body').hidden=!au.camera; $('#img-none').hidden=au.camera; } }
 // Описание: [id, класс, пеленг/2, дальность, длина, текст]*. Класс: 0 объект, 1 ориентир, 2 неопознанное, 3 тело, 4 миссионер.
 function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit); const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const items=[];   // позиция съёмки — из пакета, дециметры
@@ -101,6 +128,9 @@ function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М
   if(code===27){ $('#fin-title').textContent='СЕРИЯ 1 ИСЧЕРПАНА'; $('#fin-text').textContent=`Живых миссионеров нет, биоматериала нет. Станция закрыла серию 1 и продолжает работу по протоколу.\n\nПС-7 остаётся открытой. Кто-то не вернулся тридцать девять лет назад; теперь — ещё ${[...units.values()].length}.\n\nПриборы на телах отвечают, пока есть заряд. Новый сеанс — в терминале при подключении: [n].`; $('#finale').hidden=false; }
   if(code===17){ $('#fin-title').textContent='ЗАДАЧА ПС-7 ЗАКРЫТА'; $('#task').textContent='задача: ПС-7 закрыта'; const last=[...journal.values()].flat().filter(e=>/прочитал запись/.test(e.text)).pop(); $('#fin-text').textContent=(last?last.text.replace(/^прочитал запись\. /,'')+'\n\n':'')+`Станция остановила протокол ПС-7. Биоматериала осталось: ${station.bio ?? '—'} ед. Миссионеров в поле: ${[...units.values()].filter(u=>u.alive).length}.\n\nЭто условная развязка прототипа. Сеанс можно продолжать.`; $('#finale').hidden=false; } }
 function showImg(u){ if(u.id===0){ drawGray($('#st-img'),u.img.buf,64); $('#st-img-state').textContent=u.img.state; $('#st-img-prog').style.width=(u.img.prog*100)+'%'; return; } drawGray($('#img'),u.img.buf,64); $('#img-unit').textContent='М'+u.id; $('#img-state').textContent=u.img.state; $('#img-prog').style.width=(u.img.prog*100)+'%'; }
+// отмена запроса в буфере станции: команда 27 с номером сообщения из показаний модема
+function cancelReq(g){ if(!send([27,0,g.unit,g.id>>8,g.id&255],`отмена: ${KIND_RU[kindOf(g.kind)]} М${g.unit}`)) return; if(/^IM[GD]/.test(g.kind)){ const u=holderOf(g.unit); delete u.img.asm[g.id]; u.img.state='запрос отменён'; u.img.prog=0; if(g.unit===active||g.unit===0) showImg(u); } }
+// отмена — только во вкладке «Канал», в таблице очереди: это операция с буфером станции, не с панелью
 function holderOf(unit){ return unit===0?stcam:U(unit); }
 function decodeImg(pkt){ const u=holderOf(pkt.unit), im=u.img, lvl=+pkt.kind[3], side=[8,16,32,64][lvl], block=64/side;
   if(lvl===0&&im.msg!==pkt.msgId){ im.buf.fill(0); im.levels={}; }   // новая пирамида — чистим, чтобы прогресс был виден
@@ -220,7 +250,7 @@ function fitCanvas(cv, crt){
   // crt: рисуем в половинном разрешении, по горизонтали чуть уже — растягивается вширь — при растяжении получается ЭЛТ-зерно и крупный «плохой» шрифт
   const w=Math.max(50,(cv.clientWidth/(crt?2.15:1))|0), h=Math.max(50,(cv.clientHeight/(crt?2:1))|0); if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; } }
 function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
-  const pts=[{x:0,y:0}]; for(const o of known.values()) pts.push(o); for(const u of units.values()){ pts.push(...u.track); }
+  const SP=station.pos||STATION; const pts=[{x:SP.x,y:SP.y}]; for(const o of known.values()) pts.push(o); for(const u of units.values()){ pts.push(...u.track); }
   let minx=Math.min(...pts.map(p=>p.x))-30, maxx=Math.max(...pts.map(p=>p.x))+30, miny=Math.min(...pts.map(p=>p.y))-30, maxy=Math.max(...pts.map(p=>p.y))+30;
   const sc=Math.min(W/(maxx-minx),H/(maxy-miny))*map.zoom;
   if(map.focus){ map.panX=((minx+maxx)/2-map.focus.x)*sc; map.panY=((miny+maxy)/2-map.focus.y)*sc; map.focus=null; }   // перелёт к точке
@@ -250,9 +280,9 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
     if(!inChain.some(Boolean) && joined(0)) inChain.fill(true);   // все 64 соединены — замкнутая стена вокруг
     ctx.strokeStyle=`rgba(226,240,255,${al})`; ctx.lineWidth=1.2; for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!p.solid||!joined(i)||!inChain[i]) continue; const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1; }
   // радиус возврата (ПС-2) — пунктир вокруг узлов: станция и, после включения усилителя, мачта (её место — из описаний)
-  if(station.returnR){ const nodes=[STATION]; if(station.relay&&known.get(3)) nodes.push(known.get(3)); ctx.strokeStyle='rgba(224,169,74,0.35)'; ctx.setLineDash([4,6]); for(const n of nodes){ ctx.beginPath(); ctx.arc(sx(n.x),sy(n.y),station.returnR*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
+  if(station.returnR){ const nodes=[SP]; if(station.relay&&known.get(3)) nodes.push(known.get(3)); ctx.strokeStyle='rgba(224,169,74,0.35)'; ctx.setLineDash([4,6]); for(const n of nodes){ ctx.beginPath(); ctx.arc(sx(n.x),sy(n.y),station.returnR*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
   // знак станции — контур корпуса из кодовой книги (эллипс, люк на +x); лидар отражается от того же контура
-  ctx.strokeStyle='#666'; ctx.beginPath(); ctx.ellipse(sx(STATION.x),sy(STATION.y),STATION.rx*sc,STATION.ry*sc,STATION.ang,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(STATION.x)-8*sc-44,sy(STATION.y)+3);
+  ctx.strokeStyle='#666'; ctx.beginPath(); ctx.ellipse(sx(SP.x),sy(SP.y),STATION.rx*sc,STATION.ry*sc,SP.ang||0,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(SP.x)-8*sc-44,sy(SP.y)+3);
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); const t0=map.trackLife?tNow-map.trackLife:-1; u.track.filter(p=>!(p.t<t0)).forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
   const tg=T(), au0=units.get(active), gp=au0&&au0.goalPos;
@@ -292,27 +322,27 @@ function drawChartTlm(){ const cv=$('#chart-tlm'); fitCanvas(cv); const ctx=cv.g
   ctx.strokeStyle=UCOL[(u.id-1)%UCOL.length]; ctx.fillStyle=ctx.strokeStyle; ctx.beginPath(); let prev=null;
   for(const p of h){ const x=(p.t-t0)/(t1-t0)*W, y=H-Math.min(1,p[f]/max)*H; if(prev&&p.t-prev.t>6){ ctx.stroke(); ctx.beginPath(); ctx.moveTo(x,y); } else if(!prev) ctx.moveTo(x,y); else ctx.lineTo(x,y); ctx.fillRect(x-1,y-1,2,2); prev=p; } ctx.stroke();
   ctx.fillStyle='#555'; ctx.fillText(fmtT(t0),2,H-2); ctx.fillText(fmtT(t1),W-40,H-2); }
-function drawChartCh(){ const cv=$('#chart-ch'); fitCanvas(cv); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); const h=link.stats.hist; if(!h.length) return;
+function drawChartCh(){ const cv=$('#chart-ch'); fitCanvas(cv); const ctx=cv.getContext('2d'), W=cv.width, H=cv.height; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); const h=modemHist; if(!h.length) return;
   const kinds=['TLM','HB','SONAR','DESC','IMG','EVT','drop']; const max=Math.max(100,...h.map(s=>Math.max(s.cap,kinds.reduce((a,k)=>a+s[k],0)))); const bwd=W/90;
   h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd; let y=H; for(const k of kinds){ const hh=s[k]/max*H; ctx.fillStyle=KIND_COL[k]; ctx.fillRect(x,y-hh,bwd-1,hh); y-=hh; } });
   ctx.strokeStyle='#fff'; ctx.beginPath(); h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd+bwd/2, y=H-s.cap/max*H; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.fillStyle='#888'; ctx.font='10px monospace'; ctx.fillText(Math.round(max)+' Б/с',4,10); ctx.fillText('90 с',W-30,H-4); }
 function bwRate(k){ const arr=bw[k]||[]; while(arr.length&&tNow-arr[0].t>5) arr.shift(); return arr.reduce((a,p)=>a+p.b,0)/5; }
-function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.ellipse(sx(STATION.x),sy(STATION.y),STATION.rx*0.5,STATION.ry*0.5,STATION.ang,0,7); ctx.stroke();
+function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; for(const S of (modem.dbg&&modem.dbg.world&&modem.dbg.world.stations)||[STATION]){ ctx.beginPath(); ctx.ellipse(sx(S.x),sy(S.y),STATION.rx*0.5,STATION.ry*0.5,S.ang||0,0,7); ctx.stroke(); }
   if(dbgLevel){ ctx.strokeStyle='#444'; ctx.beginPath(); for(const pts of [dbgLevel.canyon.pts,dbgLevel.canyon.branch]) pts.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke();   // расщелина с отростком и ориентиры — из уровня, присланы миром при старте
     ctx.fillStyle='#666'; ctx.font='10px monospace'; for(const p of dbgLevel.pois){ ctx.fillRect(sx(p.x)-1,sy(p.y)-1,3,3); ctx.fillText(p.id,sx(p.x)+4,sy(p.y)+3); } }
-  if(dbg){ ctx.font='10px monospace'; for(const u of dbg.units){ ctx.fillStyle=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666'; ctx.fillRect(sx(u.x)-2,sy(u.y)-2,5,5); ctx.fillText('М'+u.id,sx(u.x)+5,sy(u.y)+3); } ctx.fillStyle=dbg.awake?'#ff5c5c':'#663'; ctx.fillRect(sx(dbg.cx)-2,sy(dbg.cy)-2,5,5); } }
+  const dbg=modem.dbg&&modem.dbg.world; if(dbg){ ctx.font='10px monospace'; for(const u of dbg.units){ ctx.fillStyle=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666'; ctx.fillRect(sx(u.x)-2,sy(u.y)-2,5,5); ctx.fillText('М'+u.id,sx(u.x)+5,sy(u.y)+3); } ctx.fillStyle=dbg.awake?'#ff5c5c':'#663'; ctx.fillRect(sx(dbg.cx)-2,sy(dbg.cy)-2,5,5); } }
 // телепорт: клик — в точку, перетаскивание — тело едет за курсором (мимо канала)
 { const cv=$('#truth'); let drag=false; const at=e=>{ const r=cv.getBoundingClientRect(); return { x:((e.clientX-r.left)*(360/r.width)-180)/0.5, y:((e.clientY-r.top)*(200/r.height)-100)/0.5 }; };
-  const tp=p=>world.postMessage({t:'tp',unit:active,x:p.x,y:p.y});
+  const tp=p=>transport.send({t:'tp',unit:active,x:p.x,y:p.y});
   cv.onmousedown=e=>{ drag=true; tp(at(e)); e.preventDefault(); }; cv.onmousemove=e=>{ if(drag) tp(at(e)); };
   window.addEventListener('mouseup',e=>{ if(!drag) return; drag=false; const p=at(e); tp(p); log(`[отладка] телепорт М${active} в ${p.x.toFixed(0)}, ${p.y.toFixed(0)}`,'sys'); }); }
 
 // ---------- команды ----------
-function send(bytes,label){ if(!link.sendUplink(bytes)){ log(`${label}: нет связи со станцией`,'err'); return false; } if(label) log(`→ ${label}`,'cmd'); return true; }
+function send(bytes,label){ if(!modem.up){ log(`${label}: нет связи со станцией`,'err'); return false; } transport.send({t:'up',bytes:[...bytes]}); if(label) log(`→ ${label}`,'cmd'); return true; }
 function coordBytes(p){ const X=Math.round(p.x*10)+32768, Y=Math.round(p.y*10)+32768; return [X>>8,X&255,Y>>8,Y&255]; }   // дециметры
 // лаборатория: телепорт (мимо канала, как в шторке) и сразу запрос лидара с текущим наклоном; положение ведём сами — телеметрия отстаёт
 const lab={pos:null};
-function labJump(x,y){ lab.pos={x,y}; world.postMessage({t:'tp',unit:active,x,y}); send([2,+$('#sonar-tilt').value+90,active]); }
+function labJump(x,y){ lab.pos={x,y}; transport.send({t:'tp',unit:active,x,y}); send([2,+$('#sonar-tilt').value+90,active]); }
 if(LAB) document.addEventListener('keydown',e=>{ if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return; const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key]; if(!d) return; e.preventDefault();
   const p=lab.pos||pos(active), st=e.shiftKey?10:2; labJump(p.x+d[0]*st,p.y+d[1]*st); });
 function moveTo(tg){ const u=units.get(active); if(!u||!u.alive){ log('М'+active+': тело мертво, перемещение невозможно','err'); return; } if(send([6,0,active,...coordBytes(tg)],`М${active} идти: ${tg.name}`)) setGoal(tg.name); }
@@ -347,27 +377,26 @@ $('#sub-tlm').onchange=e=>{ units.get(active).subs.tlm=+e.target.value; send([12
 $('#sub-sonar').onchange=e=>{ units.get(active).subs.sonar=+e.target.value; send([13,+e.target.value,active],`М${active} лидар: ${e.target.selectedOptions[0].text}`); };
 $('#sub-desc').onchange=e=>{ units.get(active).subs.desc=+e.target.value; send([14,+e.target.value,active],`М${active} описание: ${e.target.selectedOptions[0].text}`); };
 $('#sub-hb').onchange=e=>send([15,+e.target.value,0],`пульс станции: ${e.target.selectedOptions[0].text}`);
-$('#autonomy').onchange=e=>{ const u=units.get(active); u.autonomy=+e.target.value; world.postMessage({t:'autonomy',unit:active,v:u.autonomy}); log(`М${active} при потере связи: ${e.target.selectedOptions[0].text}`,'cmd'); };
+$('#autonomy').onchange=e=>{ const u=units.get(active); u.autonomy=+e.target.value; transport.send({t:'autonomy',unit:active,v:u.autonomy}); log(`М${active} при потере связи: ${e.target.selectedOptions[0].text}`,'cmd'); };
 $('#btn-grow').onclick=()=>{ const mask=($('#g-cam').checked?1:0)|($('#g-sonar').checked?2:0); if(send([10,mask,0],`станция: вырастить миссионера (${$('#g-cam').checked?'камера, ':''}${$('#g-sonar').checked?'лидар':''})`)){ $('#btn-grow').disabled=true; $('#grow-state').textContent='команда отправлена, ожидание подтверждения станции…'; } };
 $('#btn-st').onclick=()=>send([11,0,0],'станция: статус');
-$('#speed').onchange=e=>{ speed=+e.target.value; world.postMessage({t:'speed',v:speed}); };
+$('#speed').onchange=e=>{ speed=+e.target.value; transport.send({t:'speed',v:speed}); };
 $$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab)); if(b.dataset.tab==='journal') renderJournal(); });
 $('#fin-close').onclick=()=>$('#finale').hidden=true;
 { let clicks=[]; $('#btn-debug').onclick=()=>{ const now=Date.now(); clicks=clicks.filter(t=>now-t<800); clicks.push(now); if(clicks.length>=3){ clicks=[]; $('#drawer').hidden=false; } }; }   // три быстрых нажатия
 $('#btn-debug-close').onclick=()=>$('#drawer').hidden=true;
-const bind=(id,key,fmt,tx)=>{ const el=$(id); el.oninput=()=>{ const v=+el.value; if(tx) send([9,v+20,active],`М${active} TX ${v} dBm`); else link.cfg[key]=v; $(id+'-v').textContent=fmt(v); }; };
+const bind=(id,key,fmt,tx)=>{ const el=$(id); el.oninput=()=>{ const v=+el.value; if(tx) send([9,v+20,active],`М${active} TX ${v} dBm`); else transport.send({t:'cfg',k:key,v}); $(id+'-v').textContent=fmt(v); }; };
 bind('#c-tx',null,v=>v+' dBm',true); bind('#c-noise','noiseDbm',v=>v+' dBm'); bind('#c-bw','bwHz',v=>v+' Hz'); bind('#c-deep','deepCapBps',v=>v+' bps');
-$('#c-fec').onchange=e=>link.cfg.fec=e.target.checked; $('#c-arq').onchange=e=>link.cfg.arq=e.target.checked; $('#c-orbit').onchange=e=>link.cfg.orbit=e.target.checked;
+$('#c-fec').onchange=e=>transport.send({t:'cfg',k:'fec',v:e.target.checked}); $('#c-arq').onchange=e=>transport.send({t:'cfg',k:'arq',v:e.target.checked}); $('#c-orbit').onchange=e=>transport.send({t:'cfg',k:'orbit',v:e.target.checked});
 
 // ---------- сноски ----------
 const tip=$('#tip'); document.addEventListener('mouseover',e=>{ const el=e.target.closest('[data-tip]'); if(!el){ tip.style.display='none'; return; } tip.textContent=el.dataset.tip; tip.style.display='block'; });
 document.addEventListener('mousemove',e=>{ if(tip.style.display!=='block') return; let x=e.clientX+14, y=e.clientY+14; if(x+350>innerWidth) x=e.clientX-350; if(y+tip.offsetHeight+10>innerHeight) y=e.clientY-tip.offsetHeight-10; tip.style.left=x+'px'; tip.style.top=y+'px'; });
 
 // ---------- главный цикл ----------
-let lastUp=true;
+let lastUp=null;   // до первых показаний модема состояние линии неизвестно
 setInterval(()=>{
-  const dt=0.1*speed; tNow+=dt; link.tick(dt);
-  world.postMessage({t:'link',carriers:Object.fromEntries([...units.keys()].map(id=>[id,link.carrier(id)])),snr:Object.fromEntries([...units.keys()].map(id=>[id,link.phys.units[id]?link.snrDb(id):0]))});
+  const dt=0.1*speed; if(modem.up||!transport.mp) tNow+=dt;   // часы консоли идут за станцией; точная поправка — из показаний модема
   drawEcg(dt);
   const u=units.get(active); $('#tlm-unit').textContent='М'+active;
   if(u&&u.tlm){ const T=u.tlm, age=tNow-u.tlmAt; $('#tlm-age').textContent=age<1.5?'live':`${age.toFixed(0)} с назад`; $('#tlm-age').style.color=age>3*Math.max(1,+$('#sub-tlm').value||1)?'#d9534f':'';
@@ -388,12 +417,12 @@ setInterval(()=>{
   // расход по панелям
   const setBw=(id,k)=>{ const r=bwRate(k), el=$(id), lr=lastRx[k]; const fresh=lr&&tNow-lr.t<2; el.textContent=(fresh?`↓${lr.b} · `:'')+(r?r.toFixed(0)+' Б/с':'0 Б/с'); el.classList.toggle('hot',!!fresh); };
   setBw('#bw-tlm','TLM'); setBw('#bw-sonar','SONAR'); setBw('#bw-desc','DESC'); setBw('#bw-img','IMG'); setBw('#bw-hb','HB'); setBw('#bw-stimg','STIMG');
-  { const lvl=+$('#img-level').value, iv=+$('#sub-img').value, full=[72,72+264,72+264+1040,72+264+1040+4160][lvl]; const keyD=[2+64*2+8, 2+64*5+8*6, 2+64*17+8*18, 2+64*65+8*66][lvl]; const cap=link.deepCapBps()/8; const est=$('#img-est'); if(iv){ const per=$('#img-delta').checked?`ключевой ${keyD} Б, дальше по движению`:`${full} Б`; const rate=($('#img-delta').checked?keyD:full)/iv; est.textContent=`подписка: ${per} · до ${rate.toFixed(0)} Б/с из ${cap.toFixed(0)}`; est.style.color=rate>cap*0.8?'#d9534f':''; } else est.textContent=`один кадр: ${full} Б ≈ ${cap?(full/cap).toFixed(1):'∞'} с`; }
+  { const lvl=+$('#img-level').value, iv=+$('#sub-img').value, full=[72,72+264,72+264+1040,72+264+1040+4160][lvl]; const keyD=[2+64*2+8, 2+64*5+8*6, 2+64*17+8*18, 2+64*65+8*66][lvl]; const cap=modem.cap/8; const est=$('#img-est'); if(iv){ const per=$('#img-delta').checked?`ключевой ${keyD} Б, дальше по движению`:`${full} Б`; const rate=($('#img-delta').checked?keyD:full)/iv; est.textContent=`подписка: ${per} · до ${rate.toFixed(0)} Б/с из ${cap.toFixed(0)}`; est.style.color=rate>cap*0.8?'#d9534f':''; } else est.textContent=`один кадр: ${full} Б ≈ ${cap?(full/cap).toFixed(1):'∞'} с`; }
   // связь
-  const up=link.up(); const st=$('#link-state'); st.textContent=up?'СВЯЗЬ':'НЕТ СВЯЗИ'; st.className='badge '+(up?'up':'down');
-  { const capB=link.deepCapBps()/8||1e-9; const qb=link.queueBytes('cmd')+link.queueBytes('bg'); const eta=qb/capB; $('#lamp').className='lamp'+(!up||eta>10?' full':qb>0?' busy':''); }   // нет связи — лампа красная, как и значок
-  const last=link.stats.hist[link.stats.hist.length-1]; const used=last?['TLM','HB','SONAR','DESC','IMG','EVT','EXAM','ACT','INFO','CONT'].reduce((a,k)=>a+(last[k]||0),0):0; $('#rate').textContent=`${used.toFixed(0)} / ${(link.deepCapBps()/8).toFixed(0)} Б/с`+(link.cfg.orbit?` · окно ${fmtT(link.orbit().tLeft)}`:'');
-  if(up!==lastUp){ log(up?'дальняя линия: связь установлена':'дальняя линия: связь потеряна','sys'); lastUp=up; }
+  const up=modem.up; const st=$('#link-state'); st.textContent=up?'СВЯЗЬ':'НЕТ СВЯЗИ'; st.className='badge '+(up?'up':'down');
+  { const capB=modem.cap/8||1e-9; const qb=modem.qcmd+modem.qbg; const eta=qb/capB; $('#lamp').className='lamp'+(!up||eta>10?' full':qb>0?' busy':''); }   // нет связи — лампа красная, как и значок
+  const last=modem.sec; const used=last?['TLM','HB','SONAR','DESC','IMG','EVT','EXAM','ACT','INFO','CONT'].reduce((a,k)=>a+(last[k]||0),0):0; $('#rate').textContent=`${used.toFixed(0)} / ${(modem.cap/8).toFixed(0)} Б/с`+(modem.orbit!==null?` · окно ${fmtT(modem.orbit)}`:'');
+  if(modem.at>0){ if(lastUp!==null&&up!==lastUp) log(up?'дальняя линия: связь установлена':'дальняя линия: связь потеряна','sys'); lastUp=up; }
   // станция
   { const at=[...units.values()].filter(v=>v.alive&&v.atAirlock).sort((a,b)=>a.id-b.id); const el=$('#airlock'); let html=`<div class="small dim">склад: камер ${station.cam??'—'} · брикетов ${station.brik} · резаков ${station.cut}</div>`;
     if(!at.length) html+='<div class="small dim">у шлюза никого</div>';
@@ -411,33 +440,34 @@ setInterval(()=>{
   const tab=$('.tabs button.on').dataset.tab;
   if(tab==='map') drawMap(); if(tab==='charts'){ const cu=$('#ch-unit'); if(cu.options.length!==units.size){ const cur=cu.value; cu.innerHTML=''; for(const v of units.values()){ const o=document.createElement('option'); o.value=v.id; o.textContent='М'+v.id; cu.appendChild(o); } cu.value=cur||active; } drawChartTlm(); }
   if(tab==='channel'){ drawChartCh(); const ct=$('#ch-table tbody'); ct.innerHTML=''; for(const k of ['TLM','HB','SONAR','DESC','IMG','EVT']) ct.insertAdjacentHTML('beforeend',`<tr><td><i class="k-${k}" style="display:inline-block;width:8px;height:8px;margin-right:6px"></i>${KIND_RU[k]}</td><td>${bwRate(k).toFixed(0)}</td><td>${totals[k]||0}</td></tr>`);
-    const qb=$('#queue tbody'); qb.innerHTML=''; const groups={}; for(const p of [...link.queues.cmd,...Object.values(link.queues.bg).flat().filter(p=>/^IM/.test(p.kind))]){ const g=groups[p.msgId]=groups[p.msgId]||{kind:p.kind,unit:p.unit,n:0,bytes:0,total:p.total,cls:p.cls}; g.n++; g.bytes+=p.size; }
-    for(const id in groups){ const g=groups[id]; const eta=g.cls==='cmd'?link.etaFor(+id):g.bytes/(link.deepCapBps()/8||1e-9); qb.insertAdjacentHTML('beforeend',`<tr><td>${KIND_RU[link.kindOf(g.kind)]}${/^IM/.test(g.kind)?' '+[8,16,32,64][+g.kind[3]]+'px'+(g.kind[2]==='D'?' Δ':''):''}</td><td>М${g.unit}</td><td>${g.total-g.n}/${g.total}</td><td>${g.bytes}</td><td>${isFinite(eta)?eta.toFixed(1)+' с':'∞ (нет несущей)'}</td></tr>`); } }
+    const qb=$('#queue tbody'); qb.innerHTML='';
+    for(const g of modem.queue){ const eta=g.eta; qb.insertAdjacentHTML('beforeend',`<tr><td>${KIND_RU[kindOf(g.kind)]}${/^IM/.test(g.kind)?' '+[8,16,32,64][+g.kind[3]]+'px'+(g.kind[2]==='D'?' Δ':''):''}</td><td>М${g.unit}</td><td>${g.total-g.n}/${g.total}</td><td>${g.bytes}</td><td>${isFinite(eta)?eta.toFixed(1)+' с':'∞ (нет несущей)'}</td><td><button class="mini" data-cancel="${g.id}">✕</button></td></tr>`); }
+    qb.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{ const g=modem.queue.find(x=>x.id===+b.dataset.cancel); if(g) cancelReq(g); }); }
   // отладка
-  if(!$('#drawer').hidden){ const id=active; $('#i-dist').textContent=(link.phys.units[id]||{dist:0}).dist.toFixed(0)+' м'; $('#i-fspl').textContent=link.fsplDb(id).toFixed(1)+' дБ'; $('#i-obst').textContent=(link.phys.units[id]||{obstDb:0}).obstDb.toFixed(1)+' дБ'; $('#i-snr').textContent=link.snrDb(id).toFixed(1)+' дБ'+(link.phys.extraGain?' (+'+link.phys.extraGain+')':''); $('#i-local').textContent=(link.localCapBps(id)/1000).toFixed(2)+' кбит/с'; $('#i-ber').textContent=link.ber(id).toExponential(1); $('#i-per').textContent=(link.per(id,72)*100).toFixed(1)+'%'; $('#i-deep').textContent=(link.deepCapBps()/1000).toFixed(2)+' кбит/с = '+(link.deepCapBps()/8).toFixed(0)+' Б/с'; $('#i-cnt').textContent=`${link.stats.delivered}/${link.stats.dropped}/${link.stats.retrans}`;
-    if((tNow*10|0)%10===0) world.postMessage({t:'peek',unit:active});
-    $('#i-queue').textContent=`фон: ${link.queueBytes('bg')} Б · команды: ${link.queueBytes('cmd')} Б (${link.queues.cmd.length} пкт) · повторы: ${link.retry.length}`; drawTruth(); }
+  if(!$('#drawer').hidden&&modem.dbg){ const id=active, L=modem.dbg.link.units[id]||{dist:0,fspl:999,obst:0,snr:-99,local:0,ber:0.5,per:1}; $('#i-dist').textContent=L.dist.toFixed(0)+' м'; $('#i-fspl').textContent=L.fspl.toFixed(1)+' дБ'; $('#i-obst').textContent=L.obst.toFixed(1)+' дБ'; $('#i-snr').textContent=L.snr.toFixed(1)+' дБ'+(modem.dbg.link.extraGain?' (+'+modem.dbg.link.extraGain+')':''); $('#i-local').textContent=(L.local/1000).toFixed(2)+' кбит/с'; $('#i-ber').textContent=L.ber.toExponential(1); $('#i-per').textContent=(L.per*100).toFixed(1)+'%'; $('#i-deep').textContent=(modem.cap/1000).toFixed(2)+' кбит/с = '+(modem.cap/8).toFixed(0)+' Б/с'; $('#i-cnt').textContent=`${modem.cnt.delivered}/${modem.cnt.dropped}/${modem.cnt.retrans}`;
+    if((tNow*10|0)%10===0) transport.send({t:'peek',unit:active});
+    $('#i-queue').textContent=`фон: ${modem.qbg} Б · команды: ${modem.qcmd} Б (${modem.ncmd} пкт) · повторы: ${modem.retry}`; drawTruth(); }
 },100);
 
 // ---------- сохранение: мир + знание консоли, хранилище браузера ----------
-const SAVE_KEY='missioners.save', SAVE_VERSION=6;   // поднимать при несовместимых изменениях формата мира или консоли
+const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:''), SAVE_VERSION=7;   // в сети — своё знание на каждую комнату и платформу   // поднимать при несовместимых изменениях формата мира или консоли
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));
-  return { tNow, active, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], sonar:sonarSnaps.slice(-120), hwall:[...hwall], hmap:[...hmap.entries()].map(([k,c])=>[k,+c.z.toFixed(2),c.n]), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
+  return { tNow, active, rxN, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], sonar:sonarSnaps.slice(-120), hwall:[...hwall], hmap:[...hmap.entries()].map(([k,c])=>[k,+c.z.toFixed(2),c.n]), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
 }
 function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({v:SAVE_VERSION, savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
-function requestSave(){ world.postMessage({t:'save'}); }
+function requestSave(){ if(transport.mp) saveNow(null); else transport.send({t:'save'}); }   // в сети мир хранит сервер, консоль — только своё знание
 function restoreConsole(d){
-  tNow=d.tNow; active=d.active||1; Object.assign(station,d.station); if(d.stcam) Object.assign(stcam.subs,d.stcam.subs); Object.assign(totals,d.totals||{}); units.clear();
+  tNow=d.tNow; active=d.active||1; rxN=d.rxN||0; Object.assign(station,d.station); if(d.stcam) Object.assign(stcam.subs,d.stcam.subs); Object.assign(totals,d.totals||{}); units.clear();
   for(const su of d.units){ const u=U(su.id); Object.assign(u,su,{img:u.img, sonarData:su.sonarData?new Uint8Array(su.sonarData):null, sonarMask:su.sonarMask||null}); }
   known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
   journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v); sonarSnaps.length=0; sonarSnaps.push(...(d.sonar||[]).filter(s=>s.b&&s.b.length===64)); hmap.clear(); for(const [k,z,n] of d.hmap||[]) hmap.set(k,{z,n}); hwall.clear(); if(d.hwall) for(const k of d.hwall) hwall.add(k); else for(const s of sonarSnaps) snapWalls(s); hsmDirty=true;
   $('#log').innerHTML=''; logEntries.length=0; for(const e of d.log||[]) log(e.txt,e.cls,e.t); log('— сеанс восстановлен —','sys');
 }
 function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){ return null; } }
-function applySave(s){ const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap; link.reset();
-  world.postMessage({t:'load',data:s.world,elapsed:0}); restoreConsole(s.console); resumed=true; }   // игровое время стоит, пока консоль закрыта
+function applySave(s){ const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap;
+  if(!transport.mp) transport.send({t:'load',data:s.world,elapsed:0}); restoreConsole(s.console); resumed=true; }   // игровое время стоит, пока консоль закрыта
 setInterval(()=>{ if(LAB||!$('#boot').classList.contains('off')) return; requestSave(); },10000);
 function exportSave(){ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'})); a.download='ark-041-session.json'; a.click(); return true; }
 function importSave(){ return new Promise(res=>{ const inp=$('#import-file'); inp.value=''; let done=false; const finish=v=>{ if(done) return; done=true; window.removeEventListener('focus',onFocus); res(v); };
@@ -448,7 +478,7 @@ let resumed=false;
 function fmtGap(s){ if(s<90) return `${s.toFixed(0)}s`; if(s<5400) return `${(s/60).toFixed(0)}m`; if(s<172800) return `${(s/3600).toFixed(1)}h`; return `${(s/86400).toFixed(1)}d`; }
 
 // ---------- заставка: ведётся настоящими пакетами ----------
-const boot={onInfo:null,onHb:null,onTlm:null};
+const boot={onInfo:null,onHb:null,onTlm:null,onWelcome:null};
 (async()=>{
   const el=$('#boot-text'); const sl=ms=>new Promise(r=>setTimeout(r,ms));
   const type=async s=>{ for(const ch of s){ el.textContent+=ch; await sl(12); } };
@@ -456,13 +486,18 @@ const boot={onInfo:null,onHb:null,onTlm:null};
   // вращающийся индикатор ожидания: -\|/ на конце последней строки, пока обещание не разрешится
   const spin=async p=>{ const f=['-','\\','|','/']; let i=0; el.textContent+=' '; const t=setInterval(()=>{ el.textContent=el.textContent.slice(0,-1)+f[i++%4]; },120); try{ return await p; } finally{ clearInterval(t); el.textContent=el.textContent.slice(0,-1)+'\n'; } };
   selectUnit(); drawSonar(null);
-  el.textContent='$ '; await sl(200); await type('ares-tk --key ~/old/dse.key ping ARK-041'); el.textContent+='\n';
+  el.textContent='$ '; await sl(200); await type('ares-tk --key ~/old/dse.key ping '+(ROOM?'ARK-04'+(1+ST):'ARK-041')); el.textContent+='\n';
   line('resolve ARK-041 via DSE routing table… corp endpoint unreachable, using cached route');
   // сеанс: меню в терминале, одна клавиша
   // Enter = первый вариант в списке
   const key=async(keys)=>{ const cur=document.createElement('span'); cur.className='cur'; el.appendChild(cur); const k=await new Promise(res=>{ const h=e=>{ let k=e.key.toLowerCase(); if(k==='enter') k=keys[0]; if(keys.includes(k)){ document.removeEventListener('keydown',h); res(k); } }; document.addEventListener('keydown',h); }); cur.remove(); el.textContent+=k+'\n'; return k; };
   let s=LAB?null:readSave();
   if(LAB){ line('lab mode: session store bypassed, link unlimited'); $('#save-state').textContent='лаборатория: не сохраняется'; }
+  else if(transport.mp){   // сеть: мир живёт на сервере, местное знание подхватывается само, пропущенные пакеты досылаются
+    if(s){ line(`local session store: found, last link ${fmtGap((Date.now()-s.savedAt)/1000)} ago`); if((s.v||0)!==SAVE_VERSION) line(`  warning: session build v${s.v||0}, current v${SAVE_VERSION}`); applySave(s); }
+    else line('local session store: empty');
+    el.textContent+=`join room ${ROOM}, platform ${ST}`; hello(); joined=true; const w=await spin(new Promise(res=>{ boot.onWelcome=m=>{ boot.onWelcome=null; res(m); }; }));
+    station.name=w.name; line(`joined ${w.name}: operators=${w.operators}  replay=${w.replay} pkts  world clock ${fmtT(w.at)}`); }
   else for(;;){
     if(s){ const gap=(Date.now()-s.savedAt)/1000; line(`local session store: found, last link ${fmtGap(gap)} ago`); if((s.v||0)!==SAVE_VERSION) line(`  warning: session build v${s.v||0}, current v${SAVE_VERSION} — resume may misbehave, [n] recommended`); el.textContent+='[r/enter] resume  [n] new  [i] import file  [e] export file  ';
       const k=await key(['r','n','i','e']);
@@ -473,9 +508,9 @@ const boot={onInfo:null,onHb:null,onTlm:null};
     } else { line('local session store: empty'); el.textContent+='[n/enter] new  [i] import file  ';
       const k=await key(['n','i']); if(k==='n'){ line('new session'); break; } const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); }
   }
-  const t0=Date.now(), info0=totals.INFO||0; el.textContent+='status request, 3 B'; link.sendUplink([11,0,0]);
+  const t0=Date.now(), info0=totals.INFO||0; el.textContent+='status request, 3 B'; transport.send({t:'up',bytes:[11,0,0]});
   const info=await spin(new Promise(res=>{ boot.onInfo=(text,pkt)=>{ boot.onInfo=null; res({text,pkt}); }; }));
-  line(`ACK ARK-041  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${(link.deepCapBps()).toFixed(0)}bps  rx=${(totals.INFO||0)-info0}B`);
+  line(`ACK ${station.name}  rtt=${((Date.now()-t0)/1000).toFixed(2)}s  ch=FTL/DSE-2  rate=${modem.cap.toFixed(0)}bps  rx=${(totals.INFO||0)-info0}B`);
   for(const l of info.text.split('\n')) line('  '+l);
   el.textContent+='heartbeat'; const hb=await spin(Promise.race([new Promise(res=>{ boot.onHb=b=>{ boot.onHb=null; res(b); }; }), sl(8000).then(()=>null)])); boot.onHb=null; el.textContent=el.textContent.replace(/heartbeat\n$/,'');
   if(!hb) line('heartbeat: none within 8s'); else line(`heartbeat ${hb.length}B  units=${hb[5]}` + (hb[5]?`  M${hb[6]}[${[hb[7]&1?'alive':'dead',hb[7]&2?'carrier '+(hb[10]-30)+'dB':'nocarrier',hb[7]&4?'cam':'',hb[7]&8?'sonar':''].filter(Boolean).join(' ')}]`:''));

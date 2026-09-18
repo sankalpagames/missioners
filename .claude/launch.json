@@ -19,6 +19,16 @@
         "8766"
       ],
       "port": 8766
+    },
+    {
+      "name": "server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "server/index.js",
+        "8777",
+        "debug"
+      ],
+      "port": 8777
     }
   ]
 }

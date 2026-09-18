@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>ares-tk — станции</title>
+<link rel="stylesheet" href="style.css">
+<style>
+/* Лобби сетевой игры: терминал корпоративного инструментария. Раздаётся только сервером (server/), на GitHub Pages его нет. */
+body{overflow:auto;background:#000;color:#9fb59f;font:15px/1.6 ui-monospace,Menlo,monospace;display:block}
+#lobby{padding:60px 80px;max-width:900px}
+#lobby h1{font-size:15px;font-weight:normal;margin:0 0 1em}
+#lobby input{background:#000;color:#cfe3cf;border:none;border-bottom:1px solid #3a4a3a;font:inherit;padding:0 4px;width:14ch;outline:none}
+#lobby select{background:#000;color:#cfe3cf;border:none;border-bottom:1px solid #3a4a3a;font:inherit;padding:0 2px;outline:none}
+#lobby input:focus{border-color:#9fb59f}
+#lobby button{background:none;color:#9fb59f;border:1px solid #3a4a3a;font:inherit;padding:0 10px;cursor:pointer}
+#lobby button:hover{border-color:#9fb59f;color:#cfe3cf}
+#lobby table{border-collapse:collapse;margin:.5em 0 1em}
+#lobby td,#lobby th{padding:2px 18px 2px 0;text-align:left;font-weight:normal}
+#lobby th{color:#5f735f}
+#lobby .dim{color:#5f735f}
+#lobby .row{margin:.4em 0}
+</style>
+</head>
+<body>
+<div id="lobby">
+<h1>$ ares-tk --key ~/old/dse.key stations</h1>
+<div class="row">оператор: <input id="op" maxlength="24" spellcheck="false"> <span class="dim">имя видят другие операторы той же станции; хранится в этом браузере</span></div>
+<div class="row">станции по кэшированной таблице DSE:</div>
+<table><thead><tr><th>код</th><th>платформа</th><th>операторы</th><th>миссионеры</th><th>часы мира</th><th>канал</th><th>время</th><th>последняя связь</th><th></th></tr></thead><tbody id="rooms"><tr><td class="dim" colspan="9">…</td></tr></tbody></table>
+<div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> · канал <select id="cap"><option value="512">512 бит/с</option><option value="1024">1024 бит/с</option><option value="2048">2048 бит/с</option><option value="4096">4096 бит/с</option></select> · время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select> <button id="go">создать</button></div>
+<div class="row dim">На планете две платформы, ARK-041 и ARK-042; у каждой свои миссионеры, запасы и канал. Ёмкость дальней линии и ускорение времени задаются при создании, одинаковы для обеих платформ и потом не меняются; штатно — 512 бит/с и ×1</div>
+<div class="row dim" id="err"></div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const opKey='missioners.op';
+function op(){ try{ return JSON.parse(localStorage.getItem(opKey))||{}; }catch(e){ return {}; } }
+function saveOp(name){ const o=op(); if(!o.token) o.token=[...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.toString(16).padStart(2,'0')).join(''); o.name=name.trim().slice(0,24); localStorage.setItem(opKey,JSON.stringify(o)); return o; }
+const genCode=()=>'ark-'+[...crypto.getRandomValues(new Uint8Array(3))].map(b=>'abcdefghjkmnpqrstuvwxyz23456789'[b%31]).join('');
+$('#op').value=op().name||''; $('#code').value=genCode();
+$('#op').onchange=()=>saveOp($('#op').value);
+const fmtT=t=>{ const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; };
+const ago=ms=>{ const s=ms/1000; if(s<90) return `${s.toFixed(0)} с назад`; if(s<5400) return `${(s/60).toFixed(0)} мин назад`; if(s<172800) return `${(s/3600).toFixed(1)} ч назад`; return `${(s/86400).toFixed(1)} д назад`; };
+function join(code,st=0){ code=code.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; } saveOp($('#op').value); location.href='index.html?room='+encodeURIComponent(code)+'&st='+st; }
+async function create(){ const code=$('#code').value.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; }
+  try{ const r=await fetch('rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,cap:+$('#cap').value,speed:+$('#speed').value})}); if(!r.ok) throw new Error(r.status); }catch(e){ $('#err').textContent='сервер не ответил: '+e.message; return; }
+  join(code,0); }
+$('#go').onclick=create; $('#code').onkeydown=e=>{ if(e.key==='Enter') create(); };
+async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()); const tb=$('#rooms'); tb.innerHTML='';
+    if(!rooms.length) tb.innerHTML='<tr><td class="dim" colspan="9">планет нет — создать новую</td></tr>';
+    for(const r of rooms) r.stations.forEach((s,i)=>{ const tr=document.createElement('tr'); const c=r.cfg||{cap:512,speed:1}; const cells=[i?'':r.code, s.name, s.ops.length?s.ops.join(', '):'—', `${s.alive} жив. из ${s.units}`, i?'':fmtT(r.t), i?'':c.cap+' бит/с', i?'':'×'+c.speed, i?'':(r.ops.length?'сейчас':r.savedAt?ago(Date.now()-r.savedAt):'—')];
+      for(const c of cells){ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }
+      const td=document.createElement('td'); const b=document.createElement('button'); b.textContent=s.ops.length?'присоединиться':'подключиться'; b.onclick=()=>join(r.code,s.k); td.appendChild(b); tr.appendChild(td); tb.appendChild(tr); });
+  }catch(e){ $('#rooms').innerHTML='<tr><td class="dim" colspan="9">список недоступен</td></tr>'; } }
+refresh(); setInterval(refresh,5000);
+</script>
+</body>
+</html>

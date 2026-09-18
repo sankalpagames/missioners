@@ -16,6 +16,7 @@
   <span class="grow"></span>
   <div id="units" data-tip="Миссионеры. Команды и панели относятся к выбранному. ● живой · ○ мёртвый · ◌ несущая не принимается станцией. Приборы на мёртвом теле работают на остатке заряда."></div>
   <span class="grow"></span>
+  <a id="room" class="dim small" href="lobby.html" hidden data-tip="Сетевая игра: своя платформа, код планеты и операторы, чьи терминалы подключены сейчас. Канал и миссионеры общие только у операторов одной платформы; у соседней платформы — свои. Ссылка — в лобби."></a>
   <label class="small" data-tip="Ускорение симуляции. Мир и канал ускоряются вместе, соотношения сохраняются.">время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
   <span id="save-state" class="dim small" data-tip="Сеанс сохраняется в хранилище браузера каждые 10 с: мир и знание консоли. Управление сеансом (продолжить, новый, импорт, экспорт) — в терминале при подключении. Игровое время идёт только при открытой консоли."></span>
   <input type="file" id="import-file" accept=".json" hidden>
@@ -112,7 +113,7 @@
       <div class="legend small"><i class="k-TLM"></i>тело <i class="k-HB"></i>станция <i class="k-SONAR"></i>лидар <i class="k-DESC"></i>описания <i class="k-IMG"></i>изображения <i class="k-EVT"></i>события <i class="k-drop"></i>потери <i class="k-cap"></i>ёмкость</div>
       <table id="ch-table"><thead><tr><th>панель</th><th>Б/с сейчас</th><th>Б всего</th></tr></thead><tbody></tbody></table>
       <h3>в очереди</h3>
-      <table id="queue"><thead><tr><th>запрос</th><th>от</th><th>пакеты</th><th>байт</th><th>ETA</th></tr></thead><tbody></tbody></table>
+      <table id="queue" data-tip="Буфер станции: что ещё не передано. «✕» — отменить запрос: непереданные пакеты выбрасываются, линия освобождается; ушедшие байты не возвращаются, следующий дельта-кадр будет ключевым."><thead><tr><th>запрос</th><th>от</th><th>пакеты</th><th>байт</th><th>ETA</th><th></th></tr></thead><tbody></tbody></table>
     </div>
     <div id="splitter" data-tip="Перетащить: высота лога"></div>
     <div id="logwrap">
@@ -202,7 +203,7 @@
 
 <script>
 // dev: скрипты грузим с меткой времени, чтобы браузер не держал старые версии
-(function(){ const v=Date.now(); window.__v=v; for(const f of ['codebook.js','link.js','console.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
+(function(){ const v=Date.now(); window.__v=v; for(const f of ['codebook.js','console.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
 </script>
 </body>
 </html>

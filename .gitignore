@@ -1,12 +1,4 @@
-.DS_Store
-Thumbs.db
-*.log
 node_modules/
-dist/
-.env
-.env.*
-*.swp
-.idea/
-.vscode/
+data/
 tools/raw/
 tools/out/
