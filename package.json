@@ -1,0 +1,10 @@
+{
+  "name": "missioners-server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Миссионеры — серверный хост станции: мир + канал, комнаты, WebSocket",
+  "main": "server/index.js",
+  "scripts": { "start": "node server/index.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "ws": "^8.18.0" }
+}
