@@ -14,7 +14,7 @@ function wsTransport(room){ const q=[]; const tr={ mp:true, onmessage:null, onop
   const open=()=>{ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?room='+encodeURIComponent(room)); ws.onopen=()=>{ tr.onopen&&tr.onopen(); for(const m of q) ws.send(JSON.stringify(m)); q.length=0; }; ws.onclose=()=>{ setTimeout(open,2000); };
     ws.onmessage=e=>{ const m=JSON.parse(e.data); if(m.bytes) m.bytes=new Uint8Array(m.bytes); if(m.img) m.img=new Uint8Array(m.img); tr.onmessage&&tr.onmessage(m); }; };
   open(); return tr; }
-if(ROOM){ $('#room').hidden=false; $('#room').textContent='комната '+ROOM; }
+if(ROOM){ $('#room').hidden=false; $('#room').textContent='комната '+ROOM; $('#btn-debug').hidden=true; $('#speed').disabled=true; $('#speed').title='ускорение — настройка планеты, задаётся при создании'; }   // в сети отладки нет: мир общий, крутилки были бы читом
 if(LAB){ for(const [k,v] of Object.entries({deepCapBps:1e8,noiseDbm:-500,rtt:0,deepBer:0})) transport.send({t:'cfg',k,v}); document.body.classList.add('lab'); document.title='лаборатория лидара'; }
 // показания модема — последнее сообщение станции {t:'modem'}; история по секундам копится здесь
 const modem={at:0,speed:1,up:false,cap:0,orbit:null,qbg:0,qcmd:0,ncmd:0,retry:0,sec:null,cnt:{delivered:0,dropped:0,retrans:0},queue:[],dbg:null}; const modemHist=[];
