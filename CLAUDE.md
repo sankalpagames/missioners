@@ -15,7 +15,7 @@
 
 ## Публикация
 
-GitHub Pages из корня (`.github/workflows/static.yml`) с ветки `main` — одиночная игра, сервер не нужен. Корневой `index.html` — онбординг для плейтестеров, кнопка открывает `proto/index.html` отдельным окном. Ветка `mp` — сетевая игра: деплоится целиком на Azure App Service (Linux, Node, `npm start`, WebSockets включить), сервер сам раздаёт клиента; GitHub Pages не участвует.
+GitHub Pages из корня (`.github/workflows/static.yml`) с ветки `main` — одиночная игра, сервер не нужен. Корневой `index.html` — онбординг для плейтестеров, кнопка открывает `proto/index.html` отдельным окном. Ветка `mp` — сетевая игра: пуш в неё деплоит всё на Azure App Service F1 (`.github/workflows/mp_missioners.yml`, Linux, Node 22, `npm start`; WebSocket на Linux включён по умолчанию), сервер сам раздаёт клиента; GitHub Pages не участвует. Адрес: `https://missioners-gvbqaqg2ajfmahh8.centralus-01.azurewebsites.net/` (корень — лобби). Данные комнат — `/home/data` на App Service.
 
 ## Прототип `proto/`
 
