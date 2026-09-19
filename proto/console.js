@@ -57,7 +57,7 @@ transport.onmessage=m=>{
   if(m.t==='pkt'){ if(m.replay) tNow=m.at; rxN=Math.max(rxN,m.n); onDeliver(m); }
   else if(m.t==='drop') onDrop(m);
   else if(m.t==='modem'){ Object.assign(modem,m); if(m.sec){ modemHist.push(m.sec); if(modemHist.length>90) modemHist.shift(); } if(Math.abs(tNow-m.at)>0.3) tNow=m.at; if(speed!==m.speed){ speed=m.speed; $('#speed').value=String(speed); } }
-  else if(m.t==='level') dbgLevel=m; else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data);
+  else if(m.t==='level') dbgLevel=m; else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data); else if(m.t==='logText') downloadText(m.text,'ark-041-world.jsonl');
   else if(m.t==='welcome') boot.onWelcome&&boot.onWelcome(m);
   else if(m.t==='ops') showOps(m.ops,m.stations);
 };
@@ -387,6 +387,7 @@ $$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.cl
 $('#fin-close').onclick=()=>$('#finale').hidden=true;
 { let clicks=[]; $('#btn-debug').onclick=()=>{ const now=Date.now(); clicks=clicks.filter(t=>now-t<800); clicks.push(now); if(clicks.length>=3){ clicks=[]; $('#drawer').hidden=false; } }; }   // три быстрых нажатия
 $('#btn-debug-close').onclick=()=>$('#drawer').hidden=true;
+$('#btn-worldlog').onclick=()=>{ if(transport.mp) alert('в сети лог мира ведёт сервер: data/КОД.log'); else transport.send({t:'log',op:'get'}); };
 const bind=(id,key,fmt,tx)=>{ const el=$(id); el.oninput=()=>{ const v=+el.value; if(tx) send([9,v+20,active],`М${active} TX ${v} dBm`); else transport.send({t:'cfg',k:key,v}); $(id+'-v').textContent=fmt(v); }; };
 bind('#c-tx',null,v=>v+' dBm',true); bind('#c-noise','noiseDbm',v=>v+' dBm'); bind('#c-bw','bwHz',v=>v+' Hz'); bind('#c-deep','deepCapBps',v=>v+' bps');
 $('#c-fec').onchange=e=>transport.send({t:'cfg',k:'fec',v:e.target.checked}); $('#c-arq').onchange=e=>transport.send({t:'cfg',k:'arq',v:e.target.checked}); $('#c-orbit').onchange=e=>transport.send({t:'cfg',k:'orbit',v:e.target.checked});
@@ -471,6 +472,7 @@ function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?J
 function applySave(s){ const gap=Math.max(0,(Date.now()-s.savedAt)/1000); prevSessionGap=gap;
   if(!transport.mp) transport.send({t:'load',data:s.world,elapsed:0}); restoreConsole(s.console); resumed=true; }   // игровое время стоит, пока консоль закрыта
 setInterval(()=>{ if(LAB||!$('#boot').classList.contains('off')) return; requestSave(); },10000);
+function downloadText(text,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'application/x-ndjson'})); a.download=name; a.click(); }
 function exportSave(){ const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'})); a.download='ark-041-session.json'; a.click(); return true; }
 function importSave(){ return new Promise(res=>{ const inp=$('#import-file'); inp.value=''; let done=false; const finish=v=>{ if(done) return; done=true; window.removeEventListener('focus',onFocus); res(v); };
   inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return finish(null); f.text().then(txt=>{ const s=JSON.parse(txt); localStorage.setItem(SAVE_KEY,txt); finish(s); }).catch(()=>finish(null)); };
@@ -506,9 +508,9 @@ const boot={onInfo:null,onHb:null,onTlm:null,onWelcome:null};
       if(k==='r'){ applySave(s); line('session restored, world clock paused since'); break; }
       if(k==='e'){ exportSave(); line('exported'); continue; }
       if(k==='i'){ const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); continue; }
-      if(k==='n'){ el.textContent+='overwrite stored session? [y/n] '; const y=await key(['y','n']); if(y==='y'){ localStorage.removeItem(SAVE_KEY); line('new session'); break; } continue; }
+      if(k==='n'){ el.textContent+='overwrite stored session? [y/n] '; const y=await key(['y','n']); if(y==='y'){ localStorage.removeItem(SAVE_KEY); transport.send({t:'log',op:'new'}); line('new session'); break; } continue; }
     } else { line('local session store: empty'); el.textContent+='[n/enter] new  [i] import file  ';
-      const k=await key(['n','i']); if(k==='n'){ line('new session'); break; } const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); }
+      const k=await key(['n','i']); if(k==='n'){ transport.send({t:'log',op:'new'}); line('new session'); break; } const ns=await importSave(); if(ns){ s=ns; line('imported'); } else line('import cancelled'); }
   }
   const t0=Date.now(), info0=totals.INFO||0; el.textContent+='status request, 3 B'; transport.send({t:'up',bytes:[11,0,0]});
   const info=await spin(new Promise(res=>{ boot.onInfo=(text,pkt)=>{ boot.onInfo=null; res({text,pkt}); }; }));

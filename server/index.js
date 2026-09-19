@@ -25,15 +25,16 @@ const enc=m=>JSON.stringify(m,replacer);
 const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4], MAXN=new Function(read('level.js')+'\nreturn LEVEL;')().stations.length;   // не больше слотов платформ в уровне
 const roomCfg=q=>({ n:Math.max(2,Math.min(MAXN,+q.n||2)), cap:CAPS.includes(+q.cap)?+q.cap:512, speed:SPEEDS.includes(+q.speed)?+q.speed:1 });
 class Room {
-  constructor(code,cfg){ this.code=code; this.file=path.join(DATA,code+'.json'); this.clients=new Set(); this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → {name, st}, все операторы, что были в комнате
+  constructor(code,cfg){ this.code=code; this.file=path.join(DATA,code+'.json'); this.logFile=path.join(DATA,code+'.log'); this.logBuf=[]; this.clients=new Set(); this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → {name, st}, все операторы, что были в комнате
     let d=null; try{ d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==2){ log(`${code}: старый формат сохранения v${d.v}, новая планета`); d=null; } }
     catch(e){ if(e.code!=='ENOENT') log(`${code}: сохранение не прочитано (${e.message}), новая планета`); }
     this.cfg=roomCfg(d?(d.cfg||{}):(cfg||{}));   // число платформ — из сохранения, если оно есть: мир уже с ним
-    this.st=makeStation({ worldSrc, search:'?v=0&st='+this.cfg.n, debug:DEBUG, out:m=>this.out(m) }); this.rings=this.st.links.map(()=>[]);
+    this.st=makeStation({ worldSrc, search:'?v=0&st='+this.cfg.n, debug:DEBUG, out:m=>this.out(m), log:r=>this.logBuf.push(JSON.stringify(r)) }); this.rings=this.st.links.map(()=>[]);
     // атлас — после того, как отвергнутый fetch в CAM.load отработает (иначе он обнулит атлас)
     setImmediate(()=>this.st.W.CAM.build(atlas.json,atlas.px));
     if(d){ this.st.restore(d.world,d.n); (d.rings||[]).forEach((r,k)=>{ if(this.rings[k]) this.rings[k]=r; }); this.seen=d.seen||{}; log(`${code}: восстановлена, t=${d.world.t|0} с, платформ ${this.cfg.n}, пакетов ${[].concat(d.n).join('/')}`); }
     else log(`${code}: новая планета, платформ ${this.cfg.n}`);
+    this.st.log({k:'start', host:'server', code, cfg:this.cfg, restored:!!d, wall:new Date().toISOString()});
     for(const L of this.st.links) L.link.cfg.deepCapBps=this.cfg.cap; this.st.handle({t:'speed',v:this.cfg.speed});
   }
   out(m){
@@ -45,8 +46,10 @@ class Room {
   stationsInfo(){ const u=this.st.snapshot().units; return this.st.links.map((L,k)=>({k, name:'ARK-04'+(1+k), ops:this.ops(k), units:u.filter(x=>x.st===k).length, alive:u.filter(x=>x.st===k&&x.alive).length})); }
   info(){ const u=this.st.snapshot().units; return {code:this.code, cfg:this.cfg, running:!!this.timer, lastCmd:this.lastCmd||0, ops:this.ops(), t:this.st.links[0].link.t, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:Date.now(), stations:this.stationsInfo()}; }
   sendOps(){ const st=this.stationsInfo(); for(const c of this.clients) if(c.live) c.send(enc({t:'ops', ops:this.ops(c.st), stations:st})); }
-  join(ws){ this.clients.add(ws); if(!this.timer){ this.schedule(); this.saveTimer=setInterval(()=>this.save(),SAVE_EVERY); log(`${this.code}: мир идёт`); } }
-  leave(ws){ this.clients.delete(ws); this.sendOps(); if(!this.clients.size){ clearInterval(this.timer); clearInterval(this.saveTimer); this.timer=this.saveTimer=null; this.save(); log(`${this.code}: операторов нет, мир стоит`); } }
+  join(ws){ this.clients.add(ws); if(!this.timer){ this.schedule(); this.saveTimer=setInterval(()=>{ this.save(); this.flushLog(); },SAVE_EVERY); log(`${this.code}: мир идёт`); } }
+  // лог мира (tech.md §12): JSONL, строка на запись, дописывается раз в SAVE_EVERY и при остановке; читать — tools/log-*.js
+  flushLog(){ if(!this.logBuf.length) return; const s=this.logBuf.join('\n')+'\n'; this.logBuf=[]; try{ fs.appendFileSync(this.logFile,s); }catch(e){ log(`${this.code}: лог не записан: ${e.message}`); } }
+  leave(ws){ this.clients.delete(ws); if(ws.live) this.st.log({k:'op', leave:ws.op.name, st:ws.st, wall:new Date().toISOString()}); this.sendOps(); if(!this.clients.size){ clearInterval(this.timer); clearInterval(this.saveTimer); this.timer=this.saveTimer=null; this.save(); this.flushLog(); log(`${this.code}: операторов нет, мир стоит`); } }
   schedule(){ if(this.timer) clearInterval(this.timer); this.timer=setInterval(()=>this.st.tick(), 100/this.st.speed); }
   hello(ws,since,op,st){   // выбор платформы, досылка пропущенного, потом — живой поток
     ws.op={ name:String(op&&op.name||'').replace(/[^\p{L}\p{N} _.-]/gu,'').trim().slice(0,24)||'оператор', token:String(op&&op.token||'').slice(0,32) };
@@ -55,7 +58,7 @@ class Room {
     const miss=this.rings[ws.st].filter(p=>p.n>since);
     ws.send(enc({t:'welcome', st:ws.st, name:'ARK-04'+(1+ws.st), operators:this.ops(ws.st).length+1, replay:miss.length, at:this.st.links[ws.st].link.t, speed:this.st.speed}));
     for(const p of miss) ws.send(enc({...p,replay:true}));
-    ws.send(enc(this.st.modem(ws.st))); ws.live=true; this.sendOps();
+    ws.send(enc(this.st.modem(ws.st))); ws.live=true; this.sendOps(); this.st.log({k:'op', join:ws.op.name, st:ws.st, since, wall:new Date().toISOString()});
   }
   handle(ws,m){
     if(m.t==='hello'){ this.hello(ws,+m.since||0,m.op,+m.st||0); return; }
@@ -99,6 +102,6 @@ server.on('upgrade',(req,sock,head)=>{
     ws.on('message',d=>{ let m; try{ m=JSON.parse(d); }catch(e){ return; } if(m&&typeof m.t==='string') r.handle(ws,m); });
     ws.on('close',()=>{ r.leave(ws); log(`${code}: оператор отключился (${r.clients.size})`); }); });
 });
-process.on('SIGTERM',()=>{ for(const r of rooms.values()) r.save(); process.exit(0); });
-process.on('SIGINT',()=>{ for(const r of rooms.values()) r.save(); process.exit(0); });
+process.on('SIGTERM',()=>{ for(const r of rooms.values()){ r.save(); r.flushLog(); } process.exit(0); });
+process.on('SIGINT',()=>{ for(const r of rooms.values()){ r.save(); r.flushLog(); } process.exit(0); });
 server.listen(PORT,()=>log(`станция слушает :${PORT}, данные в ${DATA}${DEBUG?', отладка':''}`));

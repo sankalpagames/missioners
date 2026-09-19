@@ -8,9 +8,12 @@
 
 function makeStation(opts){
   // opts: worldSrc — склеенный текст мира; search — строка ?v=…[&lab][&st=N] для world.js (st — сколько платформ поднять);
-  //       out(msg) — сообщения консолям; debug — отдавать правду о мире; fetch — для атласа спрайтов в воркере (в Node атлас подаёт хост через CAM.build)
-  const DT=0.1; let dbg=null, speed=1;
+  //       out(msg) — сообщения консолям; debug — отдавать правду о мире; fetch — для атласа спрайтов в воркере (в Node атлас подаёт хост через CAM.build);
+//       log(rec) — лог мира (tech.md §12): команды, доставленные пакеты, потери, заметки мира, раз в секунду — правда о положениях. Хост пишет, куда хочет.
+  const DT=0.1; let dbg=null, speed=1, lastLogSec=-1;
   const out=opts.out;
+  const b64=a=>{ let s=''; for(let i=0;i<a.length;i+=4096) s+=String.fromCharCode.apply(null,a.subarray(i,i+4096)); return btoa(s); };
+  const log=opts.log?(rec)=>opts.log({t:+(links[0]?links[0].link.t:0).toFixed(1), ...rec}):()=>{};
   const shims={ self:{location:{search:opts.search||'?v=0'}}, importScripts(){}, postMessage:m=>fromWorld(m),
     setInterval(){ return 1; }, clearInterval(){}, setTimeout:(f,ms)=>setTimeout(f,ms), onmessage:null,
     fetch:opts.fetch||(()=>Promise.reject(new Error('no fetch'))) };
@@ -18,8 +21,8 @@ function makeStation(opts){
 
   // канал на каждую платформу
   const links=[]; for(let k=0;k<W.NST;k++){ const link=new Link(); const L={k, link, rxN:0, lastSec:-1}; links.push(L);
-    link.onDeliver=p=>out({t:'pkt', st:k, n:++L.rxN, at:link.t, ...p});
-    link.onDrop=p=>out({t:'drop', st:k, at:link.t, ...p});
+    link.onDeliver=p=>{ out({t:'pkt', st:k, n:++L.rxN, at:link.t, ...p}); log({k:'pkt', st:k, n:L.rxN, kind:p.kind, unit:p.unit, id:p.msgId, seq:p.seq, total:p.total, b:b64(p.bytes)}); };
+    link.onDrop=p=>{ out({t:'drop', st:k, at:link.t, ...p}); log({k:'drop', st:k, kind:p.kind, unit:p.unit, id:p.msgId, seq:p.seq, reason:p.reason}); };
     // команда 27 — отмена запроса: её выполняет буфер станции, до мира она не доходит; кадр отменён — миру сказать, чтобы следующий был ключевым
     link.onUplink=bytes=>{ if(bytes[0]===27){ const c=link.cancel((bytes[3]<<8)|bytes[4]); if(c&&/^IM[GD]/.test(c.kind)) W.handle({t:'imgCancel',st:k,unit:c.unit,level:+c.kind[3]}); return; } W.handle({t:'cmd',st:k,bytes}); };
     link.onFrame=(msg,ok)=>W.handle({t:'imgAck',st:k,unit:msg.unit,level:+msg.kind[3],ok}); }
@@ -28,6 +31,7 @@ function makeStation(opts){
   function fromWorld(m){
     if(m.t==='msg'){ const L=links[m.st||0]; if(L) L.link.enqueue(m); }
     else if(m.t==='phys'){ for(const L of links) L.link.setPhys({extraGain:m.extraGain, units:m.units.filter(u=>(u.st||0)===L.k)}); dbg=m.dbg; }
+    else if(m.t==='note'){ const {t:_,...r}=m; log({k:'note', ...r}); }   // заметки мира — только в лог, консоли не видят
     else if(m.t==='level'){ if(opts.debug) out(m); }
     else out(m);   // peekImg, state
   }
@@ -54,23 +58,25 @@ function makeStation(opts){
       for(const L of links){ L.link.tick(DT); for(const id in L.link.phys.units){ carriers[id]=L.link.carrier(+id); snr[id]=L.link.snrDb(+id); } }
       W.handle({t:'link',carriers,snr});
       for(const L of links){ const sec=Math.floor(L.link.t+1e-6); if(sec!==L.lastSec){ L.lastSec=sec; out(modem(L.k)); } }
+      if(dbg && opts.log){ const sec=Math.floor(links[0].link.t+1e-6); if(sec!==lastLogSec){ lastLogSec=sec; log({k:'phys', units:dbg.units.map(u=>[u.id,u.st,+u.x.toFixed(1),+u.y.toFixed(1),u.alive?1:0]), pack:dbg.pack.map(p=>[+p.x.toFixed(1),+p.y.toFixed(1),p.act,p.hp,p.fear]), snr:links.map(L=>Object.fromEntries(Object.keys(L.link.phys.units).map(id=>[id,+L.link.snrDb(+id).toFixed(1)]))) }); } }
     },
     modem,
     // консоль → станция; st — платформа оператора (в одиночной игре — 0)
     handle(m){
       const k=m.st||0, L=links[k]; if(!L) return;
-      if(m.t==='up'){ L.link.sendUplink(m.bytes); return; }
-      if(m.t==='speed'){ speed=m.v; W.setSpeed(m.v); return; }
-      if(m.t==='autonomy'){ W.handle(m); return; }
+      if(m.t==='up'){ log({k:'up', st:k, bytes:Array.from(m.bytes)}); L.link.sendUplink(m.bytes); return; }
+      if(m.t==='speed'){ speed=m.v; W.setSpeed(m.v); log({k:'speed', v:m.v}); return; }
+      if(m.t==='autonomy'){ log({k:'autonomy', st:k, unit:m.unit, v:m.v}); W.handle(m); return; }
       if(m.t==='save'){ W.handle(m); return; }
       if(m.t==='load'){ for(const x of links) x.link.reset(); W.handle(m); return; }
       if(!opts.debug) return;   // дальше — только отладка
-      if(m.t==='cfg'){ L.link.cfg[m.k]=m.v; return; }
+      if(m.t==='cfg'){ L.link.cfg[m.k]=m.v; log({k:'cfg', st:k, key:m.k, v:m.v}); return; }
       if(m.t==='tp'||m.t==='peek') W.handle(m);
     },
     snapshot(){ return W.snapshot(); },
     // часы каналов — за миром; номера доставленных пакетов продолжаются (n — массив по станциям)
-    restore(d,n){ for(const L of links){ L.link.reset(); L.link.t=d.t||0; if(n) L.rxN=Array.isArray(n)?(n[L.k]||0):(L.k?0:n); } W.restore(d); },
+    restore(d,n){ for(const L of links){ L.link.reset(); L.link.t=d.t||0; if(n) L.rxN=Array.isArray(n)?(n[L.k]||0):(L.k?0:n); } W.restore(d); log({k:'restore', n:W.NST}); },
+    log,
     rxN(){ return links.map(L=>L.rxN); },
   };
 }

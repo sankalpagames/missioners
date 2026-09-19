@@ -33,7 +33,7 @@ function stOf(u){ return stations[u.st]||stations[0]; }
 const RETURN_R = 500;
 function nodes(S){ const n=[{x:S.x,y:S.y}]; if(antennaBoost) n.push(poi(3)); return n; }   // ретранслятор — мачта (ориентир 3) с включённым усилителем
 function nodeDist(S,p){ return Math.min(...nodes(S).map(n=>dist(p,n))); }
-function beyondReturn(u,p){ const d=nodeDist(stOf(u),p); if(d<=RETURN_R) return false; evt(28,u.id,Math.min(255,Math.ceil(d/10))); return true; }   // отказ: arg — расстояние до узла, десятки метров
+function beyondReturn(u,p){ const d=nodeDist(stOf(u),p); if(d<=RETURN_R) return false; evt(28,u.id,Math.min(255,Math.ceil(d/10))); note('station',{st:u.st,unit:u.id,refuse:'ПС-2',d:+d.toFixed(0),nodes:nodes(stOf(u)).length}); return true; }   // отказ: arg — расстояние до узла, десятки метров
 const HULLS = [ ...stations.map(S=>({x:S.x,y:S.y,rx:STATION.rx,ry:STATION.ry,ang:S.ang,h:STATION.h})), ...LEVEL.hulls.map(h=>({...h})) ];   // корпуса платформ (эллипс из кодовой книги), корпуса уровня (круги: обломки): непроходимы и отражают лидар; остальное — рельеф
 // точка внутри корпуса (с запасом pad); луч в корпус: эллипс приводится к единичному кругу, параметр t — в метрах по лучу
 function hullIn(x,y,c,pad=0){ if(c.r!==undefined) return Math.hypot(x-c.x,y-c.y)<c.r+pad; const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=(x-c.x)*ca+(y-c.y)*sa, ly=-(x-c.x)*sa+(y-c.y)*ca; return (lx/(c.rx+pad))**2+(ly/(c.ry+pad))**2<1; }
@@ -80,7 +80,7 @@ function detectRadius(m){ return m===2?6 : m===4?35 : 70; }   // без фона
 const LAIR = {...LEVEL.pack.lair};
 const pack = LEVEL.pack.members.slice(0,10).map((m,i)=>({ i, x:m.x, y:m.y, home:{x:m.x,y:m.y}, heading:0, size:m.size, courage:m.courage, attention:m.attention,
   hpMax:Math.max(1,Math.round(3*m.size)), hp:Math.max(1,Math.round(3*m.size)), fear:0, tired:0, act:'sleep', target:null, foe:null,
-  rest:0, throat:0, freezeT:0, hold:0, rage:0, alert:0, idle:0, hitT:0, stuckT:0, heard:{}, why:'' }));
+  rest:0, throat:0, freezeT:0, hold:0, rage:0, alert:0, idle:0, hitT:0, stuckT:0, heard:{}, lastAct:'sleep', why:'' }));
 const cries = [];   // крики за последние секунды: {word, x, y, t, i} — для рефлексов и шторки
 // действующая храбрость: страх, раны и удалённость от логова отнимают, размер добавляет
 function nerve(p){ return p.courage + 0.15*(p.size-1) - 0.6*p.fear - 0.5*(1-p.hp/p.hpMax) - 0.3*Math.max(0,(dist(p,LAIR)-120)/150); }
@@ -97,8 +97,10 @@ function packStep(p,sp){ const tg=p.target; if(!tg) return; let aim=tg; const cp
   else if(ct && ct.along>0 && dist(p,TUN_A)>4) aim=TUN_A;
   p.heading=dirTo(p,aim); if(stepBody(p,sp*DT)) p.stuckT=0; else { p.stuckT+=DT; if(p.stuckT>3){ p.stuckT=0; p.target=null; } } }
 // крик: слово = реакция. Слышат особи в радиусе с затуханием за стенами; кулдаун на глотку. Тела рядом вздрагивают — звук, слов не разбирают
-function cry(p,word){ if(p.throat>0) return false; p.throat=6; cries.push({word,x:p.x,y:p.y,t,i:p.i}); const R=120*(0.8+0.4*p.size);
-  for(const q of pack){ if(q===p) continue; const d=dist(p,q); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,q,1.5)); if(loud>0.05) hear(q,word,p,loud); }
+function cry(p,word){ if(p.throat>0) return false; p.throat=6; cries.push({word,x:p.x,y:p.y,t,i:p.i}); const R=120*(0.8+0.4*p.size); const heard=[];
+  for(const q of pack){ if(q===p) continue; const d=dist(p,q); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,q,1.5)); if(loud>0.05) heard.push([q,loud]); }
+  note('cry',{who:p.i,word,x:+p.x.toFixed(1),y:+p.y.toFixed(1),heard:heard.map(([q])=>q.i)});
+  for(const [q,loud] of heard) hear(q,word,p,loud);   // заметка раньше реакций: эхо в логе идёт после крика
   for(const u of units){ if(!u.alive) continue; const d=dist(p,u); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,u,1.5)); u.startle=Math.min(1,(u.startle||0)+0.6*loud); }
   return true; }
 function hear(q,word,from,loud){ const ce=nerve(q); q.heard[word]=t; const why=`«${word}» от #${from.i}, слышно ${loud.toFixed(2)}, nerve ${ce.toFixed(2)}`; if(q.act==='sleep'&&loud>0.25) wake(q,why); q.why=why;
@@ -118,7 +120,7 @@ function sense(p){ const k=(p.act==='sleep'?0.2+0.3*p.attention:0.6+0.8*p.attent
     const seeR=detectRadius(u.mode)*k, sp=u.target?speedFor(u.mode):0, hearR=Math.min(80,12*sp*sp)*k;   // шум шагов ∝ квадрату скорости: крадущегося слышно с 4 м, бегущего — с 80 if(d>seeR && d>hearR) continue;
     const f=losFrac(p,u); if(d<=seeR && f<0.34 || d<=hearR*(1-0.75*f)){ best=u; bd=d; } }
   if(!best) return; const fresh=!foeOf(p); p.foe={x:best.x,y:best.y,t,u:best.id}; wake(p);
-  if(fresh){ const ce=nerve(p); if(ce<0.35) cry(p,'тревога'); else if(Math.random()<0.25+0.7*p.attention) cry(p,'чужой'); } }
+  if(fresh){ note('pack',{who:p.i,sense:bd<=detectRadius(best.mode)*k?'see':'hear',unit:best.id,d:+bd.toFixed(1),mode:best.mode,light:best.lightOn,nerve:+nerve(p).toFixed(2)}); const ce=nerve(p); if(ce<0.35) cry(p,'тревога'); else if(Math.random()<0.25+0.7*p.attention) cry(p,'чужой'); } }
 // рефлексы раз в полсекунды: по действующей храбрости и расстоянию до чужого
 function decide(p){ const ce=nerve(p), foe=foeOf(p), d=foe?dist(p,foe):1e9, atLair=dist(p,LAIR)<3;
   if(foe && d<10) p.fear=Math.min(1,p.fear+0.015*(1-p.courage)); p.fear=Math.max(0,p.fear-(atLair||p.rest>0?0.01:0.004));
@@ -141,15 +143,15 @@ function backOff(p,foe){ const cp=TER.inside(p.x,p.y); if(cp && cp.along>0 && !c
   const L=dist(p,foe)||1; return {x:p.x+(p.x-foe.x)*10/L, y:p.y+(p.y-foe.y)*10/L}; }
 function packTick(){ 
   for(const p of pack){ p.throat=Math.max(0,p.throat-DT); p.alert=Math.max(0,p.alert-DT); p.rage=Math.max(0,p.rage-DT);
-    if(!LAB && (Math.floor(t/DT)+p.i)%5===0){ sense(p); decide(p); }
+    if(!LAB && (Math.floor(t/DT)+p.i)%5===0){ sense(p); decide(p); if(p.act!==p.lastAct){ const f=foeOf(p); note('pack',{who:p.i,act:p.act,was:p.lastAct,why:p.why,hp:p.hp,fear:+p.fear.toFixed(2),foe:f?f.u:undefined,x:+p.x.toFixed(1),y:+p.y.toFixed(1)}); p.lastAct=p.act; } }
     if(p.act==='attack'){ const foe=foeOf(p); const u=foe&&units.find(u=>u.id===foe.u&&u.alive&&dist(p,u)<30); if(u){ const d=dist(p,u); p.foe={x:u.x,y:u.y,t,u:u.id};   // цель в 30 м не теряет — ведёт её; дальше — только если чувства поймают снова
-        if(d>2.2){ p.target={x:u.x,y:u.y}; p.hitT=0; } else { p.target=null; p.heading=dirTo(p,u); p.hitT+=DT; if(p.hitT>2){ p.hitT=0; u.skin-=10*p.size; u.bone-=4*p.size; u.pain=1; u.psyche-=6; evt(4,u.id); } } } }
+        if(d>2.2){ p.target={x:u.x,y:u.y}; p.hitT=0; } else { p.target=null; p.heading=dirTo(p,u); p.hitT+=DT; if(p.hitT>2){ p.hitT=0; u.skin-=10*p.size; u.bone-=4*p.size; u.pain=1; u.psyche-=6; evt(4,u.id); note('pack',{who:p.i,bite:u.id,skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),mode:u.mode}); } } } }
     if(p.target) packStep(p,packSpeed(p)); }
   while(cries.length && t-cries[0].t>6) cries.shift(); }
 // отпор резаком: тело в режиме «бой» бьёт ближайшую особь в 4 м раз в 2 с; на нуле она уходит в логово на передышку
 function fightBack(u){ let q=null, qd=4; for(const p of pack){ const d=dist(u,p); if(d<qd){ qd=d; q=p; } } if(!q){ u.atkTimer=0; return; }
   u.atkTimer+=DT; if(u.atkTimer<2) return; u.atkTimer=0; const was=q.hp; q.hp=Math.max(0,q.hp-1); q.fear=Math.min(1,q.fear+0.35*(1.2-q.courage)); wake(q); q.foe={x:u.x,y:u.y,t,u:u.id};
- 
+  note('pack',{who:q.i,hitBy:u.id,hp:q.hp,fear:+q.fear.toFixed(2),nerve:+nerve(q).toFixed(2)});
   if(nerve(q)<0.5) cry(q,'тревога');
   if(was>0 && q.hp===0){ q.act='flee'; q.target={...LAIR}; q.rage=0; evt(9,u.id); } }
 
@@ -180,6 +182,10 @@ function stepBody(u,len){
 // st — станция-адресат: её оператор(ы) и получают сообщение; по умолчанию — станция тела
 function emit(cls, kind, unit, payload, st){ if(st===undefined){ const u=units.find(u=>u.id===unit); st=u?u.st:0; } if(muted){ msgId++; return; } postMessage({ t:'msg', id:msgId++, st, cls, kind, unit, payload }); }
 function evt(code, unit=0, arg=0, st){ emit('cmd','EVT', unit, new Uint8Array([code,arg]), st); }
+// Заметка мира: что решил и почему — в лог хоста (tech.md §12). Консоль этого не видит: станция не пересылает note операторам.
+// Ставится там, где if с числами решает игровой исход и потом спросят «почему оно так». Не трассировка: сотни строк на час, не тысячи.
+function note(kind, data){ if(muted) return; postMessage({ t:'note', at:+t.toFixed(1), kind, ...data }); }
+const CMD_NAMES={1:'описание',2:'лидар',3:'кадр',6:'идти',7:'режим',8:'действие',9:'передатчик',10:'вырастить',11:'статус',12:'телеметрия',13:'лидар-подписка',14:'описание-подписка',15:'пульс',16:'кадр-подписка',17:'стоп',18:'смотреть',19:'изучить',20:'съесть',21:'склад',22:'положить',23:'взять'};
 function emitAuto(kind, unit, payload){ emit('bg', kind, unit, payload); }   // периодические подписки идут фоном
 
 // ---------- телеметрия миссионера (16 байт) ----------
@@ -346,17 +352,17 @@ function doPending(u){
 onmessage = e => {
   const m=e.data;
   if(m.t==='speed'){ speed=m.v; schedule(); return; }
-  if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ u.carrier=!!m.carriers[u.id]; u.snr=m.snr?m.snr[u.id]:0; } return; }   // станция измеряет уровень сигнала каждого тела   // миссионер сам слышит несущую станции — физика, не данные
+  if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ const c=!!m.carriers[u.id]; if(c!==u.carrier && u.alive) note('unit',{unit:u.id,carrier:c,snr:+((m.snr||{})[u.id]||0).toFixed(1),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); u.carrier=c; u.snr=m.snr?m.snr[u.id]:0; } return; }   // станция измеряет уровень сигнала каждого тела   // миссионер сам слышит несущую станции — физика, не данные
   if(m.t==='imgAck'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='autonomy'){ const u=units.find(u=>u.id===m.unit); if(u) u.autonomy=m.v; return; }
   if(m.t==='imgCancel'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u){ u.pendingImg=null; delete u.lastImg[m.level]; } return; }   // кадр не дошёл: следующий на этом уровне — ключевой
-  if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; } return; }
+  if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; note('debug',{tp:u.id,x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
   if(m.t==='peek'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u) postMessage({t:'peekImg',unit:u.id,img:render(u,64)}); return; }   // отладка: чистый рендер мимо канала
   if(m.t==='save'){ postMessage({t:'state',data:snapshot()}); return; }
   if(m.t==='load'){ restore(m.data); catchUp(m.elapsed||0); return; }
   if(m.t!=='cmd') return;
   const S=stations[m.st||0]; if(!S) return;   // команда пришла по каналу этой станции
-  const [cmd,arg,unit]=m.bytes;
+  const [cmd,arg,unit]=m.bytes; note('cmd',{st:S.k,cmd:CMD_NAMES[cmd]||cmd,arg,unit,bytes:Array.from(m.bytes.slice(3))});
   if(cmd===10){ // вырастить: arg = маска датчиков
     if(S.growing) { evt(2,0,0,S.k); return; }
     if(S.bioStock<=0){ evt(14,0,0,S.k); return; }
@@ -420,18 +426,18 @@ function tick(){
   const dt=DT; t+=dt;
   for(const S of stations){ const own=units.filter(u=>u.st===S.k);
     // тупик: живых нет, биоматериала нет, ничего не растёт — станция закрывает серию
-    if(S.taskOpen && !S.seriesClosed && own.length && !own.some(u=>u.alive) && S.bioStock<=0 && !S.growing){ S.seriesClosed=true; setTimeout(()=>evt(27,0,0,S.k),2000/speed); }
+    if(S.taskOpen && !S.seriesClosed && own.length && !own.some(u=>u.alive) && S.bioStock<=0 && !S.growing){ S.seriesClosed=true; note('station',{st:S.k,series:'closed'}); setTimeout(()=>evt(27,0,0,S.k),2000/speed); }
     if(S.growing){ S.growing.tLeft-=dt; if(S.growing.tLeft<=0){ const u=spawn(S.growing.sensors,S); S.growing=null; evt(6,u.id); } } }
   packTick();
   for(const u of units){
     if(u.alive){
-      if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; if(u.autonomy===1) u.target=null; if(u.autonomy===2){ const sp=stOf(u).spawn; u.target={x:sp.x,y:sp.y}; u.mode=3; } } }
+      if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; note('unit',{unit:u.id,autonomy:u.autonomy,x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); if(u.autonomy===1) u.target=null; if(u.autonomy===2){ const sp=stOf(u).spawn; u.target={x:sp.x,y:sp.y}; u.mode=3; } } }
       else { u.linkLostFor=0; u.autoDone=false; }
       const sp=speedFor(u.mode);
       if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:0.5)){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); }
         else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
           // застревание — по продвижению: за 4 с не приблизился к цели на метр → стоп
-          u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<1){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
+          u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<1){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); note('unit',{unit:u.id,stuck:true,x:+u.x.toFixed(1),y:+u.y.toFixed(1),slope:+TER.slope(u.x,u.y).toFixed(2)}); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
       if(u.mode===5) fightBack(u);
       // страх: ближайшая бодрствующая особь (уходящая не в счёт) и крики рядом — звук тело слышит, слов не разбирает
       let fearT=0; for(const p of pack){ const w=p.act==='attack'||p.act==='approach'?1:p.act==='sleep'||p.act==='flee'||p.act==='home'?0:0.5; if(w) fearT=Math.max(fearT,w*(1-dist(u,p)/80)); }
@@ -444,7 +450,7 @@ function tick(){
       u.cons=0.6+0.8*u.exertion+Math.pow(10,u.txDbm/10)*0.4+(u.lightOn?0.2:0)+(u.sub.img.interval?0.3:0)-(rest?0.4:0); u.gen=0.8-0.3*u.fear;
       u.charge=Math.max(0,Math.min(100,u.charge+(u.gen-u.cons)*dt*0.01));   // ходьба с фонарём: ~3 ч; стоя — почти ровно; отдых восстанавливает
       if(LAB){ u.glucose=u.electro=u.charge=100; }
-      if(u.skin<=0||u.bone<=0||u.glucose<=0||u.charge<=0){ u.alive=false; u.target=null; evt(5,u.id); }
+      if(u.skin<=0||u.bone<=0||u.glucose<=0||u.charge<=0){ u.alive=false; u.target=null; evt(5,u.id); note('unit',{unit:u.id,dead:u.skin<=0?'skin':u.bone<=0?'bone':u.glucose<=0?'glucose':'charge',skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),glucose:+u.glucose.toFixed(0),charge:+u.charge.toFixed(0),psyche:+u.psyche.toFixed(0),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); }
       if(u.sub.tlm){ u.tlmTimer+=dt; if(u.tlmTimer>=u.sub.tlm){ u.tlmTimer=0; emit('bg','TLM',u.id,telemetry(u)); } }
       if(u.sub.desc){ u.subT.desc+=dt; if(u.subT.desc>=u.sub.desc){ u.subT.desc=0; describe(u,'bg'); } }
     } else {
