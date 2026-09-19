@@ -199,7 +199,7 @@ function fightBack(u){ let q=null, qd=4; for(const p of pack){ if(p.act==='dead'
 // Текст — источник истины: каждое слово — честное чувство особи. Ни координат, ни метров, ни номеров тел, ни карты; отладочный
 // флаг сюда не достаёт. Строка — на смену класса, не по таймеру. Наружу — {t:'agent', n, at, who, text}; консоли не видят.
 const VOICE_R = +(/&voice=(\d+)/.exec(self.location.search)||[])[1] || Infinity;
-const INTENT_CD = 15;   // кулдаун намерения на особь, с игрового: чаще особь не слушает
+const INTENT_CD = 15, INTENT_CD_SHORT = 3;   // кулдаун намерения на особь, с игрового: чаще особь не слушает; короткий — на мелкое (взять, положить, шаг, стой)
 let agentN = 0;
 const pname = p => 'О'+(p.i+1);
 function say(p, text){ if(muted) return; postMessage({t:'agent', n:++agentN, at:+t.toFixed(1), who:p.i+1, text}); }
@@ -248,35 +248,37 @@ function intent(line){
   if(p.act==='sleep') wake(p,'слово');   // голос в голове будит
   if(p.rest>0) return no('на передышке у логова, не выйдет');
   if(p.rage>0 && p.act==='attack') return no('дерётся');
-  const left=INTENT_CD-(t-(p.intentAt??-1e9)); if(left>0) return no(`не слушает, ещё ${Math.ceil(left)} с`);
+  const left=(p.intentCd||INTENT_CD)-(t-(p.intentAt??-1e9)); if(left>0) return no(`не слушает, ещё ${Math.ceil(left)} с`);
+  const accept=(cd)=>{ p.intentAt=t; p.intentCd=cd; return {ok:true, who:p.i+1}; };
   const ce=nerve(p); let tg=null, act='goto', why='';
   const go=(pt)=>{ tg=pt; };
-  if(/^как хочешь/.test(v)){ p.told=null; p.target=null; if(p.act==='goto'||p.act==='stay') p.act='idle'; p.intentAt=t; return {ok:true, who:p.i+1}; }
-  else if(/^(стой|затаись|замри|жди)/.test(v)){ act='freeze'; }
+  let short=false;   // мелкое слово — короткий кулдаун
+  if(/^как хочешь/.test(v)){ p.told=null; p.target=null; if(p.act==='goto'||p.act==='stay') p.act='idle'; return accept(INTENT_CD_SHORT); }
+  else if(/^(стой|затаись|замри|жди)/.test(v)){ act='freeze'; short=true; }
   else if(/^крикни\s+(\S+)/.test(v)){ const w=/^крикни\s+(\S+)/.exec(v)[1]; if(!WORDS.includes(w)) return no('нет такого крика: '+WORDS.join(', '));
-    if((w==='бей'||w==='сюда') && ce<0.35) return no('боится'); if(!cry(p,w)) return no('глотка, только что кричал'); p.intentAt=t; return {ok:true, who:p.i+1}; }
+    if((w==='бей'||w==='сюда') && ce<0.35) return no('боится'); if(!cry(p,w)) return no('глотка, только что кричал'); return accept(INTENT_CD_SHORT); }
   else if(/^(возьми|подними)\s+(.+)/.test(v)){ if(p.item) return no('уже несу: '+ITEMS[p.item]); const want=/^(возьми|подними)\s+(.+)/.exec(v)[2]; const stem=w=>w.slice(0,Math.max(3,w.length-2));
-    for(const o of nearItems(p,3)) for(const it of contentsOf(o)) if(ITEMS[it].split(' ').some(w=>stem(w).startsWith(stem(want.split(' ').pop())))){ removeItem(o,it); p.item=it; p.intentAt=t; note('agent',{who:p.i,take:it,from:o.id}); return {ok:true, who:p.i+1}; }
+    for(const o of nearItems(p,3)) for(const it of contentsOf(o)) if(ITEMS[it].split(' ').some(w=>stem(w).startsWith(stem(want.split(' ').pop())))){ removeItem(o,it); p.item=it; note('agent',{who:p.i,take:it,from:o.id}); return accept(INTENT_CD_SHORT); }
     return no(nearItems(p,3).length?'такого рядом нет':'рядом ничего нет, подойти вплотную'); }
-  else if(/^(положи|брось)/.test(v)){ if(!p.item) return no('ничего не несу'); dropBundle(p.x,p.y,p.item); note('agent',{who:p.i,drop:p.item}); p.item=null; p.intentAt=t; return {ok:true, who:p.i+1}; }
+  else if(/^(положи|брось)/.test(v)){ if(!p.item) return no('ничего не несу'); dropBundle(p.x,p.y,p.item); note('agent',{who:p.i,drop:p.item}); p.item=null; return accept(INTENT_CD_SHORT); }
   else if(/^к чужому/.test(v)){ const f=foeOf(p); if(!f) return no('чужого не чувствую'); if(ce<0.3) return no('боится'); go({x:f.x,y:f.y}); }
   else if(/^к крикнувшему/.test(v)){ const c=[...cries].reverse().find(c=>c.i!==p.i && t-c.t<30); if(!c) return no('крика не слышал'); go({x:c.x,y:c.y}); }
   else if(/^домой/.test(v)) go({...LAIR});
   else if(/^на лёжку/.test(v)) go({...p.home});
   else if(/^к о\s*(\d+)/.test(v)){ const q=pack[+/^к о\s*(\d+)/.exec(v)[1]-1]; if(!q||q===p) return no('такой особи нет'); if(q.act==='dead') return no(`${pname(q)} мёртв`); if(dist(p,q)>VOICE_R) return no(`не знаю, где ${pname(q)}`); go({x:q.x,y:q.y}); }
   else if(/^на (северо-восток|северо-запад|юго-восток|юго-запад|север|юг|восток|запад)( далеко| близко| чуть)?/.test(v)){ const mm=/^на (северо-восток|северо-запад|юго-восток|юго-запад|север|юг|восток|запад)( далеко| близко| чуть)?/.exec(v);
-    const a=RUMB_DIR[mm[1]]*Math.PI/4, R=mm[2]===' далеко'?150:mm[2]===' близко'?20:mm[2]===' чуть'?8:50; go({x:p.x+Math.cos(a)*R, y:p.y+Math.sin(a)*R}); }
+    const a=RUMB_DIR[mm[1]]*Math.PI/4, R=mm[2]===' далеко'?150:mm[2]===' близко'?20:mm[2]===' чуть'?8:50; short=R<=8; go({x:p.x+Math.cos(a)*R, y:p.y+Math.sin(a)*R}); }
   else if(/^к /.test(v)){ const stem=w=>w.slice(0,Math.max(3,w.length-2)), want=stem(v.slice(2).trim().split(' ').pop());
     const near=objectsAround(p,15).filter(o=>!o.pack&&!o.landmark&&nameOf(o).split(' ').some(w=>stem(w).startsWith(want)||want.startsWith(stem(w))));   // предмет рядом — раньше ориентира: «к ящику» у обломков
-    if(near.length){ const o=near.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b), d=dist(p,o)||1; go({x:o.x+(p.x-o.x)*1.2/d, y:o.y+(p.y-o.y)*1.2/d}); }
+    if(near.length){ const o=near.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b), d=dist(p,o)||1; short=true; go({x:o.x+(p.x-o.x)*1.2/d, y:o.y+(p.y-o.y)*1.2/d}); }
     else { const L=landmarks().filter(L=>L.name.split(' ').some(w=>stem(w).startsWith(want)||want.startsWith(stem(w)))); const seen=L.filter(L=>p.per&&p.per.seen[L.key]);   // «к обломкам», «к ящикам»: по основе слова
     if(!L.length) return no('не знаю такого'); if(!seen.length) return no(`не вижу: ${L[0].name}`); const best=seen.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b); const d=dist(p,best)||1; go({x:best.x+(p.x-best.x)*6/d, y:best.y+(p.y-best.y)*6/d}); } }
   else return no('не понял; знаю: к чужому, к крикнувшему, домой, на лёжку, к О3, к обломкам, на запад [далеко|близко|чуть], стой, возьми предмет, положи, крикни слово, как хочешь');
-  p.intentAt=t; p.told={v}; p.hold=0; p.rage=0; p.freezeT=0;
+  p.told={v}; p.hold=0; p.rage=0; p.freezeT=0;
   if(act==='freeze'){ p.act='freeze'; p.freezeT=30; p.target=null; p.why='слово: стой'; }
-  else { p.act='goto'; p.target=tg; p.why='слово: '+v; }
+  else { p.act='goto'; p.target=tg; p.why='слово: '+v; say(p,'иду '+v); if(p.per) p.per.act=ACT_WORDS.goto; }   // «иду на запад» на каждое принятое движение, даже если уже шла
   note('agent',{who:p.i,intent:v,x:+p.x.toFixed(1),y:+p.y.toFixed(1),to:tg?{x:+tg.x.toFixed(1),y:+tg.y.toFixed(1)}:undefined,nerve:+ce.toFixed(2)});
-  return {ok:true, who:p.i+1}; }
+  return accept(short?INTENT_CD_SHORT:INTENT_CD); }
 
 // ---------- турель платформы (design.md §12а, roadmap п. 0б (в) 5) ----------
 // Лампа у самой турели: видит только то, что освещает — сектор fov вокруг курса, дальность range, без стены (losFrac). Захват — по

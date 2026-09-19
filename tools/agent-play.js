@@ -10,6 +10,7 @@
 //        где                 — правда о мире: координаты особей и тел (отладка, агент этого не видит)
 //        м 100 50            — телепорт миссионера; о 2 100 50 — телепорт особи (отладка)
 //        свет / тьма         — скрытность миссионера выкл / вкл (команда 24 по каналу)
+//        жди [N]             — как perceive?wait: печатает «— есть» при первой новой строке ленты или «— тихо N с» (по умолчанию 60 с реального)
 const fs=require('fs'), path=require('path'), readline=require('readline'); const ROOT=path.join(__dirname,'..'), P=path.join(ROOT,'proto')+'/';
 const read=f=>fs.readFileSync(P+f,'utf8');
 const makeStation=new Function(read('link.js')+'\n'+read('station.js')+'\nreturn makeStation;')();
@@ -19,15 +20,17 @@ const DATA=path.join(ROOT,'data'); fs.mkdirSync(DATA,{recursive:true}); const lo
 let logBuf=[]; const flush=()=>{ if(!logBuf.length) return; fs.appendFileSync(logFile,logBuf.join('\n')+'\n'); logBuf=[]; }; setInterval(flush,5000);
 const fmt=s=>`${String(s.toFixed(0)).padStart(5)}с`; let now=0;
 const st=makeStation({ worldSrc, search:'?v=0'+(voice?'&voice='+voice:''), debug:true, out(m){ if(m.t==='pkt'&&m.kind==='EVT') console.log(`${fmt(m.at)}  [событие ${m.bytes[0]} М${m.unit} — оператору]`); },
-  agent(m){ if(m.t==='agent') console.log(`${fmt(m.at)}  О${m.who}: ${m.text}`); else if(m.t==='agentAck') console.log(`       ${m.ok?'принято':'отказано'}${m.who?' О'+m.who:''}${m.why?': '+m.why:''}`); else if(m.t==='agentState') console.log(m.lines.map(l=>'       '+l).join('\n')); },
+  agent(m){ if(m.t==='agent'){ console.log(`${fmt(m.at)}  О${m.who}: ${m.text}`); if(waiting){ clearTimeout(waiting); waiting=null; console.log('— есть'); } } else if(m.t==='agentAck') console.log(`       ${m.ok?'принято':'отказано'}${m.who?' О'+m.who:''}${m.why?': '+m.why:''}`); else if(m.t==='agentState') console.log(m.lines.map(l=>'       '+l).join('\n')); },
   log:r=>logBuf.push(JSON.stringify(r)) });
 st.log({k:'start', host:'play', n:st.NST, wall:new Date().toISOString()}); st.handle({t:'speed',v:speed});
+let waiting=null;   // «жди»: таймер до «тихо»
 let timer=null; const run=()=>{ if(timer) clearInterval(timer); timer=setInterval(()=>st.tick(),100/speed); }; run();
 const T=()=>st.links[0].link.t;
 console.log(`площадка: ×${speed}${voice?', голос '+voice+' м':''}; лог → ${path.relative(ROOT,logFile)}. «?» — картина, «О2: домой» — намерение, «> 60» — промотать.`);
 const rl=readline.createInterface({input:process.stdin, output:process.stdout, prompt:''});
 rl.on('line',line=>{ const s=line.trim(); if(!s) return; let m;
   if(s==='?') st.handle({t:'agentState'});
+  else if((m=/^жди\s*(\d+)?$/.exec(s))){ const n=+(m[1]||60); if(waiting) clearTimeout(waiting); waiting=setTimeout(()=>{ waiting=null; console.log(`— тихо ${n} с`); },n*1000); }
   else if((m=/^>\s*(\d+)$/.exec(s))){ clearInterval(timer); for(let i=0;i<+m[1]*10;i++) st.tick(); run(); console.log(`       … ${m[1]} с, сейчас ${fmt(T())}`); }
   else if((m=/^x\s*(\d+)$/.exec(s))){ speed=+m[1]; st.handle({t:'speed',v:speed}); run(); console.log(`       ×${speed}`); }
   else if(s==='где'){ const d=st.snapshot(); console.log('       [отладка, правда о мире] '+d.stations.filter(S=>S.turret).map(S=>`турель ${S.name} ${S.turret.tgt?'ведёт '+(S.turret.tgt.p!==undefined?'О'+(S.turret.tgt.p+1):'М'+S.turret.tgt.u)+' '+S.turret.aimT.toFixed(1)+' с':S.turret.reloadT>0?'перезарядка':'ждёт'} | `).join('')+d.pack.map(p=>`О${p.i+1}(${p.x.toFixed(0)},${p.y.toFixed(0)}) ${p.act}`).join(' ')+' | '+d.units.map(v=>`М${v.id}(${v.x.toFixed(0)},${v.y.toFixed(0)})${v.alive?'':' мёртв'}`).join(' ')); }
