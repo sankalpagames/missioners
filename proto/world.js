@@ -230,7 +230,8 @@ function perceive(p){ const first=!p.per; const per=p.per=p.per||{seen:{}}; cons
   for(const k of ['act','fear','hp','tired','place']){ if(w[k]!==per[k]){ if(w[k]) out.push(w[k]); per[k]=w[k]; } }
   const carry=p.item?'несу: '+ITEMS[p.item]:''; if(carry!==(per.carry||'')){ if(carry) out.push(carry); else if(per.carry) out.push('положил'); per.carry=carry; }
   if(p.act!=='sleep' && (Math.floor(t/DT)+p.i)%20===0){ const near=nearItems(p).map(o=>`${nameOf(o)} — ${contentsOf(o).map(i=>ITEMS[i]).join(', ')}`).join('; '); if(near!==(per.near||'')){ if(near) out.push('рядом: '+near); per.near=near; }
-    for(const o of nearItems(p,20)){ const k='obj'+o.id; if(!per.seen[k]) out.push(`вижу: ${nameOf(o)}, ${farWord(dist(p,o))}, на ${rumb(p,o)}`); per.seen[k]=true; } for(const k in per.seen) if(k.startsWith('obj')&&!nearItems(p,20).some(o=>'obj'+o.id===k)) per.seen[k]=false;   // предмет в поле зрения — с направлением, чтобы к нему можно было подойти
+    const fresh={}; for(const o of nearItems(p,20)){ const k='obj'+o.id; if(!per.seen[k]){ const n=nameOf(o); if(!fresh[n]||dist(p,o)<dist(p,fresh[n].o)) fresh[n]={o,n:(fresh[n]?fresh[n].n:0)+1}; else fresh[n].n++; } per.seen[k]=true; }
+    for(const n in fresh){ const f=fresh[n]; out.push(`вижу: ${n}${f.n>1?' (×'+f.n+')':''}, ${farWord(dist(p,f.o))}, на ${rumb(p,f.o)}`); }   // одинаковые предметы — одной строкой, по ближайшему for(const k in per.seen) if(k.startsWith('obj')&&!nearItems(p,20).some(o=>'obj'+o.id===k)) per.seen[k]=false;   // предмет в поле зрения — с направлением, чтобы к нему можно было подойти
     for(const L of landmarks()){ const s=seesLandmark(p,L); if(s && !per.seen[L.key]) out.push(`вижу: ${L.name}, ${farWord(dist(p,L))}, на ${rumb(p,L)}`); per.seen[L.key]=s; }
     for(const q of pack){ if(q===p||q.act!=='dead') continue; const k='dead'+q.i; const s=dist(p,q)<40 && losFrac(p,q)<0.34; if(s && !per.seen[k]) out.push(`${pname(q)} лежит, мёртв, ${farWord(dist(p,q))}, на ${rumb(p,q)}`); per.seen[k]=s; }
     for(const u of units){ if(u.alive) continue; const k='body'+u.id; const s=dist(p,u)<40 && losFrac(p,u)<0.34; if(s && !per.seen[k]) out.push(`тело двуногого лежит, ${farWord(dist(p,u))}, на ${rumb(p,u)}`); per.seen[k]=s; } }
@@ -261,7 +262,7 @@ function intent(line){
   else if(/^(возьми|подними)\s+(.+)/.test(v)){ if(p.item) return no('уже несу: '+ITEMS[p.item]); const want=/^(возьми|подними)\s+(.+)/.exec(v)[2]; const stem=w=>w.slice(0,Math.max(3,w.length-2));
     for(const o of nearItems(p,4)) for(const it of contentsOf(o)) if(ITEMS[it].split(' ').some(w=>stem(w).startsWith(stem(want.split(' ').pop())))){ removeItem(o,it); p.item=it; note('agent',{who:p.i,take:it,from:o.id}); return accept(INTENT_CD_SHORT); }
     return no(nearItems(p,4).length?'такого рядом нет':'рядом ничего нет, подойти вплотную'); }
-  else if(/^(положи|брось)/.test(v)){ if(!p.item) return no('ничего не несу'); dropBundle(p.x,p.y,p.item); note('agent',{who:p.i,drop:p.item}); p.item=null; return accept(INTENT_CD_SHORT); }
+  else if(/^(положи|брось)/.test(v)){ if(!p.item) return no('ничего не несу'); const g=dropBundle(p.x,p.y,p.item); if(p.per) p.per.seen['obj'+g.id]=true; note('agent',{who:p.i,drop:p.item}); p.item=null; return accept(INTENT_CD_SHORT); }   // свой свёрток особь знает — «вижу» о нём не будет
   else if(/^к чужому/.test(v)){ const f=foeOf(p); if(!f) return no('чужого не чувствую'); if(ce<0.3) return no('боится'); go({x:f.x,y:f.y}); }
   else if(/^к крикнувшему/.test(v)){ const c=[...cries].reverse().find(c=>c.i!==p.i && t-c.t<30); if(!c) return no('крика не слышал'); go({x:c.x,y:c.y}); }
   else if(/^домой/.test(v)) go({...LAIR});
