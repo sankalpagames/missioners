@@ -478,7 +478,7 @@ function tick(){
       const rest=u.mode===4; const pulseT=60+55*u.exertion+95*u.fear+45*u.pain-(rest?8:0); u.pulse+=(pulseT-u.pulse)*dt/3;
       u.glucose-=dt*0.003*(1+2*u.exertion+u.fear);   // покой ~9 ч, ходьба ~3 ч
       u.electro-=dt*0.002*(1+u.exertion);
-      const inT=tunnelT(u.x,u.y)>=0; u.toxin=Math.max(0,u.toxin+dt*(inT?0.06:-0.02));
+      const inT=tunnelT(u.x,u.y)>=0; u.toxin=Math.max(0,Math.min(100,u.toxin+dt*(inT?0.06:-0.02)));   // шкала 0…100, как у остальных; последствий пока нет (roadmap)
       u.psyche=Math.max(0,Math.min(100,u.psyche+dt*(rest?0.05:-(0.01+0.15*u.fear+(inT&&!u.lightOn?0.04:0)))));
       u.cons=0.6+0.8*u.exertion+Math.pow(10,u.txDbm/10)*0.4+(u.lightOn?0.2:0)+(u.sub.img.interval?0.3:0)-(rest?0.4:0); u.gen=0.8-0.3*u.fear;
       u.charge=Math.max(0,Math.min(100,u.charge+(u.gen-u.cons)*dt*0.01));   // ходьба с фонарём: ~3 ч; стоя — почти ровно; отдых восстанавливает

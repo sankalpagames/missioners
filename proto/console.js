@@ -420,7 +420,7 @@ setInterval(()=>{
   const u=units.get(active); $('#tlm-unit').textContent='М'+active;
   if(u&&u.tlm){ const T=u.tlm, age=tNow-u.tlmAt; $('#tlm-age').textContent=age<1.5?'live':`${age.toFixed(0)} с назад`; $('#tlm-age').style.color=age>3*Math.max(1,+$('#sub-tlm').value||1)?'#d9534f':'';
     $('#pulse-val').textContent=T.pulse; $('#pulse-cls').textContent=T.pulse<55?'замедленный':T.pulse<100?'нормальный':T.pulse<150?'ускоренный':T.pulse<220?'интенсивный':'экстремальный';
-    for(const k of ['electro','glucose','toxin','skin','bone','psyche']){ $('#b-'+k).style.width=T[k]+'%'; $('#v-'+k).textContent=T[k]; }
+    for(const k of ['electro','glucose','toxin','skin','bone','psyche']){ $('#b-'+k).style.width=Math.min(100,T[k])+'%'; $('#v-'+k).textContent=T[k]; }
     $('#v-danger').textContent=T.danger?'ДА':'нет'; $('#v-danger').style.color=T.danger?'#ff5c5c':''; $('#v-cons').textContent=T.cons.toFixed(2); $('#v-charge').textContent=T.charge.toFixed(0)+'%'; $('#v-gen').textContent=T.gen.toFixed(2); $('#v-xy').textContent=`${T.x.toFixed(1)}, ${T.y.toFixed(1)}`; $('#v-mode').textContent=(MODES[T.mode]||'—')+(T.reflex?` · ${MODES[T.reflex]} (контакт)`:'')+(T.stealth&&!T.reflex?' · скрытность':T.stealth?' · скрытность не действует':''); }
   else { $('#tlm-age').textContent=u&&!u.alive?'тело мертво':'нет данных'; $('#pulse-val').textContent='—'; }
   { const el=$('#v-snr'), bar=$('#b-snr'); if(u&&u.hbAt>-1e8){ const s=u.snr??0; el.textContent=u.carrier?`${s>0?'+':''}${s.toFixed(0)} дБ`:'нет'; el.style.color=!u.carrier?'#d9534f':s<5?'#e0a94a':'';
