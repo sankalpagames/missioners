@@ -19,7 +19,7 @@ function line(r){ const n=r; switch(r.k){
   case 'autonomy': return `ARK-04${1+r.st}: инструкция на потерю связи М${r.unit} = ${['нет','стоп','отступление'][r.v]||r.v}`;
   case 'drop': return `   потеря ${r.kind} М${r.unit}: ${r.reason}`;
   case 'note': switch(r.kind){
-    case 'cmd': { let a=''; if(r.cmd==='режим') a=MODES[r.arg]||r.arg; else if(r.cmd==='стойка') a=STANCES[r.arg]||r.arg; else if(r.cmd==='скрытность') a=r.arg?'вкл':'выкл'; else if(r.cmd==='идти'||r.cmd==='смотреть'){ const b=r.bytes; a=`(${(((b[0]<<8)|b[1])-32768)/10}, ${(((b[2]<<8)|b[3])-32768)/10})`; } else if(r.arg) a=String(r.arg); return `ARK-04${1+r.st} → ${r.unit?'М'+r.unit+' ':''}${r.cmd}${a?' '+a:''}`; }
+    case 'cmd': { let a=''; if(r.cmd==='режим') a=MODES[r.arg]||r.arg; else if(r.cmd==='стойка') a=STANCES[r.arg]||r.arg; else if(r.cmd==='скрытность') a=r.arg?'вкл':'выкл'; else if(r.cmd==='при потере несущей') a=['продолжать','стоп','к шлюзу'][r.arg]||r.arg; else if(r.cmd==='идти'||r.cmd==='смотреть'){ const b=r.bytes; a=`(${(((b[0]<<8)|b[1])-32768)/10}, ${(((b[2]<<8)|b[3])-32768)/10})`; } else if(r.arg) a=String(r.arg); return `ARK-04${1+r.st} → ${r.unit?'М'+r.unit+' ':''}${r.cmd}${a?' '+a:''}`; }
     case 'cry': return `   #${r.who} кричит «${r.word}» из (${r.x}, ${r.y}); слышат ${r.heard.length?r.heard.map(i=>'#'+i).join(' '):'— никто'}`;
     case 'pack': if(r.sense) return `   #${r.who} ${r.sense==='see'?'увидела':'услышала'} М${r.unit} в ${r.d} м (${MODES[r.mode]||r.mode}${r.stealth?', скрытность':''}${r.light?', фонарь':''}), nerve ${r.nerve}`;
       if(r.bite) return `   #${r.who} укусила М${r.bite}: кожа ${r.skin}, кости ${r.bone}${r.reflex===5?' (тело отбивается)':r.mode===5?'':' — тело не отбивается, стойка '+(STANCES[r.stance]||'пассивно')}`;
@@ -30,7 +30,7 @@ function line(r){ const n=r; switch(r.k){
       if(r.carrier!==undefined) return `   М${r.unit}: несущая ${r.carrier?'восстановлена':'потеряна'}, SNR ${r.snr} дБ, (${r.x}, ${r.y})`;
       if(r.stuck) return `   М${r.unit}: путь перекрыт в (${r.x}, ${r.y}), уклон ${r.slope}`;
       if(r.reflex) return `   М${r.unit}: рефлекс — ${r.reflex}${r.who!==undefined?', особь #'+r.who+' в '+r.d+' м':''}${r.to?', к узлу ('+r.to.x+', '+r.to.y+')':''}${r.resume!==undefined?(r.resume?', продолжает задачу':', задачи не было'):''}${r.x!==undefined&&!r.who?' в ('+r.x+', '+r.y+')':''}`;
-      if(r.autonomy!==undefined) return `   М${r.unit}: 20 с без несущей, инструкция ${['нет','стоп','отступление'][r.autonomy]||r.autonomy} в (${r.x}, ${r.y})`;
+      if(r.autonomy!==undefined) return `   М${r.unit}: 5 с без несущей, инструкция ${['продолжать','стоп','к шлюзу'][r.autonomy]||r.autonomy} в (${r.x}, ${r.y})`;
       return JSON.stringify(r);
     case 'debug': return `   [отладка] телепорт М${r.tp} в (${r.x}, ${r.y})`;
     default: return JSON.stringify(r); }

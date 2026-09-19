@@ -31,6 +31,7 @@ function stOf(u){ return stations[u.st]||stations[0]; }
 // ПС-2, радиус гарантированного возврата: цель дальше RETURN_R от ближайшего узла (своя станция, работающий ретранслятор) станция не принимает —
 // потеря биоматериала гарантирована. Бюджет линии (дБ) к границе не привязан: далеко уйти можно, если есть узел
 const RETURN_R = 500;
+const LINK_LOST_S = 5;   // столько секунд без несущей — потеря связи: тело исполняет инструкцию (команда 26). Секундный провал за камнем — ещё нет
 function nodes(S){ const n=[{x:S.x,y:S.y}]; if(antennaBoost) n.push(poi(3)); return n; }   // ретранслятор — мачта (ориентир 3) с включённым усилителем
 function nodeDist(S,p){ return Math.min(...nodes(S).map(n=>dist(p,n))); }
 function beyondReturn(u,p){ const d=nodeDist(stOf(u),p); if(d<=RETURN_R) return false; evt(28,u.id,Math.min(255,Math.ceil(d/10))); note('station',{st:u.st,unit:u.id,refuse:'ПС-2',d:+d.toFixed(0),nodes:nodes(stOf(u)).length}); return true; }   // отказ: arg — расстояние до узла, десятки метров
@@ -214,14 +215,14 @@ function evt(code, unit=0, arg=0, st){ emit('cmd','EVT', unit, new Uint8Array([c
 // Заметка мира: что решил и почему — в лог хоста (tech.md §12). Консоль этого не видит: станция не пересылает note операторам.
 // Ставится там, где if с числами решает игровой исход и потом спросят «почему оно так». Не трассировка: сотни строк на час, не тысячи.
 function note(kind, data){ if(muted) return; postMessage({ t:'note', at:+t.toFixed(1), kind, ...data }); }
-const CMD_NAMES={1:'описание',2:'лидар',3:'кадр',6:'идти',7:'режим',8:'действие',9:'передатчик',10:'вырастить',11:'статус',12:'телеметрия',13:'лидар-подписка',14:'описание-подписка',15:'пульс',16:'кадр-подписка',17:'стоп',18:'смотреть',19:'изучить',20:'съесть',21:'склад',22:'положить',23:'взять',24:'скрытность',25:'стойка'};
+const CMD_NAMES={1:'описание',2:'лидар',3:'кадр',6:'идти',7:'режим',8:'действие',9:'передатчик',10:'вырастить',11:'статус',12:'телеметрия',13:'лидар-подписка',14:'описание-подписка',15:'пульс',16:'кадр-подписка',17:'стоп',18:'смотреть',19:'изучить',20:'съесть',21:'склад',22:'положить',23:'взять',24:'скрытность',25:'стойка',26:'при потере несущей'};
 function emitAuto(kind, unit, payload){ emit('bg', kind, unit, payload); }   // периодические подписки идут фоном
 
 // ---------- телеметрия миссионера (16 байт) ----------
 function telemetry(u){
   const b=new Uint8Array(16), c=v=>Math.max(0,Math.min(255,Math.round(v)));
   b[0]=c(u.pulse); b[1]=c(u.electro); b[2]=c(u.glucose); b[3]=c(u.toxin); b[4]=c(u.skin); b[5]=c(u.bone); b[6]=c(u.psyche);
-  b[7]=pack.some(p=>p.act!=='sleep' && dist(u,p)<90)?1:0;
+  b[7]=(pack.some(p=>p.act!=='sleep' && dist(u,p)<90)?1:0)|((u.autonomy&3)<<1);   // бит 0 — опасность, биты 1–2 — инструкция на потерю несущей
   b[8]=c(u.cons*50); b[9]=c(u.charge*2.55); b[10]=c(u.gen*50);
   const [xh,xl,yh,yl]=posBytes(u); b[11]=xh; b[12]=xl; b[13]=yh; b[14]=yl; b[15]=modeByte(u);
   return b;
@@ -383,7 +384,6 @@ onmessage = e => {
   if(m.t==='speed'){ speed=m.v; schedule(); return; }
   if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ const c=!!m.carriers[u.id]; u.carrier=c; u.snr=m.snr?m.snr[u.id]:0; if(c!==u.carrierNoted){ u.carrierFlipAt=u.carrierFlipAt??t; if(u.carrierNoted===undefined || t-u.carrierFlipAt>=1){ u.carrierNoted=c; u.carrierFlipAt=undefined; if(u.alive) note('unit',{unit:u.id,carrier:c,snr:+u.snr.toFixed(1),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); } } else u.carrierFlipAt=undefined; } return; }   // станция измеряет уровень сигнала каждого тела; миссионер сам слышит несущую — физика, не данные; заметка — когда состояние продержалось секунду
   if(m.t==='imgAck'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
-  if(m.t==='autonomy'){ const u=units.find(u=>u.id===m.unit); if(u) u.autonomy=m.v; return; }
   if(m.t==='imgCancel'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u){ u.pendingImg=null; delete u.lastImg[m.level]; } return; }   // кадр не дошёл: следующий на этом уровне — ключевой
   if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; note('debug',{tp:u.id,x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
   if(m.t==='peek'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u) postMessage({t:'peekImg',unit:u.id,img:render(u,64)}); return; }   // отладка: чистый рендер мимо канала
@@ -406,7 +406,7 @@ onmessage = e => {
   const u=unit===0&&(cmd===3||cmd===16) ? S.cam : units.find(u=>u.id===unit); if(!u || u.st!==S.k) return;   // чужим телом эта станция не управляет
   if(u!==S.cam){
     if(!u.carrier){ evt(25,u.id); return; }                                              // станция не слышит тело — команда не дойдёт
-    if(!u.alive && [1,6,7,8,17,18,19,20,21,22,23,24,25].includes(cmd)){ evt(24,u.id); return; }  // мёртвому — только приборы
+    if(!u.alive && [1,6,7,8,17,18,19,20,21,22,23,24,25,26].includes(cmd)){ evt(24,u.id); return; }  // мёртвому — только приборы
   }
   switch(cmd){
     case 1: if(u.alive) describe(u); break;
@@ -426,6 +426,7 @@ onmessage = e => {
     case 7: if(u.alive && [1,3,4].includes(arg)){ u.mode=arg; if(arg===3){ const sp=S.spawn; u.target={x:sp.x,y:sp.y}; u.goal={x:sp.x,y:sp.y}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
     case 24: if(u.alive){ u.stealth=!!arg; evt(32,u.id,arg?1:0); } break;   // скрытность — настройка; действует, пока нет рефлекса
     case 25: if(u.alive){ u.stance=Math.min(2,arg); evt(33,u.id,u.stance); } break;   // стойка при контакте
+    case 26: if(u.alive){ u.autonomy=Math.min(2,arg); evt(35,u.id,u.autonomy); } break;   // инструкция на потерю несущей: 0 продолжать, 1 стоп, 2 к шлюзу
     case 8: beginAction(u,'act',arg); break;
     case 19: beginAction(u,'exam',arg); break;
     case 9: u.txDbm=arg-20; evt(8,u.id,9); break;
@@ -462,7 +463,7 @@ function tick(){
   packTick();
   for(const u of units){
     if(u.alive){
-      if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; note('unit',{unit:u.id,autonomy:u.autonomy,x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); if(u.autonomy===1) u.target=null; if(u.autonomy===2){ const sp=stOf(u).spawn; u.target={x:sp.x,y:sp.y}; u.mode=3; } } }
+      if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>LINK_LOST_S && !u.autoDone){ u.autoDone=true; note('unit',{unit:u.id,autonomy:u.autonomy,x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); if(u.autonomy===1) u.target=null; if(u.autonomy===2){ const sp=stOf(u).spawn; u.target={x:sp.x,y:sp.y}; u.mode=3; } } }
       else { u.linkLostFor=0; u.autoDone=false; }
       u.lightOn=!(u.stealth && !u.reflex);
       const sp=speedFor(u);

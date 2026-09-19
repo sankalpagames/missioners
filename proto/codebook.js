@@ -74,6 +74,7 @@ function decText(b){ let s=''; for(const v of b) s+=v?TXT_ALPHABET[v-1]||'?':'';
 
 const MODES = { 1:'исследование', 3:'отступление', 4:'отдых', 5:'бой', 6:'бегство' };   // 1, 3, 4 — команда; 5, 6 — рефлекс по стойке (tech.md §5)
 const STANCES = { 0:'пассивно', 1:'бегство', 2:'бой' };
+const AUTONOMY = { 0:'продолжать', 1:'стоп', 2:'к шлюзу' };   // инструкция на потерю несущей (команда 26)
 
 const EVENTS = {
   1:'миссионер прибыл в точку',
@@ -110,6 +111,7 @@ const EVENTS = {
   32:'скрытность',
   33:'стойка при контакте',
   34:'бегство окончено: тело стоит',
+  35:'инструкция на потерю несущей',
 };
 
-if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, EVENTS, encText, decText };
+if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, AUTONOMY, EVENTS, encText, decText };

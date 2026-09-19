@@ -66,7 +66,6 @@ function makeStation(opts){
       const k=m.st||0, L=links[k]; if(!L) return;
       if(m.t==='up'){ log({k:'up', st:k, bytes:Array.from(m.bytes)}); L.link.sendUplink(m.bytes); return; }
       if(m.t==='speed'){ speed=m.v; W.setSpeed(m.v); log({k:'speed', v:m.v}); return; }
-      if(m.t==='autonomy'){ log({k:'autonomy', st:k, unit:m.unit, v:m.v}); W.handle(m); return; }
       if(m.t==='save'){ W.handle(m); return; }
       if(m.t==='load'){ for(const x of links) x.link.reset(); W.handle(m); return; }
       if(!opts.debug) return;   // дальше — только отладка
