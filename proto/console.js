@@ -37,7 +37,6 @@ const UCOL=['#7fe07f','#4a8fe0','#e0a94a','#d97fd9','#5cd0d0','#d9534f'];
 const bw={};                    // kind → массив {t,bytes} за 5 с
 const lastRx={};                // kind → последний принятый пакет
 const contents=new Map();       // id контейнера → предметы (по последнему CONT)
-const sonarSnaps=[];             // снимки лидара для карты: {x,y,t,b}
 const stcam={ id:0, img:{msg:null,buf:new Uint8Array(64*64),levels:{},skipped:0,at:-1e9,asm:{},state:'',prog:0}, subs:{img:0,level:2,delta:true}, camera:true };
 const totals={};
 
@@ -78,7 +77,7 @@ function onDeliver(pkt){
     case 'TLM': decodeTlm(pkt); break;
     case 'HB': decodeHb(pkt.bytes); break;
     case 'DESC': decodeDesc(pkt); break;
-    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const o=b.length>=79?3:b.length>=78?2:b.length>=77?1:0; const tilt=o?b[4]-90:0; const zs=o>2?((b[5]<<8)|b[6])/10-40:o>1?b[5]/2-40:null; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o);   /* o — сдвиг: наклон, барометр 2 Б (шаг 0,1 м; старые форматы — 1 Б по 0,5 м или без) */ u.sonarData=rays; u.sonarMask=mask; u.sonarTilt=tilt; u.sonarAt=tNow; sonarSnaps.push({x:p.x,y:p.y,t:tNow,b:[...rays],m:mask,k:tilt}); if(sonarSnaps.length>300) sonarSnaps.shift(); if(zs!==null) hmapAdd(p.x,p.y,tilt,zs,rays,mask); snapWalls({x:p.x,y:p.y,b:rays,m:mask,k:tilt}); if(pkt.unit===active) drawSonar(rays,mask,tilt); break; }
+    case 'SONAR': { const u=U(pkt.unit); const b=pkt.bytes; const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const o=b.length>=79?3:b.length>=78?2:b.length>=77?1:0; const tilt=o?b[4]-90:0; const zs=o>2?((b[5]<<8)|b[6])/10-40:o>1?b[5]/2-40:null; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o);   /* o — сдвиг: наклон, барометр 2 Б (шаг 0,1 м; старые форматы — 1 Б по 0,5 м или без) */ u.sonarData=rays; u.sonarMask=mask; u.sonarTilt=tilt; u.sonarAt=tNow; if(zs!==null) hmapAdd(p.x,p.y,tilt,zs,rays,mask); snapWalls({x:p.x,y:p.y,b:rays,m:mask,k:tilt}); if(pkt.unit===active) drawSonar(rays,mask,tilt); break; }
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
@@ -162,7 +161,12 @@ const HCELL=2, hmap=new Map();   // 'i,j' → {z,n}. Ошибка одного �
 // Ячейки, через которые прошла стена (сплошная цепочка лидара): сглаживание через них не тянется, изогипсы в них не строятся —
 // иначе высота дна растягивалась на 4 м под скалу, а между ячейкой стены и гребнем ложилась пачка ложных изогипс.
 const hwall=new Set();
-function hmapAddWall(x1,y1,x2,y2){ const n=Math.ceil(Math.hypot(x2-x1,y2-y1))+1; for(let k=0;k<=n;k++){ const x=x1+(x2-x1)*k/n, y=y1+(y2-y1)*k/n; hwall.add(Math.floor(x/HCELL)+','+Math.floor(y/HCELL)); } hsmDirty=true; }
+// Растр стен: ячейка WCELL = 0,5 м (шаг квантования дальности 0,4 м — мельче смысла нет) → число попаданий. Снимок растеризуется один раз при
+// приёме и не хранится: двадцать снимков одной стены дают одну линию, только увереннее; стена, снятая раз издалека, остаётся тусклой навсегда.
+// hwall (2 м) — производная от того же растра, для сглаживания и изогипс.
+const WCELL=0.5, wmap=new Map();   // 'i,j' → n
+function wallCell(x,y){ const k=Math.floor(x/WCELL)+','+Math.floor(y/WCELL); wmap.set(k,(wmap.get(k)||0)+1); hwall.add(Math.floor(x/HCELL)+','+Math.floor(y/HCELL)); }
+function hmapAddWall(x1,y1,x2,y2){ const n=Math.ceil(Math.hypot(x2-x1,y2-y1)/(WCELL/2))+1; let last=null; for(let k=0;k<=n;k++){ const x=x1+(x2-x1)*k/n, y=y1+(y2-y1)*k/n; const c=Math.floor(x/WCELL)+','+Math.floor(y/WCELL); if(c===last) continue; last=c; wallCell(x,y); } hsmDirty=true; }   // отрезок между соседними сплошными отсчётами — та же поверхность
 function wallBetween(i,j,di,dj){ const n=2*Math.max(Math.abs(di),Math.abs(dj)); for(let k=1;k<=n;k++) if(hwall.has((i+Math.round(di*k/n))+','+(j+Math.round(dj*k/n)))) return true; return false; }   // стена на пути от ячейки к соседу (включая соседа)
 let hsm=new Map(), hsmDirty=true;   // сглаженное поле: отсчёты растянуты на соседние ячейки (радиус 2), чтобы между кольцами снимков появились изогипсы
 // Увязка снимков между собой (сдвиг нового к уже снятому по перекрытию) проверялась в tools/hmap-check.js: при барометре 0,1 м она только
@@ -273,13 +277,9 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   if(hmap.size&&(map.hm||map.iso)){ const sm=hmapSmooth(); const i0=Math.floor((cx-W/2/sc)/HCELL)-1, i1=Math.floor((cx+W/2/sc)/HCELL)+1, j0=Math.floor((cy-H/2/sc)/HCELL)-1, j1=Math.floor((cy+H/2/sc)/HCELL)+1; const get=(i,j)=>sm.get(i+','+j);
     const cs=HCELL*sc; if(map.hm) for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const c=get(i,j); if(!c) continue; const t=Math.max(0,Math.min(1,(c.z+3)/30)); ctx.fillStyle=`rgba(${70+120*t},${110+90*t},${100+70*t},${0.12+0.05*Math.min(c.w,4)})`; ctx.fillRect(sx(i*HCELL),sy(j*HCELL),cs+0.5,cs+0.5); }
     if(map.iso&&cs>=2){ ctx.strokeStyle='rgba(140,210,185,0.7)'; ctx.lineWidth=1; ctx.beginPath(); for(const [x1,y1,x2,y2] of hmapContours(sm,i0,i1,j0,j1)){ ctx.moveTo(sx(x1),sy(y1)); ctx.lineTo(sx(x2),sy(y2)); } ctx.stroke(); } }
-  // геометрия с лидара: стены светлыми линиями; грунт наклонного лидара идёт в карту высот
-  for(const s of sonarSnaps){ const age=tNow-s.t; const al=Math.max(0.15,0.7-age/3000); const {pts,joined,chainLen}=sonarSegments(s.b,s.m,s.k||0); const X=p=>sx(s.x+Math.cos(p.a)*p.r), Y=p=>sy(s.y+Math.sin(p.a)*p.r);
-    // на карту — только поверхности (цепочки отсчётов); одиночные отражения (ящики, столбики) остаются в панели лидара
-    // на карту — цепочки от 4 отсчётов (стены, корпуса); короткие (ящики, столбики) остаются в панели
-    const inChain=new Array(64).fill(false); for(let i=0;i<64;i++){ if(joined((i+63)%64)) continue; const n=chainLen(i); if(n>=(s.m?2:4)) for(let k=0;k<n;k++) inChain[(i+k)%64]=true; }
-    if(!inChain.some(Boolean) && joined(0)) inChain.fill(true);   // все 64 соединены — замкнутая стена вокруг
-    ctx.strokeStyle=`rgba(226,240,255,${al})`; ctx.lineWidth=1.2; for(let i=0;i<64;i++){ const p=pts[i]; if(!p||!p.solid||!joined(i)||!inChain[i]) continue; const q=pts[(i+1)%64]; ctx.beginPath(); ctx.moveTo(X(p),Y(p)); ctx.lineTo(X(q),Y(q)); ctx.stroke(); } ctx.lineWidth=1; }
+  // стены с лидара — растр 0,5 м: яркость по числу попаданий (одно — тускло, три и больше — ярко); при отдалении ячейка меньше пикселя — точка
+  if(map.walls&&wmap.size){ const x0=cx-W/2/sc-WCELL, x1=cx+W/2/sc, y0=cy-H/2/sc-WCELL, y1=cy+H/2/sc; const ws=Math.max(1,WCELL*sc);
+    for(const [k,n] of wmap){ const [i,j]=k.split(',').map(Number); const x=i*WCELL, y=j*WCELL; if(x<x0||x>x1||y<y0||y>y1) continue; ctx.fillStyle=`rgba(226,240,255,${n>=3?0.85:n===2?0.6:0.35})`; ctx.fillRect(sx(x),sy(y),ws,ws); } }
   // радиус возврата (ПС-2) — пунктир вокруг узлов: станция и, после включения усилителя, мачта (её место — из описаний)
   if(station.returnR){ const nodes=[SP]; if(station.relay&&known.get(3)) nodes.push(known.get(3)); ctx.strokeStyle='rgba(224,169,74,0.35)'; ctx.setLineDash([4,6]); for(const n of nodes){ ctx.beginPath(); ctx.arc(sx(n.x),sy(n.y),station.returnR*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
   // знак станции — контур корпуса из кодовой книги (эллипс, люк на +x); лидар отражается от того же контура
@@ -298,7 +298,7 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   ctx.globalAlpha=1;
   for(const u of units.values()){ const p=pos(u.id); const col=UCOL[(u.id-1)%UCOL.length]; ctx.fillStyle=u.alive?col:'#666'; ctx.beginPath(); ctx.arc(sx(p.x),sy(p.y),u.id===active?5:3.5,0,7); ctx.fill(); ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?'':' †'}`,sx(p.x)+7,sy(p.y)-6); if(u.tlm&&tNow-u.tlmAt>10){ ctx.fillStyle='#888'; ctx.fillText(`${(tNow-u.tlmAt).toFixed(0)} с назад`,sx(p.x)+7,sy(p.y)+6); } }
   $('#map-count').textContent=`объектов: ${known.size}`; $('#map-scale').textContent=`1 px = ${(1/sc).toFixed(2)} м · ×${map.zoom.toFixed(1)}`; }
-const map={tf:null,zoom:1,panX:0,panY:0,drag:null,hm:true,iso:true,trackLife:0};   // hm/iso — показ карты высот и изогипс; trackLife — сколько секунд пути показывать, 0 — весь
+const map={tf:null,zoom:1,panX:0,panY:0,drag:null,hm:true,iso:true,walls:true,trackLife:0};   // hm/iso/walls — показ карты высот, изогипс и стен; trackLife — сколько секунд пути показывать, 0 — весь
 { const cv=$('#map');
   cv.onwheel=e=>{ e.preventDefault(); const tf=map.tf; if(!tf) return; const r=cv.getBoundingClientRect(); const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
     const f=e.deltaY<0?1.07:1/1.07; const nz=Math.max(0.5,Math.min(40,map.zoom*f)); const k=nz/map.zoom;
@@ -310,7 +310,7 @@ const map={tf:null,zoom:1,panX:0,panY:0,drag:null,hm:true,iso:true,trackLife:0};
   cv.ondblclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); };
   const zoomBy=f=>{ const nz=Math.max(0.5,Math.min(40,map.zoom*f)); const k=nz/map.zoom; map.panX*=k; map.panY*=k; map.zoom=nz; drawMap(); };
   $('#map-tracks').onchange=()=>{ map.trackLife=+$('#map-tracks').value; drawMap(); };
-  for(const id of ['hm','iso']) $('#map-'+id).onclick=e=>{ map[id]=!map[id]; e.target.classList.toggle('on',map[id]); drawMap(); };
+  for(const id of ['hm','iso','walls']) $('#map-'+id).onclick=e=>{ map[id]=!map[id]; e.target.classList.toggle('on',map[id]); drawMap(); };
   $('#map-plus').onclick=()=>zoomBy(1.5); $('#map-minus').onclick=()=>zoomBy(1/1.5); $('#map-reset').onclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); }; }
 $('#map').onclick=e=>{ if(map.suppressClick){ map.suppressClick=false; return; } const cv=$('#map'), r=cv.getBoundingClientRect(), tf=map.tf; if(!tf) return; const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
   if(LAB){ labJump(tf.cx+(px-tf.W/2)/tf.sc, tf.cy+(py-tf.H/2)/tf.sc); return; }
@@ -473,7 +473,7 @@ const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:''), SAVE_VERSION=9;   //
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));
-  return { tNow, active, rxN, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], sonar:sonarSnaps.slice(-120), hwall:[...hwall], hmap:[...hmap.entries()].map(([k,c])=>[k,+c.z.toFixed(2),c.n]), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
+  return { tNow, active, rxN, station, totals, stcam:{subs:stcam.subs}, log:logEntries.slice(-400), contents:[...contents.entries()], walls:[...wmap.entries()], hmap:[...hmap.entries()].map(([k,c])=>[k,+c.z.toFixed(2),c.n]), units:us, known:[...known.entries()].map(([k,v])=>[k,{...v,seenBy:[...v.seenBy]}]), journal:[...journal.entries()] };
 }
 function saveNow(worldData){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({v:SAVE_VERSION, savedAt:Date.now(), world:worldData, console:consoleSnapshot()})); lastSaveAt=Date.now(); $('#save-state').textContent='сохранено '+new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); }catch(e){ $('#save-state').textContent='сохранение не удалось'; } }
 function requestSave(){ if(transport.mp) saveNow(null); else transport.send({t:'save'}); }   // в сети мир хранит сервер, консоль — только своё знание
@@ -481,7 +481,10 @@ function restoreConsole(d){
   tNow=d.tNow; active=d.active||1; rxN=d.rxN||0; Object.assign(station,d.station); if(d.stcam) Object.assign(stcam.subs,d.stcam.subs); Object.assign(totals,d.totals||{}); units.clear();
   for(const su of d.units){ const u=U(su.id); Object.assign(u,su,{img:u.img, sonarData:su.sonarData?new Uint8Array(su.sonarData):null, sonarMask:su.sonarMask||null}); }
   known.clear(); for(const [k,v] of d.known) known.set(k,{...v,seenBy:new Set(v.seenBy)});
-  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v); sonarSnaps.length=0; sonarSnaps.push(...(d.sonar||[]).filter(s=>s.b&&s.b.length===64)); hmap.clear(); for(const [k,z,n] of d.hmap||[]) hmap.set(k,{z,n}); hwall.clear(); if(d.hwall) for(const k of d.hwall) hwall.add(k); else for(const s of sonarSnaps) snapWalls(s); hsmDirty=true;
+  journal.clear(); for(const [k,v] of d.journal) journal.set(k,v); contents.clear(); for(const [k,v] of d.contents||[]) contents.set(k,v); hmap.clear(); for(const [k,z,n] of d.hmap||[]) hmap.set(k,{z,n}); wmap.clear(); hwall.clear();
+  if(d.walls) for(const [k,n] of d.walls){ wmap.set(k,n); const [i,j]=k.split(',').map(Number); hwall.add(Math.floor((i+0.5)*WCELL/HCELL)+','+Math.floor((j+0.5)*WCELL/HCELL)); }
+  else for(const sn of (d.sonar||[])) if(sn.b&&sn.b.length===64) snapWalls(sn);   // старое сохранение: растр из снимков
+  hsmDirty=true;
   $('#log').innerHTML=''; logEntries.length=0; for(const e of d.log||[]) log(e.txt,e.cls,e.t); log('— сеанс восстановлен —','sys');
 }
 function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){ return null; } }
