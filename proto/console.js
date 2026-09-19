@@ -29,7 +29,7 @@ function jlast(id){ const j=journal.get(id); return j?j[j.length-1]:null; }
 function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:(id>=100&&id<200?'свёрток':'объект '+id); }
 // объект, который миссионер изучил или трогал, — знакомый ему: подсветить на карте, дать имя, если его ещё нет
 function markSeen(id,unit){ let o=[...known.values()].find(k=>k.id===id); const p=pos(unit);
-  if(!o){ o={id,cls:0,x:p.x,y:p.y,at:tNow,unit,seenBy:new Set(),name:oname(id)}; known.set(id>=200&&id<250?'unit'+id:'o'+id,o); }
+  if(!o){ o={id,cls:0,x:p.x,y:p.y,at:tNow,unit,seenBy:new Set(),name:oname(id)}; known.set(id>=250?'c'+id:id>=200?'unit'+id:'o'+id,o); }
   o.seenBy.add(unit); o.at=tNow; }
 const KIND_RU={TLM:'телеметрия',HB:'пульс станции',SONAR:'лидар',DESC:'описание',IMG:'изображение',EVT:'событие',EXAM:'осмотр',ACT:'действие',INFO:'статус станции',CONT:'содержимое'};
 const KIND_COL={TLM:'#5cb85c',HB:'#2f6f3a',SONAR:'#4a8fe0',DESC:'#9fb59f',IMG:'#e0a94a',EVT:'#8a7fd0',EXAM:'#8a7fd0',ACT:'#8a7fd0',INFO:'#2f6f3a',CONT:'#8a7fd0',drop:'#d9534f'};
@@ -110,7 +110,7 @@ function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.c
 function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit); const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const items=[];   // позиция съёмки — из пакета, дециметры
   for(let i=4;i+4<b.length;){ const len=b[i+4]; const it={id:b[i],cls:b[i+1],bearing:b[i+2]*2,range:b[i+3],name:decText(b.slice(i+5,i+5+len))}; i+=5+len;
     it.x=p.x+Math.cos(it.bearing*Math.PI/180)*it.range; it.y=p.y+Math.sin(it.bearing*Math.PI/180)*it.range; items.push(it);
-    const key=it.cls===2?'creature':'o'+it.id; const prev=known.get(key); const seen=prev?prev.seenBy:new Set(); seen.add(pkt.unit);
+    const key=it.cls===2?'c'+it.id:'o'+it.id;   // особей несколько — по id const prev=known.get(key); const seen=prev?prev.seenBy:new Set(); seen.add(pkt.unit);
     // ошибка места ∝ дальности (пеленг шагом 2°): для неподвижного объекта остаётся оценка с самой близкой съёмки; существо — всегда свежая
     const keep=prev&&it.cls!==2&&prev.range!==undefined&&prev.range<it.range;
     known.set(key,{id:it.id,cls:it.cls,x:keep?prev.x:it.x,y:keep?prev.y:it.y,range:keep?prev.range:it.range,at:tNow,unit:pkt.unit,seenBy:seen,name:it.name}); }
@@ -327,12 +327,14 @@ function drawChartCh(){ const cv=$('#chart-ch'); fitCanvas(cv); const ctx=cv.get
   h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd; let y=H; for(const k of kinds){ const hh=s[k]/max*H; ctx.fillStyle=KIND_COL[k]; ctx.fillRect(x,y-hh,bwd-1,hh); y-=hh; } });
   ctx.strokeStyle='#fff'; ctx.beginPath(); h.forEach((s,i)=>{ const x=W-(h.length-i)*bwd+bwd/2, y=H-s.cap/max*H; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.fillStyle='#888'; ctx.font='10px monospace'; ctx.fillText(Math.round(max)+' Б/с',4,10); ctx.fillText('90 с',W-30,H-4); }
 function bwRate(k){ const arr=bw[k]||[]; while(arr.length&&tNow-arr[0].t>5) arr.shift(); return arr.reduce((a,p)=>a+p.b,0)/5; }
-function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>180+x*0.5, sy=y=>100+y*0.5; ctx.strokeStyle='#333'; for(const S of (modem.dbg&&modem.dbg.world&&modem.dbg.world.stations)||[STATION]){ ctx.beginPath(); ctx.ellipse(sx(S.x),sy(S.y),STATION.rx*0.5,STATION.ry*0.5,S.ang||0,0,7); ctx.stroke(); }
+const TR={ox:160,oy:90,k:0.45};   // правда о мире: масштаб и смещение — чтобы влезала расщелина с логовом
+function drawTruth(){ const cv=$('#truth'), ctx=cv.getContext('2d'); ctx.fillStyle='#000'; ctx.fillRect(0,0,360,200); const sx=x=>TR.ox+x*TR.k, sy=y=>TR.oy+y*TR.k; ctx.strokeStyle='#333'; for(const S of (modem.dbg&&modem.dbg.world&&modem.dbg.world.stations)||[STATION]){ ctx.beginPath(); ctx.ellipse(sx(S.x),sy(S.y),STATION.rx*TR.k,STATION.ry*TR.k,S.ang||0,0,7); ctx.stroke(); }
   if(dbgLevel){ ctx.strokeStyle='#444'; ctx.beginPath(); for(const pts of [dbgLevel.canyon.pts,dbgLevel.canyon.branch]) pts.forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke();   // расщелина с отростком и ориентиры — из уровня, присланы миром при старте
     ctx.fillStyle='#666'; ctx.font='10px monospace'; for(const p of dbgLevel.pois){ ctx.fillRect(sx(p.x)-1,sy(p.y)-1,3,3); ctx.fillText(p.id,sx(p.x)+4,sy(p.y)+3); } }
-  const dbg=modem.dbg&&modem.dbg.world; if(dbg){ ctx.font='10px monospace'; for(const u of dbg.units){ ctx.fillStyle=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666'; ctx.fillRect(sx(u.x)-2,sy(u.y)-2,5,5); ctx.fillText('М'+u.id,sx(u.x)+5,sy(u.y)+3); } ctx.fillStyle=dbg.awake?'#ff5c5c':'#663'; ctx.fillRect(sx(dbg.cx)-2,sy(dbg.cy)-2,5,5); } }
+  const dbg=modem.dbg&&modem.dbg.world; if(dbg){ ctx.font='10px monospace'; for(const u of dbg.units){ ctx.fillStyle=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666'; ctx.fillRect(sx(u.x)-2,sy(u.y)-2,5,5); ctx.fillText('М'+u.id,sx(u.x)+5,sy(u.y)+3); } for(const p of dbg.pack||[]){ const r=1.5+p.size*1.5; ctx.fillStyle=p.act==='sleep'?'#553':p.act==='attack'?'#ff3c3c':p.act==='flee'||p.act==='home'||p.act==='rest'?'#a86a2a':p.act==='approach'?'#ff8a5c':'#c9a24a'; ctx.beginPath(); ctx.arc(sx(p.x),sy(p.y),r,0,7); ctx.fill(); if(p.hp<3*p.size-0.5){ ctx.strokeStyle='#fff'; ctx.strokeRect(sx(p.x)-r,sy(p.y)-r,2*r,2*r); } }   // одичалые: цвет — что делает, размер — размер, рамка — ранена
+    for(const c of dbg.cries||[]){ ctx.strokeStyle='rgba(255,220,120,'+Math.max(0,1-c.age/4)+')'; ctx.beginPath(); ctx.arc(sx(c.x),sy(c.y),3+c.age*12,0,7); ctx.stroke(); ctx.fillStyle='#ffdc78'; ctx.fillText(c.word,sx(c.x)+6,sy(c.y)-4); } } }
 // телепорт: клик — в точку, перетаскивание — тело едет за курсором (мимо канала)
-{ const cv=$('#truth'); let drag=false; const at=e=>{ const r=cv.getBoundingClientRect(); return { x:((e.clientX-r.left)*(360/r.width)-180)/0.5, y:((e.clientY-r.top)*(200/r.height)-100)/0.5 }; };
+{ const cv=$('#truth'); let drag=false; const at=e=>{ const r=cv.getBoundingClientRect(); return { x:((e.clientX-r.left)*(360/r.width)-TR.ox)/TR.k, y:((e.clientY-r.top)*(200/r.height)-TR.oy)/TR.k }; };
   const tp=p=>transport.send({t:'tp',unit:active,x:p.x,y:p.y});
   cv.onmousedown=e=>{ drag=true; tp(at(e)); e.preventDefault(); }; cv.onmousemove=e=>{ if(drag) tp(at(e)); };
   window.addEventListener('mouseup',e=>{ if(!drag) return; drag=false; const p=at(e); tp(p); log(`[отладка] телепорт М${active} в ${p.x.toFixed(0)}, ${p.y.toFixed(0)}`,'sys'); }); }
@@ -450,7 +452,7 @@ setInterval(()=>{
 },100);
 
 // ---------- сохранение: мир + знание консоли, хранилище браузера ----------
-const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:''), SAVE_VERSION=7;   // в сети — своё знание на каждую комнату и платформу   // поднимать при несовместимых изменениях формата мира или консоли
+const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:''), SAVE_VERSION=8;   // в сети — своё знание на каждую комнату и платформу   // поднимать при несовместимых изменениях формата мира или консоли
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));

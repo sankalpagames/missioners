@@ -6,7 +6,7 @@
 const fs=require('fs'), path=require('path'), zlib=require('zlib'); const {decodePNG}=require('./png.js');
 const P=path.join(__dirname,'..','proto')+'/';
 const src=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+
-  '\nreturn {render, POIS, SPOIS, stations, units, creature, objState, CAM, TER, dist};';
+  '\nreturn {render, POIS, SPOIS, stations, units, pack, objState, CAM, TER, dist};';
 const shims={ self:{location:{search:'?v=0'}}, importScripts(){}, postMessage(){}, setInterval(){return 1}, clearInterval(){}, setTimeout(){return 1}, onmessage:null, fetch(){ return Promise.reject(new Error('no fetch')); } };
 const W=new Function(...Object.keys(shims), src)(...Object.values(shims));
 const atl=decodePNG(fs.readFileSync(P+'sprites.png')); const json=JSON.parse(fs.readFileSync(P+'sprites.json','utf8'));

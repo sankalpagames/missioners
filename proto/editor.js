@@ -32,7 +32,7 @@ function levelText(){ const L=LEVEL; const o=[];
 //              state — начальное состояние (нет — 0); items — содержимое контейнера.
 //   canyon   — расщелина: колена pts и ширина w в каждом колене, м; branch — тупиковый отросток (первое колено — на оси расщелины).
 //   hulls    — корпуса кроме платформы (она — STATION в кодовой книге): круги, непроходимы и отражают лидар; h — высота, м.
-//   creature — лёжка (home) и логово (lair) существа.
+//   pack     — одичалые: lair — логово, members — особи: лёжка x/y и черты 0…1 (size, courage, attention). Не больше 10.
 //   decor    — сюжетные декорации: type — лист из SPRITES, f — курс в градусах, Hs — высота, м. Процедурные декорации — в terrain.js.
 const LEVEL = {`);
   o.push(`  stations: [`);
@@ -49,7 +49,7 @@ const LEVEL = {`);
   o.push(`  canyon: {`); o.push(`    pts: [${pts(L.canyon.pts)}],`); o.push(`    w: [${L.canyon.w.map(num).join(', ')}],`);
   o.push(`    branch: { pts: [${pts(L.canyon.branch.pts)}], w: [${L.canyon.branch.w.map(num).join(', ')}] },`); o.push(`  },`);
   o.push(`  hulls: [`); for(const h of L.hulls) o.push(`    {x:${num(h.x)}, y:${num(h.y)}, r:${num(h.r)}, h:${num(h.h)}},${h.name?'   // '+h.name:''}`); o.push(`  ],`);
-  o.push(`  creature: { home:{x:${num(L.creature.home.x)},y:${num(L.creature.home.y)}}, lair:{x:${num(L.creature.lair.x)},y:${num(L.creature.lair.y)}} },`);
+  o.push(`  pack: { lair:{x:${num(L.pack.lair.x)},y:${num(L.pack.lair.y)}}, members:[`); for(const m of L.pack.members) o.push(`    {x:${num(m.x)}, y:${num(m.y)}, size:${num(m.size)}, courage:${num(m.courage)}, attention:${num(m.attention)}},`); o.push(`  ] },`);
   o.push(`  decor: [`); for(const d of L.decor) o.push(`    {id:${d.id}, type:'${d.type}', x:${num(d.x)}, y:${num(d.y)}, f:${num(d.f)}, Hs:${num(d.Hs)}},`); o.push(`  ],`);
   o.push(`};`); o.push(`if (typeof module !== 'undefined') module.exports = { LEVEL };`); return o.join('\n')+'\n'; }
 function setStatus(t,cls=''){ $('#status').textContent=t; $('#status').className=cls; }
@@ -128,7 +128,7 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     if(layers.labels&&sc>=0.7){ ctx.fillStyle=UCOL; ctx.fillText(p.id+' '+(p.station?'ШЛЮЗ':nameOf(p.id).toUpperCase()),X+8,Y-8); } }
   // существо, логово, старт, камера
   const mark=(kind,ref,x,y,col,label)=>{ handles.push({kind,ref,x,y,r:7}); ctx.fillStyle=col; ctx.beginPath(); ctx.arc(S(x),Sy(y),4,0,7); ctx.fill(); if(layers.labels&&sc>=1){ ctx.fillText(label,S(x)+7,Sy(y)+1); } };
-  mark('creature',LEVEL.creature.home,LEVEL.creature.home.x,LEVEL.creature.home.y,'#ff5c5c','существо'); mark('lair',LEVEL.creature.lair,LEVEL.creature.lair.x,LEVEL.creature.lair.y,'#8a3a3a','логово'); LEVEL.stations.forEach(st=>mark('spawn',st.spawn,st.spawn.x,st.spawn.y,'#5cb85c','старт'));
+  LEVEL.pack.members.forEach((m,i)=>mark('wild',m,m.x,m.y,'#ff5c5c',`особь ${i} · ${m.size} / ${m.courage} / ${m.attention}`)); mark('lair',LEVEL.pack.lair,LEVEL.pack.lair.x,LEVEL.pack.lair.y,'#8a3a3a','логово'); LEVEL.stations.forEach(st=>mark('spawn',st.spawn,st.spawn.x,st.spawn.y,'#5cb85c','старт'));
   { const hd=Math.atan2(cam.ty-cam.y,cam.tx-cam.x), f=cam.fov/2*Math.PI/180, L=25*sc; const X=S(cam.x),Y=Sy(cam.y); ctx.strokeStyle='rgba(224,169,74,0.6)'; ctx.fillStyle='rgba(224,169,74,0.08)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(hd-f)*L,Y+Math.sin(hd-f)*L); ctx.lineTo(X+Math.cos(hd+f)*L,Y+Math.sin(hd+f)*L); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.setLineDash([3,4]); ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(cam.tx),Sy(cam.ty)); ctx.stroke(); ctx.setLineDash([]);
     mark('cam',cam,cam.x,cam.y,'#e0a94a','камера'); handles.push({kind:'camtg',ref:cam,x:cam.tx,y:cam.ty,r:7}); const TX=S(cam.tx),TY=Sy(cam.ty); ctx.strokeStyle='#e0a94a'; ctx.beginPath(); ctx.moveTo(TX-5,TY); ctx.lineTo(TX+5,TY); ctx.moveTo(TX,TY-5); ctx.lineTo(TX,TY+5); ctx.stroke(); }
@@ -168,7 +168,7 @@ cv.addEventListener('mousemove',e=>{ const wx=iS(e.offsetX), wy=iSy(e.offsetY); 
   moveTo(drag.h,snap(wx-drag.ox,e),snap(wy-drag.oy,e)); renderProps(); draw(); });
 window.addEventListener('mouseup',e=>{ if(!drag) return; const d=drag; drag=null; cv.classList.remove('grab');
   if(d.ruler){ setMode(null); draw(); return; } if(d.pan){ if(!d.moved) select(null); else hmDirty(); return; }
-  if(d.moved&&d.h.kind==='knee') hmCompute(); if(d.moved&&['poi','sub','decor','hull','creature','lair','spawn','station','airlock'].includes(d.h.kind)) camShot(); });
+  if(d.moved&&d.h.kind==='knee') hmCompute(); if(d.moved&&['poi','sub','decor','hull','wild','lair','spawn','station','airlock'].includes(d.h.kind)) camShot(); });
 cv.addEventListener('dblclick',e=>{ if(hit(e.offsetX,e.offsetY)) return; const wx=iS(e.offsetX), wy=iSy(e.offsetY); const c=TER.canyon(wx,wy); if(!(c.d<c.w/2+2)) return;   // новое колено на расщелине: в ближайший сегмент
   const C=LEVEL.canyon; const pts=c.branch?C.branch.pts:C.pts, w=c.branch?C.branch.w:C.w; let bi=0,bd=1e9; for(let i=0;i<pts.length-1;i++){ const p=pts[i],q=pts[i+1]; const dx=q.x-p.x,dy=q.y-p.y,L2=dx*dx+dy*dy; const t=Math.max(0,Math.min(1,((wx-p.x)*dx+(wy-p.y)*dy)/L2)); const d=Math.hypot(wx-p.x-dx*t,wy-p.y-dy*t); if(d<bd){ bd=d; bi=i; } }
   pushHist(); pts.splice(bi+1,0,{x:snap(wx,e),y:snap(wy,e)}); w.splice(bi+1,0,Math.round(((w[bi]||w[w.length-1])+(w[bi+1]||w[bi]||w[w.length-1]))/2*10)/10); TER.reload(); select({kind:'knee',pts,w,i:bi+1,br:!!c.branch,ref:pts[bi+1]}); hmCompute(); });
@@ -183,12 +183,14 @@ function place(kind,x,y){ const p=kind==='sub'?((sel&&(sel.kind==='poi'?sel.ref:
   if(kind==='poi'){ const np={id:+$('#add-poi-type').value,x,y,subs:[]}; LEVEL.pois.push(np); LEVEL.pois.sort((a,b)=>a.id-b.id); fillAddSelects(); select({kind:'poi',ref:np}); }
   if(kind==='decor'){ const id=Math.max(7000,...LEVEL.decor.map(d=>d.id))+1; const type=$('#add-decor-type').value; const d={id,type,x,y,f:0,Hs:SPRITES[type].H}; LEVEL.decor.push(d); TER.reload(); select({kind:'decor',ref:d}); }
   if(kind==='hull'){ const h={x,y,r:3,h:3}; LEVEL.hulls.push(h); select({kind:'hull',ref:h}); }
+  if(kind==='wild'){ if(LEVEL.pack.members.length>=10){ setStatus('в стае не больше 10 особей (id 250…259)','err'); return; } const m={x,y,size:1,courage:0.5,attention:0.5}; LEVEL.pack.members.push(m); select({kind:'wild',ref:m}); }
   camShot(); }
 function del(){ if(!sel) return; const k=sel.kind;
   if(k==='sub'){ pushHist(); sel.poi.subs.splice(sel.i,1); }
   else if(k==='poi'){ if(!confirm(`Удалить ориентир ${sel.ref.id} «${nameOf(sel.ref.id)}» со всеми подобъектами?`)) return; pushHist(); LEVEL.pois.splice(LEVEL.pois.indexOf(sel.ref),1); fillAddSelects(); }
   else if(k==='decor'){ pushHist(); LEVEL.decor.splice(LEVEL.decor.indexOf(sel.ref),1); TER.reload(); }
   else if(k==='hull'){ pushHist(); LEVEL.hulls.splice(LEVEL.hulls.indexOf(sel.ref),1); }
+  else if(k==='wild'){ pushHist(); LEVEL.pack.members.splice(LEVEL.pack.members.indexOf(sel.ref),1); }
   else if(k==='knee'){ if(sel.pts.length<=2){ setStatus('в ломаной должно остаться хотя бы два колена','err'); return; } pushHist(); sel.pts.splice(sel.i,1); if(sel.w.length>sel.i) sel.w.splice(sel.i,1); TER.reload(); hmCompute(); }
   else return;
   select(null); camShot(); }
@@ -228,11 +230,11 @@ function renderProps(){ const P=$('#props'); if(!sel){ $('#sel-title').textConte
   if(k==='knee'){ title=`колено ${sel.i}${sel.br?' отростка':''}`; XY(r); if(sel.w[sel.i]!==undefined) F('ширина',()=>sel.w[sel.i],v=>{ sel.w[sel.i]=v; }); rows.push({label:'',html:`<button data-act="knee-add">колено после</button>`}); }
   if(k==='decor'){ title=`декорация ${r.id}`; rows.push({label:'тип',html:`<select>${decorTypes().map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select>`,on:v=>r.type=v}); XY(r); F('курс',()=>r.f,v=>r.f=v,'step="5"'); F('высота Hs',()=>r.Hs,v=>r.Hs=v); }
   if(k==='hull'){ title='корпус'; XY(r); F('радиус',()=>r.r,v=>r.r=v); F('высота',()=>r.h,v=>r.h=v); }
-  if(k==='creature'){ title='лёжка существа'; XY(r); } if(k==='lair'){ title='логово существа'; XY(r); } if(k==='spawn'){ title='точка старта'; XY(r); }
+  if(k==='wild'){ title=`особь ${LEVEL.pack.members.indexOf(r)} (id ${250+LEVEL.pack.members.indexOf(r)})`; XY(r); F('размер',()=>r.size,v=>r.size=v,'step="0.1" min="0.5" max="1.5"'); F('храбрость',()=>r.courage,v=>r.courage=v,'step="0.05" min="0" max="1"'); F('внимательность',()=>r.attention,v=>r.attention=v,'step="0.05" min="0" max="1"'); } if(k==='lair'){ title='логово стаи'; XY(r); } if(k==='spawn'){ title='точка старта'; XY(r); }
   if(k==='station'){ title='платформа ARK-04'+(1+LEVEL.stations.indexOf(r)); XY(r); F('курс',()=>r.ang||0,v=>r.ang=v,'step="5"'); }
   if(k==='airlock'){ title='шлюз '+r.id; XY(r); }
   if(k==='cam'||k==='camtg'){ title=k==='cam'?'камера':'цель камеры'; const o=k==='cam'?{get x(){return cam.x},set x(v){cam.x=v},get y(){return cam.y},set y(v){cam.y=v}}:{get x(){return cam.tx},set x(v){cam.tx=v},get y(){return cam.ty},set y(v){cam.ty=v}}; XY(o); }
-  if(!['cam','camtg','station','airlock','spawn'].includes(k)) rows.push({label:'',html:`<button data-act="del" class="ghost">удалить</button> <button data-act="cam-here" class="ghost">кадр сюда</button>`});
+  if(!['cam','camtg','station','airlock','spawn','lair'].includes(k)) rows.push({label:'',html:`<button data-act="del" class="ghost">удалить</button> <button data-act="cam-here" class="ghost">кадр сюда</button>`});
   $('#sel-title').textContent=title; P.innerHTML=rows.map(r=>`<label>${r.label}</label><span>${r.html}</span>`).join('');
   [...P.querySelectorAll('input,select')].forEach((el,i)=>{ const row=rows.filter(r=>r.on)[i]; if(!row) return; el.onchange=()=>{ if(!['cam','camtg'].includes(k)) pushHist(); row.on(el.value); if(k==='knee'||k==='decor') TER.reload(); if(k==='knee') hmCompute(); draw(); renderProps(); camShot(); }; });
   P.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{ const a=b.dataset.act; if(a==='del') del(); if(a==='cam-here') camToSel(); if(a==='knee-add'){ pushHist(); const p=sel.pts[sel.i], q=sel.pts[sel.i+1]||{x:p.x+10,y:p.y}; sel.pts.splice(sel.i+1,0,{x:(p.x+q.x)/2,y:(p.y+q.y)/2}); sel.w.splice(sel.i+1,0,sel.w[sel.i]); TER.reload(); select({kind:'knee',pts:sel.pts,w:sel.w,i:sel.i+1,br:sel.br,ref:sel.pts[sel.i+1]}); hmCompute(); } }); }
@@ -246,7 +248,7 @@ const camW=(()=>{ const base=new URL('.',location.href).href, v=window.__v;
   const src=`importScripts(${['level.js','codebook.js','terrain.js','camera.js'].map(f=>JSON.stringify(base+f+'?v='+v)).join(',')});
     const ready=CAM.load(${JSON.stringify(String(v))},${JSON.stringify(base)});
     function scene(u){ const out=[]; for(const p of LEVEL.pois){ if(SPRITES[p.id]) out.push({id:p.id,type:p.id,x:p.x,y:p.y}); p.subs.forEach((s,i)=>{ if(SPRITES[s.type]) out.push({id:p.id*10+i,type:s.type,x:p.x+s.dx,y:p.y+s.dy,facing:s.f===undefined?undefined:s.f*Math.PI/180}); }); }
-      const h=LEVEL.creature.home; out.push({id:250,type:'sleep',x:h.x,y:h.y,facing:Math.atan2(u.y-h.y,u.x-h.x)});
+      LEVEL.pack.members.forEach((m,i)=>out.push({id:250+i,type:'sleep',x:m.x,y:m.y,facing:Math.atan2(u.y-m.y,u.x-m.x),Hs:0.6*m.size}));
       LEVEL.stations.forEach((st,k)=>{ out.push({id:900+k,type:'station',x:st.x,y:st.y,facing:(st.ang||0)*Math.PI/180}); out.push({id:201+k,type:252,x:st.spawn.x,y:st.spawn.y,facing:0}); st.subs.forEach((s,i)=>{ if(SPRITES[s.type]) out.push({id:160+k*4+i,type:s.type,x:st.airlock.x+s.dx,y:st.airlock.y+s.dy,facing:s.f===undefined?undefined:s.f*Math.PI/180}); }); });
       return out.concat(TER.decor(u,120)); }
     onmessage=async e=>{ const m=e.data; await ready; for(const k in LEVEL) delete LEVEL[k]; Object.assign(LEVEL,m.level); TER.reload(); const t0=Date.now();
