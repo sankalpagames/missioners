@@ -6,7 +6,7 @@
 // номера последних пакетов и хвосты доставленных пакетов по платформам — ими досылаются пропуски при повторном подключении.
 // Запуск: node server/index.js [порт] [debug]   (или PORT, DATA_DIR, DEBUG=1; debug — отдавать правду о мире в шторку и принимать телепорт)
 const fs=require('fs'), path=require('path'), http=require('http'), zlib=require('zlib'), crypto=require('crypto');
-const {WebSocketServer}=require('ws'); const {decodePNG}=require('../tools/png.js');
+const {WebSocketServer}=require('ws'); const {decodePNG}=require('../tools/png.js'); const {OpConsole}=require('./opconsole.js');
 const ROOT=path.join(__dirname,'..'), P=path.join(ROOT,'proto')+'/';
 const PORT=+process.argv[2]||+process.env.PORT||8765, DEBUG=!!process.env.DEBUG||process.argv.includes('debug');
 const DATA=process.env.DATA_DIR||(process.env.WEBSITE_SITE_NAME?'/home/data':path.join(ROOT,'data'));   // WEBSITE_SITE_NAME — признак App Service
@@ -100,6 +100,38 @@ function listRooms(){ const out=[]; const codes=new Set(rooms.keys());
   return out.sort((a,b)=>(b.ops.length-a.ops.length)||(b.savedAt-a.savedAt)); }
 const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);
 
+// ---- HTTP-API агента-оператора: /op/join, /op/perceive, /op/act, /op/state, /op/leave (docs/agent-api.md §10). Агент — обычный клиент
+// станции: виртуальная консоль (server/opconsole.js) входит в комнату как оператор платформы, получает те же пакеты, что консоль
+// в браузере, и шлёт те же байты. Мир и станция разницы не видят; сессия держит мир идущим, как любой оператор.
+const OP_TTL=10*60*1000, OP_MIN_MS=200; const opSessions=new Map();
+class OpClient { constructor(){ this.oc=new OpConsole(); this.live=false; this.st=0; this.op={name:'агент',token:''}; this.waiters=[]; this.last=Date.now(); this.oc.onLine=()=>{ for(const w of this.waiters.splice(0)) w(); }; }
+  send(s){ let m; try{ m=JSON.parse(s); }catch(e){ return; } this.oc.onMsg(m); } }
+setInterval(()=>{ const now=Date.now(); for(const [id,S] of opSessions) if(now-S.client.last>OP_TTL){ S.room.leave(S.client); opSessions.delete(id); log(`${S.room.code}: агент-оператор ${S.client.op.name} вышел по тишине`); } },60000);
+function opApi(req,res,u,op){
+  const wantText=u.searchParams.get('text')==='1'||/^text\/plain/.test(req.headers.accept||'');
+  const send=(code,obj,text)=>{ if(wantText&&text!==undefined){ res.writeHead(code,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}); res.end(text); } else { res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(obj)); } };
+  const withBody=cb=>{ let body=''; req.on('data',c=>{ body+=c; if(body.length>2e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){ q={}; } cb(q); }); };
+  const sess=q=>{ const id=String(q.id||u.searchParams.get('id')||''); const S=opSessions.get(id); if(!S){ send(404,{error:'сессии нет: сначала /op/join'},'сессии нет'); return null; }
+    const now=Date.now(); if(now-S.client.last<OP_MIN_MS){ send(429,{error:'не чаще '+OP_MIN_MS+' мс'},'слишком часто'); return null; } S.client.last=now; return S; };
+  const header=S=>{ const M=S.client.oc.modem; return M?`${M.up?'связь':'НЕТ СВЯЗИ'} · ${(M.cap/8).toFixed(0)} Б/с · в очереди ${M.qcmd+M.qbg} Б`:'модем: нет показаний'; };
+  if(op==='join'&&req.method==='POST'){ withBody(q=>{ const code=String(q.room||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ send(400,{error:'нужен код планеты'},'нужен код планеты'); return; }
+      const r=room(code); const c=new OpClient(); const id=crypto.randomBytes(8).toString('hex'); opSessions.set(id,{room:r,client:c});
+      r.join(c); r.hello(c, 0, {name:String(q.name||'агент').slice(0,24), token:''}, +q.st||0); log(`${code}: агент-оператор ${c.op.name} на платформе ${c.st}`);
+      const st=c.oc.state(); send(200,{ok:true, id, room:code, st:c.st, name:c.oc.name, n:c.oc.n, replay:c.oc.replay, speed:r.st.speed, lines:st, text:st.join('\n')}, `сессия ${id}\n`+st.join('\n')+`\n— ${header({client:c})}, n=${c.oc.n}, досыл ${c.oc.replay} пакетов`); }); return; }
+  if(op==='perceive'&&req.method==='GET'){ const S=sess({}); if(!S) return; const c=S.client, since=+u.searchParams.get('since')||0, wait=Math.max(0,Math.min(PACK_WAIT_MAX,+u.searchParams.get('wait')||0));
+    const reply=()=>{ const lines=c.oc.lines.filter(l=>l.n>since); const n=lines.length?lines[lines.length-1].n:c.oc.n; const M=c.oc.modem;
+      send(200,{n, at:+c.oc.tNow.toFixed(1), speed:S.room.st.speed, modem:M?{up:M.up,cap:M.cap,queue:M.qcmd+M.qbg,eta:M.queue.map(g=>({id:g.id,kind:g.kind,unit:g.unit,eta:g.eta}))}:null, lines, text:lines.map(l=>`${mmss(l.at)} ${l.text}`).join('\n')}, lines.map(l=>`${mmss(l.at)} ${l.text}`).join('\n')+(lines.length?'\n':'')+`— ${header(S)}, n=${n}`); };
+    if(c.oc.lines.some(l=>l.n>since)||!wait) return reply();
+    let done=false; const fire=()=>{ if(done) return; done=true; clearTimeout(tm); reply(); }; const tm=setTimeout(fire,wait*1000); c.waiters.push(fire); req.on('close',()=>{ done=true; clearTimeout(tm); }); return; }
+  if(op==='act'&&req.method==='POST'){ withBody(q=>{ const S=sess(q); if(!S) return; const c=S.client; const lines=(Array.isArray(q.acts)?q.acts:String(q.acts||q.text||'').split('\n')).map(x=>x.trim()).filter(Boolean).slice(0,20); const results=[];
+      for(const line of lines){ const p=c.oc.parse(line); if(p.error){ results.push({line, ok:false, why:p.error}); continue; } if(!c.oc.modem||!c.oc.modem.up){ results.push({line, ok:false, why:'нет связи со станцией'}); continue; }
+        S.room.handle(c,{t:'up',bytes:p.bytes}); c.oc.say('→ '+p.label); results.push({line, ok:true, sent:p.label, bytes:p.bytes}); }
+      send(200,{results}, results.map(x=>`${x.ok?'отправлено':'отказ'} — ${x.line}${x.why?' ('+x.why+')':''}${x.sent?' → '+x.sent:''}`).join('\n')); }); return; }
+  if(op==='state'&&req.method==='GET'){ const S=sess({}); if(!S) return; const st=S.client.oc.state(); send(200,{n:S.client.oc.n, lines:st, text:st.join('\n')}, st.join('\n')+`\n— ${header(S)}, n=${S.client.oc.n}`); return; }
+  if(op==='leave'&&req.method==='POST'){ withBody(q=>{ const id=String(q.id||''); const S=opSessions.get(id); if(S){ S.room.leave(S.client); opSessions.delete(id); } send(200,{ok:true},'вышел'); }); return; }
+  send(404,{error:'нет такого: /op/join (POST), /op/perceive (GET), /op/act (POST), /op/state (GET), /op/leave (POST)'},'нет такого');
+}
+
 // ---- HTTP-API агента стаи: /pack/join, /pack/perceive, /pack/act (docs/agent-api.md). Планета — по коду и токену стаи из настроек.
 // Сессия RTS: если операторов нет, мир стоит — asleep:true, лента не растёт. Ответ — JSON; ?text=1 или Accept: text/plain — только текст ленты.
 const mmss=at=>`${String(Math.floor(at/60)).padStart(2,'0')}:${String(Math.floor(at%60)).padStart(2,'0')}`, fmtLine=l=>`${mmss(l.at)} О${l.who}: ${l.text}`;
@@ -132,6 +164,7 @@ const server=http.createServer((req,res)=>{
       const code=String(q.code||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ res.writeHead(400); res.end('bad code'); return; }
       const fresh=!rooms.has(code); const r=room(code,q); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({...r.info(), pack:fresh?r.cfg.pack:undefined})); }); return; }   // токен стаи — только создателю, один раз
   if(f.startsWith('/pack/')){ packApi(req,res,u,f.slice(6)); return; }
+  if(f.startsWith('/op/')){ opApi(req,res,u,f.slice(4)); return; }
   if(f==='/rooms'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(listRooms())); return; }
   const fp=path.normalize(path.join(P,f)); if(!fp.startsWith(P)||/editor|serve\.py/.test(f)){ res.writeHead(404); res.end(); return; }   // редактор — только локально через serve.py
   fs.readFile(fp,(e,b)=>{ if(e){ res.writeHead(404); res.end('not found'); return; } res.writeHead(200,{'Content-Type':MIME[path.extname(fp)]||'application/octet-stream','Cache-Control':'no-store'}); res.end(b); });
