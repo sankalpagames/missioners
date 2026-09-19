@@ -63,7 +63,7 @@ const ground = [];                          // свёртки на грунте:
 let nextGround = 100;
 // изъять предмет из контейнера (тело — камера отдельно; пустой свёрток исчезает); свёрток на грунт — предмет под ногами
 function removeItem(o,item){ if(o.unit){ const v=o.unit; if(item===42){ v.sensors.camera=false; v.sub.img.interval=0; } else v.items.splice(v.items.indexOf(item),1); }
-  else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ ground.splice(ground.findIndex(g=>g.id===o.id),1); delete contents[o.id]; } } }
+  else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ const gi=ground.findIndex(g=>g.id===o.id); if(gi>=0){ ground.splice(gi,1); delete contents[o.id]; } } } }   // свёрток уровня (не из ground) пустым остаётся
 function dropBundle(x,y,item){ const g={id:nextGround++, x:Math.round(x), y:Math.round(y)}; if(nextGround>199) nextGround=100; ground.push(g); contents[g.id]=[item]; return g; }
 function isContainer(o){ if(o.unit) return !o.unit.alive; const cb=CODEBOOK[o.type]; return !!cb && cb.container!==undefined; }
 function containerOpen(o){ if(o.unit) return true; const cb=CODEBOOK[o.type]; return stateOf(o.id)>=cb.container; }
@@ -218,7 +218,7 @@ function foeText(p){ const f=foeOf(p); if(!f || t-f.t>1.5) return ''; const u=un
   if(f.how!=='see') return `слышу шаги, ${farWord(dist(p,u))}, на ${rumb(p,u)}`;
   const sp=u.target?speedFor(u):0, mv=sp<=0?'стоит':sp<1?'крадётся':sp<2?'идёт':'бежит';
   return `вижу двуногого ${u.lightOn?'со светом':'без света'}, ${farWord(dist(p,u))}, на ${rumb(p,u)}, ${mv}`; }
-function nearItems(p,r=6){ return objectsAround(p,r).filter(o=>!o.pack&&!o.landmark&&isContainer(o)&&containerOpen(o)&&contentsOf(o).length); }   // открытые контейнеры с содержимым рядом: ящики, свёртки, тела
+function nearItems(p,r=6){ return objectsAround(p,r).filter(o=>!o.pack&&!o.landmark&&isContainer(o)&&containerOpen(o)&&contentsOf(o).length&&(r<=6||losFrac(p,o)<0.34)); }   // открытые контейнеры с содержимым: в 6 м — с содержимым, до 20 м — видны как предмет (стены — как у зрения)
 // класс с гистерезисом: у порога значение дрожит, слово — нет
 function band(v,bands,prev){ const i=bands.findIndex(b=>b[0]===prev); if(i>=0){ const lo=i>0?bands[i][1]-0.05:-1, hi=i<bands.length-1?bands[i+1][1]+0.05:2; if(v>=lo&&v<hi) return prev; } let w=bands[0][0]; for(const b of bands) if(v>=b[1]) w=b[0]; return w; }
 const FEAR_BANDS=[['спокоен',0],['тревожно',0.3],['страшно',0.6]];
@@ -230,6 +230,7 @@ function perceive(p){ const first=!p.per; const per=p.per=p.per||{seen:{}}; cons
   for(const k of ['act','fear','hp','tired','place']){ if(w[k]!==per[k]){ if(w[k]) out.push(w[k]); per[k]=w[k]; } }
   const carry=p.item?'несу: '+ITEMS[p.item]:''; if(carry!==(per.carry||'')){ if(carry) out.push(carry); else if(per.carry) out.push('положил'); per.carry=carry; }
   if(p.act!=='sleep' && (Math.floor(t/DT)+p.i)%20===0){ const near=nearItems(p).map(o=>`${nameOf(o)} — ${contentsOf(o).map(i=>ITEMS[i]).join(', ')}`).join('; '); if(near!==(per.near||'')){ if(near) out.push('рядом: '+near); per.near=near; }
+    for(const o of nearItems(p,20)){ const k='obj'+o.id; if(!per.seen[k]) out.push(`вижу: ${nameOf(o)}, ${farWord(dist(p,o))}, на ${rumb(p,o)}`); per.seen[k]=true; } for(const k in per.seen) if(k.startsWith('obj')&&!nearItems(p,20).some(o=>'obj'+o.id===k)) per.seen[k]=false;   // предмет в поле зрения — с направлением, чтобы к нему можно было подойти
     for(const L of landmarks()){ const s=seesLandmark(p,L); if(s && !per.seen[L.key]) out.push(`вижу: ${L.name}, ${farWord(dist(p,L))}, на ${rumb(p,L)}`); per.seen[L.key]=s; }
     for(const q of pack){ if(q===p||q.act!=='dead') continue; const k='dead'+q.i; const s=dist(p,q)<40 && losFrac(p,q)<0.34; if(s && !per.seen[k]) out.push(`${pname(q)} лежит, мёртв, ${farWord(dist(p,q))}, на ${rumb(p,q)}`); per.seen[k]=s; }
     for(const u of units){ if(u.alive) continue; const k='body'+u.id; const s=dist(p,u)<40 && losFrac(p,u)<0.34; if(s && !per.seen[k]) out.push(`тело двуногого лежит, ${farWord(dist(p,u))}, на ${rumb(p,u)}`); per.seen[k]=s; } }
@@ -258,8 +259,8 @@ function intent(line){
   else if(/^крикни\s+(\S+)/.test(v)){ const w=/^крикни\s+(\S+)/.exec(v)[1]; if(!WORDS.includes(w)) return no('нет такого крика: '+WORDS.join(', '));
     if((w==='бей'||w==='сюда') && ce<0.35) return no('боится'); if(!cry(p,w)) return no('глотка, только что кричал'); return accept(INTENT_CD_SHORT); }
   else if(/^(возьми|подними)\s+(.+)/.test(v)){ if(p.item) return no('уже несу: '+ITEMS[p.item]); const want=/^(возьми|подними)\s+(.+)/.exec(v)[2]; const stem=w=>w.slice(0,Math.max(3,w.length-2));
-    for(const o of nearItems(p,3)) for(const it of contentsOf(o)) if(ITEMS[it].split(' ').some(w=>stem(w).startsWith(stem(want.split(' ').pop())))){ removeItem(o,it); p.item=it; note('agent',{who:p.i,take:it,from:o.id}); return accept(INTENT_CD_SHORT); }
-    return no(nearItems(p,3).length?'такого рядом нет':'рядом ничего нет, подойти вплотную'); }
+    for(const o of nearItems(p,4)) for(const it of contentsOf(o)) if(ITEMS[it].split(' ').some(w=>stem(w).startsWith(stem(want.split(' ').pop())))){ removeItem(o,it); p.item=it; note('agent',{who:p.i,take:it,from:o.id}); return accept(INTENT_CD_SHORT); }
+    return no(nearItems(p,4).length?'такого рядом нет':'рядом ничего нет, подойти вплотную'); }
   else if(/^(положи|брось)/.test(v)){ if(!p.item) return no('ничего не несу'); dropBundle(p.x,p.y,p.item); note('agent',{who:p.i,drop:p.item}); p.item=null; return accept(INTENT_CD_SHORT); }
   else if(/^к чужому/.test(v)){ const f=foeOf(p); if(!f) return no('чужого не чувствую'); if(ce<0.3) return no('боится'); go({x:f.x,y:f.y}); }
   else if(/^к крикнувшему/.test(v)){ const c=[...cries].reverse().find(c=>c.i!==p.i && t-c.t<30); if(!c) return no('крика не слышал'); go({x:c.x,y:c.y}); }
@@ -269,8 +270,8 @@ function intent(line){
   else if(/^на (северо-восток|северо-запад|юго-восток|юго-запад|север|юг|восток|запад)( далеко| близко| чуть)?/.test(v)){ const mm=/^на (северо-восток|северо-запад|юго-восток|юго-запад|север|юг|восток|запад)( далеко| близко| чуть)?/.exec(v);
     const a=RUMB_DIR[mm[1]]*Math.PI/4, R=mm[2]===' далеко'?150:mm[2]===' близко'?20:mm[2]===' чуть'?8:50; short=R<=8; go({x:p.x+Math.cos(a)*R, y:p.y+Math.sin(a)*R}); }
   else if(/^к /.test(v)){ const stem=w=>w.slice(0,Math.max(3,w.length-2)), want=stem(v.slice(2).trim().split(' ').pop());
-    const near=objectsAround(p,15).filter(o=>!o.pack&&!o.landmark&&nameOf(o).split(' ').some(w=>stem(w).startsWith(want)||want.startsWith(stem(w))));   // предмет рядом — раньше ориентира: «к ящику» у обломков
-    if(near.length){ const o=near.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b), d=dist(p,o)||1; short=true; go({x:o.x+(p.x-o.x)*1.2/d, y:o.y+(p.y-o.y)*1.2/d}); }
+    const near=objectsAround(p,20).filter(o=>!o.pack&&!o.landmark&&losFrac(p,o)<0.34&&nameOf(o).split(' ').some(w=>stem(w).startsWith(want)||want.startsWith(stem(w))));   // предмет в поле зрения — раньше ориентира: «к ящику» у обломков
+    if(near.length){ const o=near.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b), d=dist(p,o)||1; short=true; go({x:o.x+(p.x-o.x)*1.0/d, y:o.y+(p.y-o.y)*1.0/d}); }
     else { const L=landmarks().filter(L=>L.name.split(' ').some(w=>stem(w).startsWith(want)||want.startsWith(stem(w)))); const seen=L.filter(L=>p.per&&p.per.seen[L.key]);   // «к обломкам», «к ящикам»: по основе слова
     if(!L.length) return no('не знаю такого'); if(!seen.length) return no(`не вижу: ${L[0].name}`); const best=seen.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b); const d=dist(p,best)||1; go({x:best.x+(p.x-best.x)*6/d, y:best.y+(p.y-best.y)*6/d}); } }
   else return no('не понял; знаю: к чужому, к крикнувшему, домой, на лёжку, к О3, к обломкам, на запад [далеко|близко|чуть], стой, возьми предмет, положи, крикни слово, как хочешь');
