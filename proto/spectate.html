@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Миссионеры — спектатор</title>
+<style>
+:root{--bg:#0b0d10;--panel:#12151a;--line:#232830;--fg:#c9d1d9;--dim:#6b7480;--acc:#e0a94a;--red:#ff5c5c;--grn:#7fe07f;--blu:#4a8fe0}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.35 ui-monospace,Menlo,monospace;display:flex;flex-direction:column;overflow:hidden}
+#top{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel);white-space:nowrap}
+#top .t{font-size:11px;letter-spacing:.12em;color:var(--acc)}
+#app{display:grid;grid-template-columns:1fr 400px;flex:1;min-height:0}
+#mapwrap{position:relative;min-width:0;min-height:0;background:#000}
+#map{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+#map.grab{cursor:grabbing}
+#drop{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);background:rgba(0,0,0,.6);text-align:center;line-height:1.7}
+#drop b{color:var(--fg);font-weight:normal}
+#side{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+#info{padding:8px 10px;border-bottom:1px solid var(--line);min-height:120px;max-height:45%;overflow:auto}
+#info h3{margin:0 0 4px;font-size:11px;letter-spacing:.1em;color:var(--acc)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-size:11px}
+.kv label{color:var(--dim)}
+#feedwrap{flex:1;min-height:0;display:flex;flex-direction:column}
+#filters{display:flex;gap:8px;padding:4px 10px;border-bottom:1px solid var(--line);color:var(--dim);font-size:11px;flex-wrap:wrap}
+#feed{flex:1;overflow:auto;padding:4px 10px;font-size:11px;line-height:1.4;white-space:pre-wrap}
+#feed .t{color:var(--dim)}#feed .pack{color:#ffb0b0}#feed .ack{color:var(--acc)}#feed .op{color:var(--grn)}#feed .note{color:var(--dim)}#feed .cry{color:var(--red)}#feed .shot{color:#fff;background:#4a1a1a}
+button{background:#1c2129;color:var(--fg);border:1px solid #2e3642;border-radius:4px;padding:3px 8px;font:inherit;cursor:pointer}
+button:hover{background:#262d38}button.on{background:#3a2f16;border-color:var(--acc)}
+select,input{font:inherit;background:#000;color:var(--fg);border:1px solid var(--line);border-radius:3px;padding:2px 4px}
+#seek{flex:1;min-width:120px;padding:0}
+.dim{color:var(--dim)}.grow{flex:1}
+label.cb{cursor:pointer;user-select:none}
+</style>
+</head>
+<body>
+<header id="top">
+  <span class="t">СПЕКТАТОР · лог мира</span>
+  <input type="file" id="file" accept=".log,.jsonl,.txt" title="Файл лога: data/КОД.log с сервера, data/play-*.log с площадки или «лог мира» из шторки">
+  <button id="play" title="Пробел">▶</button>
+  <select id="speed" title="Скорость проигрывания"><option value="1">×1</option><option value="4" selected>×4</option><option value="16">×16</option><option value="64">×64</option></select>
+  <span id="time" class="dim">—</span>
+  <input type="range" id="seek" min="0" max="0" step="0.1" value="0" title="← → 5 с, с Shift — 60 с">
+  <span class="dim">слои</span>
+  <button class="on" data-layer="hm">высоты</button>
+  <button class="on" data-layer="iso">изогипсы</button>
+  <button data-layer="grid">сетка</button>
+  <button class="on" data-layer="labels">подписи</button>
+  <button class="on" data-layer="sectors">сектора</button>
+  <button class="on" data-layer="targets">цели</button>
+  <button class="on" data-layer="senses">чувства</button>
+</header>
+<div id="app">
+  <div id="mapwrap"><canvas id="map"></canvas>
+    <div id="drop">Перетащи сюда лог мира или выбери файл.<br><b>data/КОД.log</b> — сервер, <b>data/play-*.log</b> — площадка агента, «лог мира» из шторки — одиночная игра.<br><span class="dim">Колесо — масштаб, перетаскивание — сдвиг, наведение — характеристики, клик — закрепить.</span></div>
+  </div>
+  <aside id="side">
+    <div id="info"><span class="dim">Наведи на тело, особь, турель или свёрток.</span></div>
+    <div id="feedwrap">
+      <div id="filters">
+        <label class="cb"><input type="checkbox" data-f="pack" checked> стая</label>
+        <label class="cb"><input type="checkbox" data-f="ack" checked> намерения</label>
+        <label class="cb"><input type="checkbox" data-f="op" checked> операторы</label>
+        <label class="cb"><input type="checkbox" data-f="note"> заметки мира</label>
+        <span class="grow"></span><span id="feedn" class="dim"></span>
+      </div>
+      <div id="feed"></div>
+    </div>
+  </aside>
+</div>
+<script>(function(){ const v=Date.now(); for(const f of ['level.js','codebook.js','terrain.js','mapdraw.js','spectate.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();</script>
+</body>
+</html>

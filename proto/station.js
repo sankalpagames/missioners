@@ -60,7 +60,7 @@ function makeStation(opts){
       for(const L of links){ L.link.tick(DT); for(const id in L.link.phys.units){ carriers[id]=L.link.carrier(+id); snr[id]=L.link.snrDb(+id); } }
       W.handle({t:'link',carriers,snr});
       for(const L of links){ const sec=Math.floor(L.link.t+1e-6); if(sec!==L.lastSec){ L.lastSec=sec; out(modem(L.k)); } }
-      if(dbg && opts.log){ const sec=Math.floor(links[0].link.t+1e-6); if(sec!==lastLogSec){ lastLogSec=sec; log({k:'phys', units:dbg.units.map(u=>[u.id,u.st,+u.x.toFixed(1),+u.y.toFixed(1),u.alive?1:0]), pack:dbg.pack.map(p=>[+p.x.toFixed(1),+p.y.toFixed(1),p.act,p.hp,p.fear]), snr:links.map(L=>Object.fromEntries(Object.keys(L.link.phys.units).map(id=>[id,+L.link.snrDb(+id).toFixed(1)]))) }); } }
+      if(dbg && opts.log){ const sec=Math.floor(links[0].link.t+1e-6); if(sec!==lastLogSec){ lastLogSec=sec; log({k:'phys', units:dbg.units, pack:dbg.pack, turrets:dbg.stations.map(S=>S.turret), ground:dbg.ground, snr:links.map(L=>Object.fromEntries(Object.keys(L.link.phys.units).map(id=>[id,+L.link.snrDb(+id).toFixed(1)]))) }); } }   // правда о мире целиком — по ней спектатор проигрывает сеанс
     },
     modem,
     // консоль → станция; st — платформа оператора (в одиночной игре — 0)

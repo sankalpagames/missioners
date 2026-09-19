@@ -503,7 +503,8 @@ onmessage = e => {
   if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ const c=!!m.carriers[u.id]; u.carrier=c; u.snr=m.snr?m.snr[u.id]:0; if(c!==u.carrierNoted){ u.carrierFlipAt=u.carrierFlipAt??t; if(u.carrierNoted===undefined || t-u.carrierFlipAt>=1){ u.carrierNoted=c; u.carrierFlipAt=undefined; if(u.alive) note('unit',{unit:u.id,carrier:c,snr:+u.snr.toFixed(1),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); } } else u.carrierFlipAt=undefined; } return; }   // станция измеряет уровень сигнала каждого тела; миссионер сам слышит несущую — физика, не данные; заметка — когда состояние продержалось секунду
   if(m.t==='imgAck'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='imgCancel'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u){ u.pendingImg=null; delete u.lastImg[m.level]; } return; }   // кадр не дошёл: следующий на этом уровне — ключевой
-  if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; note('debug',{tp:u.id,x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
+  if(m.t==='tp'){ if(m.pack!==undefined){ const p=pack[m.pack]; if(p&&p.act!=='dead'){ p.x=m.x; p.y=m.y; p.target=null; p.act='idle'; p.told={v:'тп'}; note('debug',{tp:'О'+(m.pack+1),x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
+    const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; note('debug',{tp:u.id,x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
   if(m.t==='peek'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u) postMessage({t:'peekImg',unit:u.id,img:render(u,64)}); return; }   // отладка: чистый рендер мимо канала
   if(m.t==='intent'){ postMessage({t:'agentAck', id:m.id, line:m.text, ...intent(m.text)}); return; }   // намерение агента стаи: ответ принято / отказано с причиной
   if(m.t==='agentState'){ postMessage({t:'agentState', id:m.id, n:agentN, at:+t.toFixed(1), lines:agentState()}); return; }
@@ -618,8 +619,17 @@ function tick(){
   if(muted) return;
   postMessage({ t:'phys', extraGain:antennaBoost,
     units:units.map(u=>{ const S=stOf(u); return {id:u.id, st:u.st, dist:Math.max(1,Math.hypot(u.x-S.x,u.y-S.y)), obstDb:obstDb(u), txDbm:u.charge>0?u.txDbm:-99, alive:u.alive}; }),   // без заряда передатчик молчит; расстояние — до своей станции
-    dbg:{ units:units.map(u=>({id:u.id,st:u.st,x:u.x,y:u.y,alive:u.alive})), stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang})), pack:pack.map(p=>({x:p.x,y:p.y,act:p.act,fear:+p.fear.toFixed(2),hp:p.hp,size:p.size})), cries:cries.filter(c=>t-c.t<4).map(c=>({x:c.x,y:c.y,word:c.word,age:+(t-c.t).toFixed(1)})) } });
+    dbg:truth() });
 }
-// правда о мире для отладочной шторки (игрок этого не видит): расщелина и ориентиры — один раз при старте
+// правда о мире (игрок этого не видит): в отладочную шторку каждый такт, в лог мира раз в секунду — по ней спектатор проигрывает сеанс
+const r1=v=>+v.toFixed(1), r2=v=>+v.toFixed(2), xy=p=>p?[r1(p.x),r1(p.y)]:null;
+function truth(){ return {
+  units:units.map(u=>({id:u.id,st:u.st,x:r1(u.x),y:r1(u.y),h:r2(u.heading),alive:u.alive,mode:u.mode,stealth:u.stealth,stance:u.stance,reflex:u.reflex,light:u.lightOn,tg:xy(u.target),
+    pulse:Math.round(u.pulse),skin:Math.round(u.skin),bone:Math.round(u.bone),glu:Math.round(u.glucose),chg:Math.round(u.charge),psy:Math.round(u.psyche),fear:r2(u.fear),car:u.carrier,items:u.items,cam:u.sensors.camera})),
+  stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang,team:S.team,bio:S.bioStock,power:S.power,turret:S.turret?{x:r1(S.turret.x),y:r1(S.turret.y),ang:r2(S.turret.ang),fov:r2(S.turret.fov),range:S.turret.range,on:!!S.turret.on,tgt:S.turret.tgt,aim:r1(S.turret.aimT),rel:r1(S.turret.reloadT)}:null})),
+  pack:pack.map(p=>({i:p.i,x:r1(p.x),y:r1(p.y),h:r2(p.heading),act:p.act,hp:p.hp,fear:r2(p.fear),tired:r2(p.tired),nerve:r2(nerve(p)),size:p.size,tg:xy(p.target),foe:p.foe&&foeOf(p)?[...xy(p.foe),p.foe.u]:null,told:p.told?p.told.v:null,item:p.item||null,lit:p.lit!==undefined&&t-p.lit<0.6,why:p.why,rest:r1(p.rest),hold:r1(p.hold)})),
+  ground:ground.map(g=>({id:g.id,x:g.x,y:g.y,items:contents[g.id]||[]})),
+  cries:cries.filter(c=>t-c.t<4).map(c=>({x:c.x,y:c.y,word:c.word,age:+(t-c.t).toFixed(1)})) }; }
+// расщелина и ориентиры — один раз при старте
 postMessage({ t:'level', canyon:{pts:LEVEL.canyon.pts, branch:LEVEL.canyon.branch.pts}, pois:[...POIS,...SPOIS].map(p=>({id:p.id,x:p.x,y:p.y})), stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang})) });
 let timer=null; function schedule(){ if(timer) clearInterval(timer); timer=setInterval(tick, DT*1000/speed); } schedule();

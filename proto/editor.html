@@ -98,7 +98,7 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
 // только localhost: на опубликованном сайте страница показывает подсказку и ничего не грузит
 (function(){ if(!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)){ document.getElementById('gate').hidden=false; return; }
   document.getElementById('top').hidden=false; document.getElementById('app').hidden=false;
-  const v=Date.now(); window.__v=v; for(const f of ['level.js','codebook.js','terrain.js','camera.js','link.js','editor.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
+  const v=Date.now(); window.__v=v; for(const f of ['level.js','codebook.js','terrain.js','camera.js','link.js','mapdraw.js','editor.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
 </script>
 </body>
 </html>
