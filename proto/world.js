@@ -58,6 +58,10 @@ for(const p of LEVEL.pois) p.subs.forEach((s,i)=>{ const id=p.id*10+i; if(s.stat
 LEVEL.stations.slice(0,NST).forEach((L,k)=>L.subs.slice(0,4).forEach((s,i)=>{ const id=160+k*4+i; if(s.state) objState[id]=s.state; if(s.items&&s.items.length) contents[id]=s.items.slice(); }));
 const ground = [];                          // свёртки на грунте: {id, x, y}; id 100…199
 let nextGround = 100;
+// изъять предмет из контейнера (тело — камера отдельно; пустой свёрток исчезает); свёрток на грунт — предмет под ногами
+function removeItem(o,item){ if(o.unit){ const v=o.unit; if(item===42){ v.sensors.camera=false; v.sub.img.interval=0; } else v.items.splice(v.items.indexOf(item),1); }
+  else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ ground.splice(ground.findIndex(g=>g.id===o.id),1); delete contents[o.id]; } } }
+function dropBundle(x,y,item){ const g={id:nextGround++, x:Math.round(x), y:Math.round(y)}; if(nextGround>199) nextGround=100; ground.push(g); contents[g.id]=[item]; return g; }
 function isContainer(o){ if(o.unit) return !o.unit.alive; const cb=CODEBOOK[o.type]; return !!cb && cb.container!==undefined; }
 function containerOpen(o){ if(o.unit) return true; const cb=CODEBOOK[o.type]; return stateOf(o.id)>=cb.container; }
 function contentsOf(o){ if(o.unit){ const v=o.unit; return [...(v.sensors.camera?[42]:[]), ...v.items]; } return contents[o.id]||[]; }
@@ -95,7 +99,7 @@ function nerve(p){ return p.courage + 0.15*(p.size-1) - 0.6*p.fear - 0.5*(1-p.hp
 function foeOf(p){ return p.foe && t-p.foe.t<20+60*(1-p.courage) ? p.foe : null; }   // чужой, которого видела или слышала недавно: 20 с, пугливые помнят до 80
 function dirTo(a,b){ return Math.atan2(b.y-a.y,b.x-a.x); }
 // доля отрезка a→b, закрытая рельефом или корпусом (луч на высоте h над концами): 0 — чисто, 1 — стена. Одна функция для зрения, слуха и крика
-function losFrac(a,b,h=1.2){ const d=dist(a,b); if(d<3) return 0; const n=Math.min(40,Math.ceil(d/2.5)); const za=TER.H(a.x,a.y)+h, zb=TER.H(b.x,b.y)+h; let hit=0;
+function losFrac(a,b,h=1.2,hb=h){ const d=dist(a,b); if(d<3) return 0; const n=Math.min(40,Math.ceil(d/2.5)); const za=TER.H(a.x,a.y)+h, zb=TER.H(b.x,b.y)+hb; let hit=0;
   for(let i=1;i<n;i++){ const k=i/n, x=a.x+(b.x-a.x)*k, y=a.y+(b.y-a.y)*k; if(TER.H(x,y)>za+(zb-za)*k || HULLS.some(c=>hullIn(x,y,c))) hit++; } return hit/(n-1); }
 // шаг особи к цели: те же столкновения, что у тела; в расщелине — вдоль оси (поиска пути нет, колена обходятся по оси)
 function packStep(p,sp){ const tg=p.target; if(!tg) return; let aim=tg; const cp=TER.inside(p.x,p.y), ct=TER.inside(tg.x,tg.y);
@@ -103,11 +107,11 @@ function packStep(p,sp){ const tg=p.target; if(!tg) return; let aim=tg; const cp
   if(cp && cp.along>0){ if(cp.branch){ if(!ct||!ct.branch) aim=dist(p,root)>4?root:tg; }
     else { const a=!ct?-8:ct.branch?rootA:ct.along; if(Math.abs(a-cp.along)>6){ const q=TER.canyonPoint(Math.max(0,Math.min(1,(cp.along+(a>cp.along?5:-5))/TER.LEN))); aim=q; } } }
   else if(ct && ct.along>0 && dist(p,TUN_A)>4) aim=TUN_A;
-  p.heading=dirTo(p,aim); if(stepBody(p,sp*DT)) p.stuckT=0; else { p.stuckT+=DT; if(p.stuckT>3){ p.stuckT=0; p.target=null; } } }
+  p.heading=dirTo(p,aim); if(stepBody(p,sp*DT)) p.stuckT=0; else { p.stuckT+=DT; if(p.stuckT>3){ p.stuckT=0; p.target=null; if(p.told){ say(p,'не пройти, стою'); } } } }
 // крик: слово = реакция. Слышат особи в радиусе с затуханием за стенами; кулдаун на глотку. Тела рядом вздрагивают — звук, слов не разбирают
 function cry(p,word){ if(p.throat>0) return false; p.throat=6; cries.push({word,x:p.x,y:p.y,t,i:p.i}); const R=120*(0.8+0.4*p.size); const heard=[];
   for(const q of pack){ if(q===p) continue; const d=dist(p,q); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,q,1.5)); if(loud>0.05) heard.push([q,loud]); }
-  note('cry',{who:p.i,word,x:+p.x.toFixed(1),y:+p.y.toFixed(1),heard:heard.map(([q])=>q.i)});
+  note('cry',{who:p.i,word,x:+p.x.toFixed(1),y:+p.y.toFixed(1),heard:heard.map(([q])=>q.i)}); say(p,`кричу «${word}»`);
   for(const [q,loud] of heard) hear(q,word,p,loud);   // заметка раньше реакций: эхо в логе идёт после крика
   for(const u of units){ if(!u.alive) continue; const d=dist(p,u); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,u,1.5)); u.startle=Math.min(1,(u.startle||0)+0.6*loud); }
   return true; }
@@ -123,11 +127,11 @@ function hear(q,word,from,loud){ const ce=nerve(q); q.heard[word]=t; const why=`
   else if(word==='добыча'){ if(ce>=0.3 && ce<0.7){ q.act='goto'; q.target=toward(3); } } }
 function wake(p,why='проснулась'){ if(p.act==='sleep'){ p.act='idle'; p.idle=0; p.why=why; } }
 // чувства: свет фонаря (в скрытности — почти ничего), шаги; спящая слышит и видит хуже, внимательная — дальше; стены режут и то и другое
-function sense(p){ const k=(p.act==='sleep'?0.2+0.3*p.attention:0.6+0.8*p.attention)*(p.alert>0?1.4:1); let best=null, bd=1e9;
+function sense(p){ const k=(p.act==='sleep'?0.2+0.3*p.attention:0.6+0.8*p.attention)*(p.alert>0?1.4:1); let best=null, bd=1e9, how='see';
   for(const u of units){ if(!u.alive) continue; const d=dist(p,u); if(d>120 || d>=bd) continue;
     const seeR=detectRadius(u)*k, sp=u.target?speedFor(u):0, hearR=Math.min(80,12*sp*sp)*k;   // шум шагов ∝ квадрату скорости: крадущегося слышно с 4 м, бегущего — с 80 if(d>seeR && d>hearR) continue;
-    const f=losFrac(p,u); if(d<=seeR && f<0.34 || d<=hearR*(1-0.75*f)){ best=u; bd=d; } }
-  if(!best) return; const fresh=!foeOf(p); p.foe={x:best.x,y:best.y,t,u:best.id}; wake(p);
+    const f=losFrac(p,u); if(d<=seeR && f<0.34 || d<=hearR*(1-0.75*f)){ best=u; bd=d; how=d<=seeR&&f<0.34?'see':'hear'; } }
+  if(!best) return; const fresh=!foeOf(p); p.foe={x:best.x,y:best.y,t,u:best.id,how}; wake(p);
   if(fresh){ note('pack',{who:p.i,sense:bd<=detectRadius(best)*k?'see':'hear',unit:best.id,d:+bd.toFixed(1),mode:best.mode,stealth:best.stealth,light:best.lightOn,nerve:+nerve(p).toFixed(2)}); const ce=nerve(p); if(ce<0.35) cry(p,'тревога'); else if(Math.random()<0.25+0.7*p.attention) cry(p,'чужой'); } }
 // рефлексы раз в полсекунды: по действующей храбрости и расстоянию до чужого
 function decide(p){ const ce=nerve(p), foe=foeOf(p), d=foe?dist(p,foe):1e9, atLair=dist(p,LAIR)<3;
@@ -135,9 +139,9 @@ function decide(p){ const ce=nerve(p), foe=foeOf(p), d=foe?dist(p,foe):1e9, atLa
   if(p.act==='attack') p.tired=Math.min(1,p.tired+0.006); else p.tired=Math.max(0,p.tired-0.01);
   if(p.rest>0){ p.rest-=0.5; if(atLair && p.hp<p.hpMax){ p.heal=(p.heal||0)+0.5; if(p.heal>=40){ p.heal=0; p.hp++; } } p.why=`передышка ${p.rest.toFixed(0)} с`; if(foe && d<2.5){ p.act='attack'; p.why='зажали у логова'; } else if(atLair){ p.act='rest'; p.target=null; } else { p.act='home'; p.target={...LAIR}; } return; }   // передышка: не выходит; зажали — огрызается
   if(p.act==='freeze'){ p.freezeT-=0.5; if(p.freezeT>0){ if(foe) p.heading=dirTo(p,foe); return; } p.act='idle'; }
-  if(p.act==='goto' && p.target){ if(dist(p,p.target)<2) { p.target=null; p.act='idle'; p.why='пришла'; } else if(!foe || d>15) return; }   // намерение держится, пока чужой не рядом
+  if(p.act==='goto' && p.target){ if(dist(p,p.target)<2) { p.target=null; if(p.told) say(p,'дошёл'); p.act=p.told?'stay':'idle'; p.why='пришла'; } else if(!foe || d>15) return; }   // намерение держится, пока чужой не рядом
   if(!foe && p.hold>0){ p.hold-=0.5; if(p.act==='flee' && atLair){ p.hold=0; p.rest=60+60*Math.random(); p.why='прибежала на крик, чужого не видела'; } else if(!p.target || dist(p,p.target)>2) return; }   // по слову: бежит/идёт, пока не дошла
-  if(!foe){ if(p.hp<p.hpMax){ p.heal=(p.heal||0)+0.5; if(p.heal>=120){ p.heal=0; p.hp++; } } if(p.act==='sleep') return; p.idle+=0.5; let next; if(dist(p,p.home)>2){ next='home'; p.target={...p.home}; } else { next=p.idle>90?'sleep':'idle'; p.target=null; }
+  if(!foe){ if(p.hp<p.hpMax){ p.heal=(p.heal||0)+0.5; if(p.heal>=120){ p.heal=0; p.hp++; } } if(p.act==='sleep') return; if(p.told){ if(p.act!=='stay'){ p.act='stay'; p.target=null; p.why='жду, как сказано'; } return; } p.idle+=0.5; let next; if(dist(p,p.home)>2){ next='home'; p.target={...p.home}; } else { next=p.idle>90?'sleep':'idle'; p.target=null; }
     if(next!==p.act){ p.act=next; p.why=next==='sleep'?'покой 90 с':'чужого нет 20 с'; } return; }
   p.idle=0; p.why=`nerve ${ce.toFixed(2)}, d ${d.toFixed(1)}`;
   if(ce<0.3){ if(d<2.5 && atLair){ p.act='attack'; return; } p.act='flee'; if(atLair){ p.target=null; p.rest=90+90*Math.random(); if(p.hp<p.hpMax) cry(p,'домой'); } else p.target={...LAIR}; return; }   // передышка 90…180 с: стая не ходит по часам
@@ -145,15 +149,15 @@ function decide(p){ const ce=nerve(p), foe=foeOf(p), d=foe?dist(p,foe):1e9, atLa
   if(p.tired>0.8){ p.why='устала'; p.act='freeze'; p.freezeT=6; p.target=null; p.heading=dirTo(p,foe); return; }
   if(ce>=0.8 || d<2.5 || p.rage>0){ if(p.rage>0) p.why+=', «бей»'; p.act='attack'; p.target={x:foe.x,y:foe.y}; return; }
   const L=Math.max(d,0.1); p.act='approach'; p.target=d>9?{x:foe.x+(p.x-foe.x)*8/L, y:foe.y+(p.y-foe.y)*8/L}:null; if(!p.target) p.heading=dirTo(p,foe); }   // на расстояние: подходит на 8 м и смотрит
-function packSpeed(p){ return p.act==='flee'?2.0 : p.act==='attack'?1.1*(0.7+0.3*p.size) : p.act==='back'?1.5 : p.act==='home'?1.0 : 0.8; }
+function packSpeed(p){ const v=p.act==='flee'?2.0 : p.act==='attack'?1.1*(0.7+0.3*p.size) : p.act==='back'?1.5 : p.act==='home'?1.0 : 0.8; return p.item?v*Math.min(1,0.5+0.3*p.size):v; }   // с ношей медленнее, мелкому тяжелее
 // отойти от чужого на 10 м: в расщелине — по оси в сторону от него (в тупике отходить некуда — null, тогда стоит и огрызается), снаружи — прямо от него
 function backOff(p,foe){ const cp=TER.inside(p.x,p.y); if(cp && cp.along>0 && !cp.branch){ const fa=TER.canyon(foe.x,foe.y).along, a=cp.along+(cp.along>=fa?10:-10); if(a>TER.LEN-1) return null; return TER.canyonPoint(Math.max(0,a)/TER.LEN); }
   const L=dist(p,foe)||1; return {x:p.x+(p.x-foe.x)*10/L, y:p.y+(p.y-foe.y)*10/L}; }
 function packTick(){ 
   for(const p of pack){ p.throat=Math.max(0,p.throat-DT); p.alert=Math.max(0,p.alert-DT); p.rage=Math.max(0,p.rage-DT);
-    if(!LAB && (Math.floor(t/DT)+p.i)%5===0){ sense(p); decide(p); if(p.act!==p.lastAct){ const f=foeOf(p); note('pack',{who:p.i,act:p.act,was:p.lastAct,why:p.why,hp:p.hp,fear:+p.fear.toFixed(2),foe:f?f.u:undefined,x:+p.x.toFixed(1),y:+p.y.toFixed(1)}); p.lastAct=p.act; } }
+    if(!LAB && (Math.floor(t/DT)+p.i)%5===0){ sense(p); decide(p); if(p.told && (p.act==='flee'||p.act==='home'||p.act==='rest')) p.told=null; perceive(p); if(p.act!==p.lastAct){ const f=foeOf(p); note('pack',{who:p.i,act:p.act,was:p.lastAct,why:p.why,hp:p.hp,fear:+p.fear.toFixed(2),foe:f?f.u:undefined,x:+p.x.toFixed(1),y:+p.y.toFixed(1)}); p.lastAct=p.act; } }
     if(p.act==='attack'){ const foe=foeOf(p); const u=foe&&units.find(u=>u.id===foe.u&&u.alive&&dist(p,u)<30); if(u){ const d=dist(p,u); p.foe={x:u.x,y:u.y,t,u:u.id};   // цель в 30 м не теряет — ведёт её; дальше — только если чувства поймают снова
-        if(d>2.2){ p.target={x:u.x,y:u.y}; p.hitT=0; } else { p.target=null; p.heading=dirTo(p,u); p.hitT+=DT; if(p.hitT>2){ p.hitT=0; u.skin-=10*p.size; u.bone-=4*p.size; u.pain=1; u.psyche-=6; u.bitAt=t; u.bitBy=p; evt(4,u.id); note('pack',{who:p.i,bite:u.id,skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),reflex:u.reflex,stance:u.stance}); } } } }
+        if(d>2.2){ p.target={x:u.x,y:u.y}; p.hitT=0; } else { p.target=null; p.heading=dirTo(p,u); p.hitT+=DT; if(p.hitT>2){ p.hitT=0; u.skin-=10*p.size; u.bone-=4*p.size; u.pain=1; u.psyche-=6; u.bitAt=t; u.bitBy=p; evt(4,u.id); say(p,'укусил двуногого'); note('pack',{who:p.i,bite:u.id,skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),reflex:u.reflex,stance:u.stance}); } } } }
     if(p.target) packStep(p,packSpeed(p)); }
   while(cries.length && t-cries[0].t>6) cries.shift(); }
 // отпор резаком: тело в рефлексе «бой» бьёт ближайшую особь в 4 м раз в 2 с; на нуле она уходит в логово на передышку
@@ -181,9 +185,91 @@ function stanceTick(u,dt){
 }
 function fightBack(u){ let q=null, qd=4; for(const p of pack){ const d=dist(u,p); if(d<qd){ qd=d; q=p; } } if(!q){ u.atkTimer=0; return; }
   u.atkTimer+=DT; if(u.atkTimer<2) return; u.atkTimer=0; const was=q.hp; q.hp=Math.max(0,q.hp-1); q.fear=Math.min(1,q.fear+0.35*(1.2-q.courage)); wake(q); q.foe={x:u.x,y:u.y,t,u:u.id};
-  note('pack',{who:q.i,hitBy:u.id,hp:q.hp,fear:+q.fear.toFixed(2),nerve:+nerve(q).toFixed(2)});
+  say(q,'двуногий ударил меня'); note('pack',{who:q.i,hitBy:u.id,hp:q.hp,fear:+q.fear.toFixed(2),nerve:+nerve(q).toFixed(2)});
   if(nerve(q)<0.5) cry(q,'тревога');
   if(was>0 && q.hp===0){ q.act='flee'; q.target={...LAIR}; q.rage=0; evt(9,u.id); } }
+
+// ---------- агент стаи: восприятие и намерения (design.md §12а, roadmap п. 0б (в)) ----------
+// Одна ось вместо режимов: VOICE_R — радиус голоса стаи, кому доходит слово агента и чьё восприятие приходит. Бесконечность —
+// «единый мозг»: агент слышит каждую особь и говорит с каждой; конечный радиус — вожак и крики (потом, тем же кодом).
+// Текст — источник истины: каждое слово — честное чувство особи. Ни координат, ни метров, ни номеров тел, ни карты; отладочный
+// флаг сюда не достаёт. Строка — на смену класса, не по таймеру. Наружу — {t:'agent', n, at, who, text}; консоли не видят.
+const VOICE_R = +(/&voice=(\d+)/.exec(self.location.search)||[])[1] || Infinity;
+const INTENT_CD = 15;   // кулдаун намерения на особь, с игрового: чаще особь не слушает
+let agentN = 0;
+const pname = p => 'О'+(p.i+1);
+function say(p, text){ if(muted) return; postMessage({t:'agent', n:++agentN, at:+t.toFixed(1), who:p.i+1, text}); }
+const RUMBS = ['востоке','юго-востоке','юге','юго-западе','западе','северо-западе','севере','северо-востоке'];   // +y на карте — юг
+const RUMB_DIR = {восток:0,'юго-восток':1,юг:2,'юго-запад':3,запад:4,'северо-запад':5,север:6,'северо-восток':7};
+function rumb(a,b){ return RUMBS[Math.round(bearingDeg(a,b)/45)%8]; }
+const ACT_WORDS = { sleep:'сплю', idle:'стою', freeze:'замер, смотрю', approach:'подхожу к двуногому', attack:'нападаю', back:'отхожу от двуногого',
+  flee:'бегу к логову', home:'иду к логову', rest:'отдыхаю у логова', goto:'иду', stay:'жду' };
+// ориентиры, которые особь видит издалека: платформы и крупные ориентиры уровня — дальность по высоте, стены — как у зрения
+let LANDMARKS=null; function landmarks(){ return LANDMARKS=LANDMARKS||[ ...stations.map(S=>({key:'st'+S.k, name:'постройка', x:S.x, y:S.y, H:STATION.h})),
+  ...POIS.filter(p=>p.id<=5).map(p=>({key:'poi'+p.id, name:CODEBOOK[p.id].name, x:p.x, y:p.y, H:Math.max(0.5,...p.subs.map(s=>OBJ_H[s[0]]||0))})) ]; }   // лениво: OBJ_H объявлен ниже
+function seesLandmark(p,L){ const d=dist(p,L); if(d>Math.min(300,40*L.H)) return false; const q=d>8?{x:L.x+(p.x-L.x)*6/d, y:L.y+(p.y-L.y)*6/d}:p; return losFrac(p,q,1.2,L.H)<0.34; }   // луч до 6 м перед ориентиром: свой корпус его не закрывает
+function farWord(d){ return d<3?'вплотную':d<15?'близко':d<60?'недалеко':'далеко'; }
+function placeWord(p){ if(dist(p,LAIR)<5) return 'у логова'; const tt=tunnelT(p.x,p.y); if(tt>0.5) return 'в глубине расщелины'; if(tt>=0) return 'в расщелине'; if(dist(p,TUN_A)<30) return 'у выхода из расщелины'; return 'снаружи'; }
+function foeText(p){ const f=foeOf(p); if(!f || t-f.t>1.5) return ''; const u=units.find(u=>u.id===f.u); if(!u) return '';
+  if(f.how!=='see') return `слышу шаги, ${farWord(dist(p,u))}, на ${rumb(p,u)}`;
+  const sp=u.target?speedFor(u):0, mv=sp<=0?'стоит':sp<1?'крадётся':sp<2?'идёт':'бежит';
+  return `вижу двуногого ${u.lightOn?'со светом':'без света'}, ${farWord(dist(p,u))}, на ${rumb(p,u)}, ${mv}`; }
+function nearItems(p,r=6){ return objectsAround(p,r).filter(o=>!o.pack&&!o.landmark&&isContainer(o)&&containerOpen(o)&&contentsOf(o).length); }   // открытые контейнеры с содержимым рядом: ящики, свёртки, тела
+function stateWords(p){ return { act:ACT_WORDS[p.act]||p.act, fear:p.fear<0.3?'спокоен':p.fear<0.6?'тревожно':'страшно',
+  hp:p.hp>=p.hpMax?'цел':p.hp>p.hpMax/2?'ранен':'едва жив', tired:p.tired>0.8?'устал':'', place:placeWord(p) }; }
+// раз в полсекунды после рефлексов: что изменилось — то и сказано. Первый вызов — молча, базовая картина (полная — agentState)
+function perceive(p){ const first=!p.per; const per=p.per=p.per||{seen:{}}; const w=stateWords(p), out=[];
+  const foe=foeText(p); if(foe!==(per.foe||'')){ if(foe) out.push(foe); else if(per.foe) out.push('двуногого больше не чувствую'); per.foe=foe; }
+  for(const k of ['act','fear','hp','tired','place']){ if(w[k]!==per[k]){ if(w[k]) out.push(w[k]); per[k]=w[k]; } }
+  const carry=p.item?'несу: '+ITEMS[p.item]:''; if(carry!==(per.carry||'')){ if(carry) out.push(carry); else if(per.carry) out.push('положил'); per.carry=carry; }
+  if(p.act!=='sleep' && (Math.floor(t/DT)+p.i)%20===0){ const near=nearItems(p).map(o=>`${nameOf(o)} — ${contentsOf(o).map(i=>ITEMS[i]).join(', ')}`).join('; '); if(near!==(per.near||'')){ if(near) out.push('рядом: '+near); per.near=near; }
+    for(const L of landmarks()){ const s=seesLandmark(p,L); if(s && !per.seen[L.key]) out.push(`вижу: ${L.name}, ${farWord(dist(p,L))}, на ${rumb(p,L)}`); per.seen[L.key]=s; }
+    for(const q of pack){ if(q===p||q.hp>0) continue; const k='dead'+q.i; const s=dist(p,q)<40 && losFrac(p,q)<0.34; if(s && !per.seen[k]) out.push(`${pname(q)} лежит, мёртв, ${farWord(dist(p,q))}, на ${rumb(p,q)}`); per.seen[k]=s; }
+    for(const u of units){ if(u.alive) continue; const k='body'+u.id; const s=dist(p,u)<40 && losFrac(p,u)<0.34; if(s && !per.seen[k]) out.push(`тело двуногого лежит, ${farWord(dist(p,u))}, на ${rumb(p,u)}`); per.seen[k]=s; } }
+  if(!first) for(const s of out) say(p,s); }
+// полная картина сейчас — для входа агента: по особи строка состояния, чужой, что видит вокруг
+function agentState(){ return pack.map(p=>{ const w=stateWords(p); const parts=[`${pname(p)}: ${w.place}, ${w.act}, ${w.fear}, ${w.hp}${w.tired?', '+w.tired:''}`];
+  const foe=foeText(p); if(foe) parts.push(foe); if(p.act!=='sleep') for(const L of landmarks()) if(seesLandmark(p,L)) parts.push(`вижу: ${L.name}, ${farWord(dist(p,L))}, на ${rumb(p,L)}`);
+  if(p.item) parts.push('несу: '+ITEMS[p.item]); if(p.told) parts.push('делаю, как сказано'); return parts.join('; '); }); }
+// намерение — строка «О2: к обломкам». Ложится в те же target/act, что рефлексы; принято ≠ выполнено: что особь сделала — в ленте
+const WORDS = ['тревога','чужой','сюда','бей','домой','добыча'];
+function intent(line){
+  const m=/^о?\s*(\d+)\s*[:,—-]?\s*(.+)$/iu.exec(String(line||'').trim()); if(!m) return {ok:false, why:'не понял: нужно «О2: домой»'};
+  const p=pack[+m[1]-1], v=m[2].trim().toLowerCase().replace(/[«»"']/g,''); if(!p) return {ok:false, why:'такой особи нет'};
+  const no=why=>({ok:false, who:p.i+1, why});
+  if(p.hp<=0) return no('мёртв');
+  if(p.act==='sleep') wake(p,'слово');   // голос в голове будит
+  if(p.rest>0) return no('на передышке у логова, не выйдет');
+  if(p.rage>0 && p.act==='attack') return no('дерётся');
+  const left=INTENT_CD-(t-(p.intentAt??-1e9)); if(left>0) return no(`не слушает, ещё ${Math.ceil(left)} с`);
+  const ce=nerve(p); let tg=null, act='goto', why='';
+  const go=(pt)=>{ tg=pt; };
+  if(/^как хочешь/.test(v)){ p.told=null; p.target=null; if(p.act==='goto'||p.act==='stay') p.act='idle'; p.intentAt=t; return {ok:true, who:p.i+1}; }
+  else if(/^(стой|затаись|замри|жди)/.test(v)){ act='freeze'; }
+  else if(/^крикни\s+(\S+)/.test(v)){ const w=/^крикни\s+(\S+)/.exec(v)[1]; if(!WORDS.includes(w)) return no('нет такого крика: '+WORDS.join(', '));
+    if((w==='бей'||w==='сюда') && ce<0.35) return no('боится'); if(!cry(p,w)) return no('глотка, только что кричал'); p.intentAt=t; return {ok:true, who:p.i+1}; }
+  else if(/^(возьми|подними)\s+(.+)/.test(v)){ if(p.item) return no('уже несу: '+ITEMS[p.item]); const want=/^(возьми|подними)\s+(.+)/.exec(v)[2]; const stem=w=>w.slice(0,Math.max(3,w.length-2));
+    for(const o of nearItems(p,3)) for(const it of contentsOf(o)) if(ITEMS[it].split(' ').some(w=>stem(w).startsWith(stem(want.split(' ').pop())))){ removeItem(o,it); p.item=it; p.intentAt=t; note('agent',{who:p.i,take:it,from:o.id}); return {ok:true, who:p.i+1}; }
+    return no(nearItems(p,3).length?'такого рядом нет':'рядом ничего нет, подойти вплотную'); }
+  else if(/^(положи|брось)/.test(v)){ if(!p.item) return no('ничего не несу'); dropBundle(p.x,p.y,p.item); note('agent',{who:p.i,drop:p.item}); p.item=null; p.intentAt=t; return {ok:true, who:p.i+1}; }
+  else if(/^к чужому/.test(v)){ const f=foeOf(p); if(!f) return no('чужого не чувствую'); if(ce<0.3) return no('боится'); go({x:f.x,y:f.y}); }
+  else if(/^к крикнувшему/.test(v)){ const c=[...cries].reverse().find(c=>c.i!==p.i && t-c.t<30); if(!c) return no('крика не слышал'); go({x:c.x,y:c.y}); }
+  else if(/^домой/.test(v)) go({...LAIR});
+  else if(/^на лёжку/.test(v)) go({...p.home});
+  else if(/^к о\s*(\d+)/.test(v)){ const q=pack[+/^к о\s*(\d+)/.exec(v)[1]-1]; if(!q||q===p) return no('такой особи нет'); if(q.hp<=0) return no(`${pname(q)} мёртв`); if(dist(p,q)>VOICE_R) return no(`не знаю, где ${pname(q)}`); go({x:q.x,y:q.y}); }
+  else if(/^на (северо-восток|северо-запад|юго-восток|юго-запад|север|юг|восток|запад)( далеко| близко| чуть)?/.test(v)){ const mm=/^на (северо-восток|северо-запад|юго-восток|юго-запад|север|юг|восток|запад)( далеко| близко| чуть)?/.exec(v);
+    const a=RUMB_DIR[mm[1]]*Math.PI/4, R=mm[2]===' далеко'?150:mm[2]===' близко'?20:mm[2]===' чуть'?8:50; go({x:p.x+Math.cos(a)*R, y:p.y+Math.sin(a)*R}); }
+  else if(/^к /.test(v)){ const stem=w=>w.slice(0,Math.max(3,w.length-2)), want=stem(v.slice(2).trim().split(' ').pop());
+    const near=objectsAround(p,15).filter(o=>!o.pack&&!o.landmark&&nameOf(o).split(' ').some(w=>stem(w).startsWith(want)||want.startsWith(stem(w))));   // предмет рядом — раньше ориентира: «к ящику» у обломков
+    if(near.length){ const o=near.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b), d=dist(p,o)||1; go({x:o.x+(p.x-o.x)*1.2/d, y:o.y+(p.y-o.y)*1.2/d}); }
+    else { const L=landmarks().filter(L=>L.name.split(' ').some(w=>stem(w).startsWith(want)||want.startsWith(stem(w)))); const seen=L.filter(L=>p.per&&p.per.seen[L.key]);   // «к обломкам», «к ящикам»: по основе слова
+    if(!L.length) return no('не знаю такого'); if(!seen.length) return no(`не вижу: ${L[0].name}`); const best=seen.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b); const d=dist(p,best)||1; go({x:best.x+(p.x-best.x)*6/d, y:best.y+(p.y-best.y)*6/d}); } }
+  else return no('не понял; знаю: к чужому, к крикнувшему, домой, на лёжку, к О3, к обломкам, на запад [далеко|близко|чуть], стой, возьми предмет, положи, крикни слово, как хочешь');
+  p.intentAt=t; p.told={v}; p.hold=0; p.rage=0; p.freezeT=0;
+  if(act==='freeze'){ p.act='freeze'; p.freezeT=30; p.target=null; p.why='слово: стой'; }
+  else { p.act='goto'; p.target=tg; p.why='слово: '+v; }
+  note('agent',{who:p.i,intent:v,x:+p.x.toFixed(1),y:+p.y.toFixed(1),to:tg?{x:+tg.x.toFixed(1),y:+tg.y.toFixed(1)}:undefined,nerve:+ce.toFixed(2)});
+  return {ok:true, who:p.i+1}; }
 
 // ---------- столкновения: тело не проходит сквозь корпус, скалы и стены тоннеля; вдоль препятствия скользит ----------
 const BODY_R = 0.6;
@@ -342,7 +428,7 @@ function beginAction(u,kind,id,item){
   if(kind==='put'&&id===0){ // сбросить на грунт: свёрток под ногами
     const has = item===42 ? u.sensors.camera : u.items.includes(item); if(!has){ evt(2,u.id); return; }
     if(item===42){ u.sensors.camera=false; u.sub.img.interval=0; } else u.items.splice(u.items.indexOf(item),1);
-    const g={id:nextGround++, x:Math.round(u.x), y:Math.round(u.y)}; if(nextGround>199) nextGround=100; ground.push(g); contents[g.id]=[item];
+    const g=dropBundle(u.x,u.y,item);
     const t=encText(`сбросил: ${ITEMS[item]}.`); emit('cmd','ACT',u.id,new Uint8Array([g.id,0,t.length>>8,t.length&255,...t])); emit('cmd','CONT',u.id,new Uint8Array([g.id,1,item])); return; }
   const o=findObj(u,id); if(!o){ evt(16,u.id,id); return; }
   if(dist(u,o)>3 && beyondReturn(u,o)) return;
@@ -359,7 +445,7 @@ function doPending(u){
     if(!isContainer(o)||!containerOpen(o)){ textReply('ACT',1,'не контейнер.'); return; }
     const item=p.item;
     if(p.kind==='take'){ const c=contentsOf(o); if(!c.includes(item)){ textReply('ACT',1,`здесь нет: ${ITEMS[item]}.`); return; }
-      if(o.unit){ const v=o.unit; if(item===42){ v.sensors.camera=false; v.sub.img.interval=0; } else v.items.splice(v.items.indexOf(item),1); } else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ ground.splice(ground.findIndex(g=>g.id===o.id),1); delete contents[o.id]; } }
+      removeItem(o,item);
       if(item===42){ u.sensors.camera=true; u.lastImg={}; } else u.items.push(item);
       textReply('ACT',0,`взял: ${ITEMS[item]}.`); sendCont(); return; }
     // put
@@ -387,6 +473,8 @@ onmessage = e => {
   if(m.t==='imgCancel'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u){ u.pendingImg=null; delete u.lastImg[m.level]; } return; }   // кадр не дошёл: следующий на этом уровне — ключевой
   if(m.t==='tp'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; note('debug',{tp:u.id,x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
   if(m.t==='peek'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u) postMessage({t:'peekImg',unit:u.id,img:render(u,64)}); return; }   // отладка: чистый рендер мимо канала
+  if(m.t==='intent'){ postMessage({t:'agentAck', id:m.id, line:m.text, ...intent(m.text)}); return; }   // намерение агента стаи: ответ принято / отказано с причиной
+  if(m.t==='agentState'){ postMessage({t:'agentState', id:m.id, n:agentN, at:+t.toFixed(1), lines:agentState()}); return; }
   if(m.t==='save'){ postMessage({t:'state',data:snapshot()}); return; }
   if(m.t==='load'){ restore(m.data); catchUp(m.elapsed||0); return; }
   if(m.t!=='cmd') return;

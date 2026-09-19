@@ -9,6 +9,7 @@
 function makeStation(opts){
   // opts: worldSrc — склеенный текст мира; search — строка ?v=…[&lab][&st=N] для world.js (st — сколько платформ поднять);
   //       out(msg) — сообщения консолям; debug — отдавать правду о мире; fetch — для атласа спрайтов в воркере (в Node атлас подаёт хост через CAM.build);
+  //       agent(msg) — сторона стаи: восприятие {t:'agent'}, ответы {t:'agentAck'}, картина {t:'agentState'} — хосту агента, не консолям;
 //       log(rec) — лог мира (tech.md §12): команды, доставленные пакеты, потери, заметки мира, раз в секунду — правда о положениях. Хост пишет, куда хочет.
   const DT=0.1; let dbg=null, speed=1, lastLogSec=-1;
   const out=opts.out;
@@ -32,6 +33,7 @@ function makeStation(opts){
     if(m.t==='msg'){ const L=links[m.st||0]; if(L) L.link.enqueue(m); }
     else if(m.t==='phys'){ for(const L of links) L.link.setPhys({extraGain:m.extraGain, units:m.units.filter(u=>(u.st||0)===L.k)}); dbg=m.dbg; }
     else if(m.t==='note'){ const {t:_,...r}=m; log({k:'note', ...r}); }   // заметки мира — только в лог, консоли не видят
+    else if(m.t==='agent'||m.t==='agentAck'||m.t==='agentState'){ if(opts.agent) opts.agent(m); if(m.t!=='agentState'){ const {t:_,...r}=m; log({k:m.t, ...r}); } }   // сторона стаи: восприятие и ответы на намерения — хосту агента, консоли не видят
     else if(m.t==='level'){ if(opts.debug) out(m); }
     else out(m);   // peekImg, state
   }
@@ -68,6 +70,7 @@ function makeStation(opts){
       if(m.t==='speed'){ speed=m.v; W.setSpeed(m.v); log({k:'speed', v:m.v}); return; }
       if(m.t==='save'){ W.handle(m); return; }
       if(m.t==='load'){ for(const x of links) x.link.reset(); W.handle(m); return; }
+      if(m.t==='intent'||m.t==='agentState'){ W.handle(m); return; }   // от хоста агента (HTTP-API, REPL); консоль этого не шлёт
       if(!opts.debug) return;   // дальше — только отладка
       if(m.t==='cfg'){ L.link.cfg[m.k]=m.v; log({k:'cfg', st:k, key:m.k, v:m.v}); return; }
       if(m.t==='tp'||m.t==='peek') W.handle(m);
