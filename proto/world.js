@@ -3,8 +3,8 @@
 const LAB=/&lab\b/.test(self.location.search);   // лаборатория лидара: одичалые спят, тело не умирает; остальное — как в игре
 const VER=self.location.search.replace(/^\?v=/,'').replace(/&.*$/,'')||'0'; importScripts('level.js?v='+VER,'codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);
 const NST=Math.max(1,Math.min(LEVEL.stations.length,+(/&st=(\d+)/.exec(self.location.search)||[])[1]||1));   // сколько платформ поднято: решает хост (одиночная игра — одна)
-const TEAMS=((/&teams=([\d,]+)/.exec(self.location.search)||[])[1]||'').split(',').map(Number);   // команда каждой платформы (кто с кем): нет — все в одной; одичалые всегда сами за себя
-const teamOf=k=>TEAMS[k]||0;
+const TEAMS=((/&teams=([\d,]+)/.exec(self.location.search)||[])[1]||'').split(',').filter(x=>x!=='').map(Number);   // команда каждой платформы (кто с кем): нет — каждая сама за себя; одичалые всегда чужие всем
+const teamOf=k=>TEAMS.length>k?TEAMS[k]:k;
 CAM.load(VER);   // атлас спрайтов грузится асинхронно; до загрузки объекты в кадре — серые блоки
 
 const DT = 0.1;
@@ -25,11 +25,18 @@ const stations = LEVEL.stations.slice(0,NST).map((L,k)=>{ const ang=(L.ang||0)*M
   const dx=a.x-L.x, dy=a.y-L.y, d=Math.hypot(dx,dy)||1, ox=dx/d, oy=dy/d;   // наружу — от центра корпуса к шлюзу
   return { k, name:'ARK-04'+(1+k), x:L.x, y:L.y, ang, spawn:{...L.spawn}, airlock:a,
     subs:L.subs.slice(0,4).map(s=>[s.type,s.dx,s.dy,s.f===undefined?undefined:s.f*Math.PI/180]),
-    bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2, team:teamOf(k),
-    turret:(()=>{ const i=L.subs.findIndex(s=>s.type===34); if(i<0||i>3) return null; const s=L.subs[i], c=s.turret||{}; return { id:160+k*4+i, x:a.x+s.dx, y:a.y+s.dy, ang:(s.f===undefined?0:s.f)*Math.PI/180, fov:(c.fov||120)*Math.PI/180, range:c.range||60, aim:c.aim||3, reload:c.reload||10, aimT:0, reloadT:0, tgt:null }; })(),
+    bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2, team:teamOf(k), ox, oy,
     // стационарная камера у шлюза: смотрит от люка наружу, сигнала не требует — она на станции
     cam:{ id:0, st:k, x:a.x-4*ox, y:a.y-4*oy, heading:Math.atan2(oy,ox), goal:{x:a.x+44*ox-8*oy,y:a.y+44*oy+8*ox}, lightOn:true, charge:100, alive:true, lastImg:{}, pendingImg:null, frameNo:0, sensors:{camera:true}, sub:{img:{interval:0,level:2,delta:true}}, subT:{img:0}, items:[] } }; });
 const SPOIS = stations.map(S=>({ id:240+S.k, x:S.airlock.x, y:S.airlock.y, subs:S.subs, station:S, idBase:160+S.k*4 }));
+// Турели — отдельные объекты (id 230+j, тип 34), у каждой владелец st. Из уровня (LEVEL.turrets) или по умолчанию: в 6 м перед шлюзом,
+// сектором наружу. Питание — зона станции STATION.powerR (розетки и кабели — потом). Магазин 8, ёмкость AMMO_MAX; без патронов
+// наводится и светит, не стреляет. Повреждённая — слепа. Своя команда — по транспондеру, не цель.
+const AMMO_MAX=24;
+const turrets = stations.map((S,k)=>{ const L=(LEVEL.turrets||[]).find(T=>T.st===k); const T=L||{x:S.airlock.x+6*S.ox, y:S.airlock.y+6*S.oy, f:Math.atan2(S.oy,S.ox)*180/Math.PI};
+  return { id:230+k, st:k, x:T.x, y:T.y, ang:(T.f||0)*Math.PI/180, fov:(T.fov||140)*Math.PI/180, range:T.range||120, aim:T.aim||3, reload:T.reload||10, ammo:8, on:true, broken:false, powered:true, aimT:0, reloadT:0, tgt:null, cut:null }; });
+function turretState(T){ objState[T.id]=T.broken?2:T.on?1:0; }   // состояние объекта для описаний и осмотра: 0 включена, 1 выключена, 2 повреждена
+function turretAlive(T){ return T.on&&!T.broken&&T.powered; }
 function stOf(u){ return stations[u.st]||stations[0]; }
 // ПС-2, радиус гарантированного возврата: цель дальше RETURN_R от ближайшего узла (своя станция, работающий ретранслятор) станция не принимает —
 // потеря биоматериала гарантирована. Бюджет линии (дБ) к границе не привязан: далеко уйти можно, если есть узел
@@ -55,6 +62,7 @@ function bearingDeg(from,to){ return (Math.atan2(to.y-from.y,to.x-from.x)*180/Ma
 // ---------- состояние ----------
 function atAirlock(u){ return u.alive && dist(u,stOf(u).airlock)<12; }   // у шлюза своей станции
 const objState = {};                       // id объекта → состояние (по умолчанию 0); начальные — из уровня
+turrets.forEach(turretState);
 function stateOf(id){ return objState[id]||0; }
 const contents = {};                        // содержимое контейнеров: id объекта → предметы; начальное — из уровня
 for(const p of LEVEL.pois) p.subs.forEach((s,i)=>{ const id=p.id*10+i; if(s.state) objState[id]=s.state; if(s.items&&s.items.length) contents[id]=s.items.slice(); });
@@ -138,7 +146,7 @@ function sense(p){ const k=(p.act==='sleep'?0.2+0.3*p.attention:0.6+0.8*p.attent
   if(fresh){ note('pack',{who:p.i,sense:bd<=detectRadius(best)*k?'see':'hear',unit:best.id,d:+bd.toFixed(1),mode:best.mode,stealth:best.stealth,light:best.lightOn,nerve:+nerve(p).toFixed(2)}); const ce=nerve(p); if(ce<0.35) cry(p,'тревога'); else if(Math.random()<0.25+0.7*p.attention) cry(p,'чужой'); } }
 // рефлексы раз в полсекунды: по действующей храбрости и расстоянию до чужого
 function decide(p){ const ce=nerve(p), foe=foeOf(p), d=foe?dist(p,foe):1e9, atLair=dist(p,LAIR)<3;
-  if(p.lit!==undefined && t-p.lit<0.6 && ce<0.6){ const T=stations.map(S=>S.turret).find(T=>T&&T.tgt&&T.tgt.p===p.i); if(T){ if(p.act!=='flee'||p.why!=='луч'){ p.fear=Math.min(1,p.fear+0.2*(1-p.courage)); p.act='flee'; p.told=null; p.hold=10; const L=dist(p,T)||1; p.target={x:p.x+(p.x-T.x)*40/L, y:p.y+(p.y-T.y)*40/L}; p.why='луч'; if(ce<0.35) cry(p,'тревога'); } return; } }   // луч на мне: пугливая бежит от света (не к логову — прочь) и ни на что не отвлекается, пока луч на ней; храбрая идёт дальше
+  if(p.lit!==undefined && t-p.lit<0.6 && ce<0.6){ const T=turrets.find(T=>T.tgt&&T.tgt.p===p.i); if(T){ if(p.act!=='flee'||p.why!=='луч'){ p.fear=Math.min(1,p.fear+0.2*(1-p.courage)); p.act='flee'; p.told=null; p.hold=10; const L=dist(p,T)||1; p.target={x:p.x+(p.x-T.x)*40/L, y:p.y+(p.y-T.y)*40/L}; p.why='луч'; if(ce<0.35) cry(p,'тревога'); } return; } }   // луч на мне: пугливая бежит от света (не к логову — прочь) и ни на что не отвлекается, пока луч на ней; храбрая идёт дальше
   if(foe && d<10) p.fear=Math.min(1,p.fear+0.015*(1-p.courage)); p.fear=Math.max(0,p.fear-(atLair||p.rest>0?0.01:0.004));
   if(p.act==='attack') p.tired=Math.min(1,p.tired+0.006); else p.tired=Math.max(0,p.tired-0.01);
   if(p.rest>0){ p.rest-=0.5; if(atLair && p.hp<p.hpMax){ p.heal=(p.heal||0)+0.5; if(p.heal>=40){ p.heal=0; p.hp++; } } p.why=`передышка ${p.rest.toFixed(0)} с`; if(foe && d<2.5){ p.act='attack'; p.why='зажали у логова'; } else if(atLair){ p.act='rest'; p.target=null; } else { p.act='home'; p.target={...LAIR}; } return; }   // передышка: не выходит; зажали — огрызается
@@ -209,9 +217,10 @@ function rumb(a,b){ return RUMBS[Math.round(bearingDeg(a,b)/45)%8]; }
 const ACT_WORDS = { dead:'лежу, мёртв', sleep:'сплю', idle:'стою', freeze:'замер, смотрю', approach:'подхожу к двуногому', attack:'нападаю', back:'отхожу от двуногого',
   flee:'бегу к логову', home:'иду к логову', rest:'отдыхаю у логова', goto:'иду', stay:'жду' };
 // ориентиры, которые особь видит издалека: платформы и крупные ориентиры уровня — дальность по высоте, стены — как у зрения
-let LANDMARKS=null; function landmarks(){ return LANDMARKS=LANDMARKS||[ ...stations.map(S=>({key:'st'+S.k, get name(){ return S.turret&&S.turret.on?'постройка со светом':'постройка'; }, x:S.x, y:S.y, H:STATION.h})),
+let LANDMARKS=null; function landmarks(){ return LANDMARKS=LANDMARKS||[ ...stations.map(S=>({key:'st'+S.k, name:'постройка', x:S.x, y:S.y, H:STATION.h})),
+  ...turrets.map(T=>({key:'tur'+T.id, get name(){ return turretAlive(T)?'свет':'турель'; }, x:T.x, y:T.y, H:1.6, get R(){ return turretAlive(T)?200:64; }})),   // горящая лампа видна дальше самой турели
   ...POIS.filter(p=>p.id<=5).map(p=>({key:'poi'+p.id, name:CODEBOOK[p.id].name, x:p.x, y:p.y, H:Math.max(0.5,...p.subs.map(s=>OBJ_H[s[0]]||0))})) ]; }   // лениво: OBJ_H объявлен ниже
-function seesLandmark(p,L){ const d=dist(p,L); if(d>Math.min(300,40*L.H)) return false; const q=d>8?{x:L.x+(p.x-L.x)*6/d, y:L.y+(p.y-L.y)*6/d}:p; return losFrac(p,q,1.2,L.H)<0.34; }   // луч до 6 м перед ориентиром: свой корпус его не закрывает
+function seesLandmark(p,L){ const d=dist(p,L); if(d>(L.R||Math.min(300,40*L.H))) return false; const q=d>8?{x:L.x+(p.x-L.x)*6/d, y:L.y+(p.y-L.y)*6/d}:p; return losFrac(p,q,1.2,L.H)<0.34; }   // луч до 6 м перед ориентиром: свой корпус его не закрывает
 function farWord(d){ return d<3?'вплотную':d<15?'близко':d<60?'недалеко':'далеко'; }
 function placeWord(p){ if(dist(p,LAIR)<5) return 'у логова'; const tt=tunnelT(p.x,p.y); if(tt>0.5) return 'в глубине расщелины'; if(tt>=0) return 'в расщелине'; if(dist(p,TUN_A)<30) return 'у выхода из расщелины'; return 'снаружи'; }
 function foeText(p){ const f=foeOf(p); if(!f || t-f.t>1.5) return ''; const u=units.find(u=>u.id===f.u); if(!u) return '';
@@ -287,23 +296,30 @@ function intent(line){
 // движению (скорость > 0,3 м/с): одичалые и тела чужих команд (свои — по транспондеру ПС-2, не цель). Прицел aim с: цель, вышедшая
 // из сектора, дальности или за камень, сбрасывает захват; остановиться не спасает — лампа уже на ней. Точность 100 %, насмерть.
 // Перезарядка reload с. Без питания лампа не горит — турель слепа. Освещённая особь чувствует луч; выстрел слышен далеко.
-function turretTargets(S,T){ const out=[]; const inSector=(o)=>{ const d=dist(T,o); if(d>T.range) return false; let a=Math.atan2(o.y-T.y,o.x-T.x)-T.ang; a=Math.atan2(Math.sin(a),Math.cos(a)); return Math.abs(a)<=T.fov/2 && losFrac(T,o,1.6,1.2)<0.34; };
-  for(const p of pack){ if(p.act==='dead'||!p.target||packSpeed(p)<0.3) continue; if(inSector(p)) out.push({p}); }
-  for(const u of units){ if(!u.alive||stOf(u).team===S.team||!u.target||speedFor(u)<0.3) continue; if(inSector(u)) out.push({u}); }
+function turretTargets(T){ const S=stations[T.st]; const out=[];
+  for(const p of pack){ if(p.act==='dead'||!p.target||packSpeed(p)<0.3) continue; if(turretHolds(T,p)) out.push({p}); }
+  for(const u of units){ if(!u.alive||stOf(u).team===S.team||!u.target||speedFor(u)<0.3) continue; if(turretHolds(T,u)) out.push({u}); }
   return out; }
 function turretHolds(T,o){ const d=dist(T,o); if(d>T.range) return false; let a=Math.atan2(o.y-T.y,o.x-T.x)-T.ang; a=Math.atan2(Math.sin(a),Math.cos(a)); return Math.abs(a)<=T.fov/2 && losFrac(T,o,1.6,1.2)<0.34; }
-function turretTick(S,dt){ const T=S.turret; if(!T) return; T.on=S.power>0; T.reloadT=Math.max(0,T.reloadT-dt); if(!T.on){ if(T.tgt) turretDrop(S,T); return; }
+function turretTick(T,dt){ const S=stations[T.st]; T.powered=dist(T,S)<=STATION.powerR && S.power>0; T.reloadT=Math.max(0,T.reloadT-dt);
+  // режут резаком: чужое тело вплотную — угроза без сектора; турель разворачивается и, если может, стреляет; кто быстрее — резак (CUT_S) или прицел (aim)
+  if(T.cut){ const u=units.find(u=>u.id===T.cut.u); if(!u||!u.alive||dist(T,u)>3){ T.cut=null; } else { T.cut.t+=dt; if(T.cut.t>=CUT_S){ T.cut=null; T.broken=true; T.tgt=null; T.aimT=0; turretState(T); evt(39,u.id,T.id); evt(39,0,T.id,T.st); note('turret',{st:T.st,id:T.id,broken:'резак',by:u.id}); return; }
+      if(turretAlive(T) && !(T.tgt&&T.tgt.u===u.id)){ T.tgt={u:u.id}; T.aimT=0; evt(36,u.id); note('turret',{st:T.st,id:T.id,lock:'М'+u.id,why:'режет'}); } } }
+  if(!turretAlive(T)){ if(T.tgt) turretDrop(T); return; }
   const cur=T.tgt?(T.tgt.p!==undefined?pack[T.tgt.p]:units.find(u=>u.id===T.tgt.u)):null;
-  if(cur && (cur.act==='dead'||cur.alive===false||!turretHolds(T,cur))){ turretDrop(S,T); return; }
-  if(!cur){ const c=turretTargets(S,T); if(!c.length) return; const best=c.reduce((a,b)=>dist(T,a.p||a.u)<dist(T,b.p||b.u)?a:b); T.tgt=best.p?{p:best.p.i}:{u:best.u.id}; T.aimT=0;
-    if(best.p){ best.p.lit=t; say(best.p,'на меня направили свет'); } else evt(36,best.u.id); note('turret',{st:S.k,lock:best.p?'О'+(best.p.i+1):'М'+best.u.id}); return; }
-  T.aimT+=dt; if(cur.lit!==undefined) cur.lit=t; if(T.aimT<T.aim||T.reloadT>0) return;
-  T.reloadT=T.reload; T.aimT=0; T.tgt=null; evt(37,0,cur.i!==undefined?250+cur.i:cur.id,S.k); note('turret',{st:S.k,shot:cur.i!==undefined?'О'+(cur.i+1):'М'+cur.id,x:+cur.x.toFixed(0),y:+cur.y.toFixed(0)});
-  if(cur.i!==undefined) killPack(cur,'выстрел'); else { cur.skin=0; cur.pain=1; }
+  const cutting=cur&&T.cut&&T.cut.u===cur.id;
+  if(cur && (cur.act==='dead'||cur.alive===false||(!cutting&&!turretHolds(T,cur)))){ turretDrop(T); return; }
+  if(!cur){ const c=turretTargets(T); if(!c.length) return; const best=c.reduce((a,b)=>dist(T,a.p||a.u)<dist(T,b.p||b.u)?a:b); T.tgt=best.p?{p:best.p.i}:{u:best.u.id}; T.aimT=0;
+    if(best.p){ best.p.lit=t; say(best.p,'на меня направили свет'); } else evt(36,best.u.id); note('turret',{st:T.st,id:T.id,lock:best.p?'О'+(best.p.i+1):'М'+best.u.id}); return; }
+  T.aimT+=dt; if(cur.lit!==undefined) cur.lit=t; if(T.aimT<T.aim||T.reloadT>0||T.ammo<=0) return;   // без патронов — ведёт и светит
+  T.ammo--; T.reloadT=T.reload; T.aimT=0; T.tgt=null; evt(37,0,cur.i!==undefined?250+cur.i:cur.id,T.st); note('turret',{st:T.st,id:T.id,shot:cur.i!==undefined?'О'+(cur.i+1):'М'+cur.id,ammo:T.ammo,x:+cur.x.toFixed(0),y:+cur.y.toFixed(0)});
+  if(T.ammo===0) evt(38,0,T.id,T.st);
+  if(cur.i!==undefined) killPack(cur,'выстрел'); else { cur.skin=0; cur.pain=1; T.cut=null; }
   // выстрел слышен: стая — страх и слово, тела — вздрагивают
   for(const q of pack){ if(q.act==='dead') continue; const d=dist(T,q); if(d>400) continue; const loud=(1-d/400)*(1-0.7*losFrac(T,q,1.6,1.2)); if(loud<0.05) continue; wake(q,'выстрел'); q.fear=Math.min(1,q.fear+0.3*(1-q.courage)*loud); q.alert=20; say(q,`выстрел, ${d<60?'близко':d<150?'недалеко':'далеко'}, на ${rumb(q,T)}`); }
   for(const u of units){ if(!u.alive) continue; const d=dist(T,u); if(d>400) continue; u.startle=Math.min(1,(u.startle||0)+0.6*(1-d/400)); } }
-function turretDrop(S,T){ const cur=T.tgt&&T.tgt.p!==undefined?pack[T.tgt.p]:null; T.tgt=null; T.aimT=0; if(cur&&cur.act!=='dead') say(cur,'свет ушёл'); }
+const CUT_S=4;   // резать турель резаком: 4 с вплотную; прицел 3 с — с патронами турель успевает первой
+function turretDrop(T){ const cur=T.tgt&&T.tgt.p!==undefined?pack[T.tgt.p]:null; T.tgt=null; T.aimT=0; if(cur&&cur.act!=='dead') say(cur,'свет ушёл'); }
 // смерть особи: лежит, где упала; ноша — свёрток рядом
 function killPack(p,why){ p.hp=0; p.act='dead'; p.target=null; p.told=null; p.foe=null; if(p.item){ dropBundle(p.x,p.y,p.item); p.item=null; } note('pack',{who:p.i,dead:why,x:+p.x.toFixed(1),y:+p.y.toFixed(1)}); }
 
@@ -340,7 +356,7 @@ function evt(code, unit=0, arg=0, st){ emit('cmd','EVT', unit, new Uint8Array([c
 // Заметка мира: что решил и почему — в лог хоста (tech.md §12). Консоль этого не видит: станция не пересылает note операторам.
 // Ставится там, где if с числами решает игровой исход и потом спросят «почему оно так». Не трассировка: сотни строк на час, не тысячи.
 function note(kind, data){ if(muted) return; postMessage({ t:'note', at:+t.toFixed(1), kind, ...data }); }
-const CMD_NAMES={1:'описание',2:'лидар',3:'кадр',6:'идти',7:'режим',8:'действие',9:'передатчик',10:'вырастить',11:'статус',12:'телеметрия',13:'лидар-подписка',14:'описание-подписка',15:'пульс',16:'кадр-подписка',17:'стоп',18:'смотреть',19:'изучить',20:'съесть',21:'склад',22:'положить',23:'взять',24:'скрытность',25:'стойка',26:'при потере несущей'};
+const CMD_NAMES={28:'турель',1:'описание',2:'лидар',3:'кадр',6:'идти',7:'режим',8:'действие',9:'передатчик',10:'вырастить',11:'статус',12:'телеметрия',13:'лидар-подписка',14:'описание-подписка',15:'пульс',16:'кадр-подписка',17:'стоп',18:'смотреть',19:'изучить',20:'съесть',21:'склад',22:'положить',23:'взять',24:'скрытность',25:'стойка',26:'при потере несущей'};
 function emitAuto(kind, unit, payload){ emit('bg', kind, unit, payload); }   // периодические подписки идут фоном
 
 // ---------- телеметрия миссионера (16 байт) ----------
@@ -356,7 +372,9 @@ function telemetry(u){
 function heartbeat(S){
   const own=units.filter(u=>u.st===S.k);
   const b=[S.bioStock, S.camInv, S.growing?Math.ceil(S.growing.tLeft):255, S.store[40], S.store[41], own.length];
-  for(const u of own){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0), Math.max(0,Math.min(255,Math.round((u.snr||0)+30)))); }
+  for(const u of own){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)|(u.items.includes(43)?8:0), Math.max(0,Math.min(255,Math.round((u.snr||0)+30)))); }
+  // свои турели: станция знает их все; без питания (потом — без связи) данных нет, только флаг
+  const own_t=turrets.filter(T=>T.st===S.k); b.push(own_t.length); for(const T of own_t) b.push(T.id, (T.powered?1:0)|(T.on?2:0)|(T.broken?4:0)|(T.tgt?8:0)|(T.reloadT>0?16:0), T.powered?T.ammo:255);
   emit('bg','HB',0,new Uint8Array(b),S.k);
 }
 
@@ -374,6 +392,7 @@ function objectsAround(u, maxR){
   }
   for(const v of units){ if(v===u) continue; if(dist(u,v)<=maxR) out.push({id:200+v.id,type:v.alive?252:251,x:v.x,y:v.y,unit:v}); }
   for(const g of ground){ if(dist(u,g)<=maxR) out.push({id:g.id,type:33,x:g.x,y:g.y}); }
+  for(const T of turrets){ if(!inT && dist(u,T)<=maxR) out.push({id:T.id,type:34,x:T.x,y:T.y,facing:T.ang,turret:T}); }
   for(const p of pack){ if(dist(u,p)<=Math.min(maxR,60)) out.push({id:250+p.i,type:250,x:p.x,y:p.y,pack:p}); }
   return out;
 }
@@ -480,6 +499,12 @@ function doPending(u){
   const textReply=(kind,code,text)=>{ const t=encText(text); emit('cmd',kind,u.id,new Uint8Array([o.id,code,t.length>>8,t.length&255,...t])); };   // длина — 2 байта
   const sendCont=()=>{ if(isContainer(o)&&containerOpen(o)){ const c=contentsOf(o); emit('cmd','CONT',u.id,new Uint8Array([o.id,c.length,...c])); } };
   if(p.kind==='exam'){ textReply('EXAM',0,examText(o)); sendCont(); return; }
+  if(p.kind==='put' && o.turret){ const T=o.turret; if(p.item!==43){ textReply('ACT',1,'турель принимает только патроны.'); return; } if(!u.items.includes(43)){ textReply('ACT',1,'нечего положить: патроны.'); return; }
+    if(T.ammo>AMMO_MAX-8){ textReply('ACT',1,`магазин полон: ${T.ammo} из ${AMMO_MAX}.`); return; } u.items.splice(u.items.indexOf(43),1); T.ammo+=8; note('turret',{st:T.st,id:T.id,ammo:T.ammo,by:u.id}); textReply('ACT',0,`зарядил: патроны, в магазине ${T.ammo}.`); if(T.st===u.st) heartbeat(stOf(u)); return; }
+  if(o.turret){ const T=o.turret; if(p.kind!=='exam'){   // своя — вкл/выкл; чужая — резать (нужен резак): CUT_S секунд вплотную, турель с патронами успевает первой
+      if(T.broken){ textReply('ACT',1,'повреждена, действий нет.'); return; }
+      if(T.st===u.st){ T.on=!T.on; if(!T.on) turretDrop(T); turretState(T); note('turret',{st:T.st,id:T.id,on:T.on,by:u.id}); textReply('ACT',0,`${T.on?'включил':'выключил'}. ${(cb.states||[])[stateOf(o.id)]||''}`); heartbeat(stOf(u)); return; }
+      if(!u.items.includes(41)){ textReply('ACT',2,'не смог: нужен резак.'); return; } T.cut={u:u.id,t:0}; textReply('ACT',0,'режу турель.'); note('turret',{st:T.st,id:T.id,cutBy:u.id}); return; } }
   if(p.kind==='take'||p.kind==='put'){
     if(!isContainer(o)||!containerOpen(o)){ textReply('ACT',1,'не контейнер.'); return; }
     const item=p.item;
@@ -528,9 +553,10 @@ onmessage = e => {
   }
   if(cmd===11){ // статус: паспорт станции текстом + пульс
     const own=units.filter(u=>u.st===S.k);
-    const info=`${S.name}, посадочная платформа; штатно; миссия 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nплатформа: ${S.x.toFixed(0)}, ${S.y.toFixed(0)}; курс ${Math.round(S.ang*180/Math.PI)}°\nбиоматериал ${S.bioStock}; камер ${S.camInv}; развёрнуто ${own.length}\nвозврат: ПС-2, ${RETURN_R} м от узла; узлов ${nodes(S).length}\nзадача: ${S.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся. Серия 0 исчерпана (7)':'ПС-7 закрыта'}`;
+    const info=`${S.name}, посадочная платформа; штатно; миссия 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nплатформа: ${S.x.toFixed(0)}, ${S.y.toFixed(0)}; курс ${Math.round(S.ang*180/Math.PI)}°\nбиоматериал ${S.bioStock}; камер ${S.camInv}; развёрнуто ${own.length}\nвозврат: ПС-2, ${RETURN_R} м от узла; узлов ${nodes(S).length}\nтурели: ${turrets.filter(T=>T.st===S.k).map(T=>`${T.id} (${T.x.toFixed(0)}, ${T.y.toFixed(0)}) курс ${Math.round(T.ang*180/Math.PI)}° сектор ${Math.round(T.fov*180/Math.PI)}° дальность ${T.range} м`).join('; ')}; питание ${STATION.powerR} м от корпуса\nзадача: ${S.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся. Серия 0 исчерпана (7)':'ПС-7 закрыта'}`;
     emit('cmd','INFO',0,encText(info),S.k); heartbeat(S); return; }
   if(cmd===15){ S.hbInterval=arg; return; }
+  if(cmd===28){ const T=turrets.find(T=>T.id===unit&&T.st===S.k); if(!T) return; T.on=!!arg; if(!T.on) turretDrop(T); turretState(T); evt(40,0,(arg?1:0)|((T.id&63)<<1),S.k); note('turret',{st:S.k,id:T.id,on:T.on,by:'станция'}); heartbeat(S); return; }   // турель: arg — вкл/выкл, третий байт — id
   const u=unit===0&&(cmd===3||cmd===16) ? S.cam : units.find(u=>u.id===unit); if(!u || u.st!==S.k) return;   // чужим телом эта станция не управляет
   if(u!==S.cam){
     if(!u.carrier){ evt(25,u.id); return; }                                              // станция не слышит тело — команда не дойдёт
@@ -568,11 +594,12 @@ onmessage = e => {
 function snapshot(){
   const su=units.map(u=>{ const o={...u}; delete o.lastImg; delete o.pendingImg; return o; });
   const ss=stations.map(S=>{ const {cam,...o}=S; return {...o, camSub:cam.sub}; });   // геометрия платформы — из уровня, но в снимке тоже: так проще читать
-  return { t, nextUnit, msgId, objState, contents, ground, nextGround, pack:pack.map(p=>({...p})), antennaBoost, units:su, stations:ss };
+  return { t, nextUnit, msgId, objState, contents, ground, nextGround, pack:pack.map(p=>({...p})), turrets:turrets.map(T=>({id:T.id,ammo:T.ammo,on:T.on,broken:T.broken,aimT:T.aimT,reloadT:T.reloadT,tgt:T.tgt,cut:T.cut})), antennaBoost, units:su, stations:ss };
 }
 function restore(d){
   t=d.t; nextUnit=d.nextUnit; msgId=d.msgId; for(const k in objState) delete objState[k]; Object.assign(objState,d.objState);
   if(d.pack) d.pack.forEach((s,i)=>{ if(pack[i]) Object.assign(pack[i],s,{i}); }); antennaBoost=d.antennaBoost;
+  if(d.turrets) for(const s of d.turrets){ const T=turrets.find(T=>T.id===s.id); if(T){ Object.assign(T,s); turretState(T); } }
   units.length=0; for(const su of d.units){ const u={st:0, stealth:false, stance:0, reflex:0, carrierNoted:true, ...su, lastImg:{}, pendingImg:null}; if(u.mode===2){ u.mode=1; u.stealth=true; } if(u.mode===5){ u.mode=1; u.stance=2; } units.push(u); }
   for(const sd of d.stations||[]){ const S=stations[sd.k]; if(!S) continue; const {camSub,cam,...o}=sd; Object.assign(S,o,{k:S.k}); if(camSub) S.cam.sub=camSub; S.cam.lastImg={}; S.cam.pendingImg=null; }
   if(d.contents){ for(const k in contents) delete contents[k]; Object.assign(contents,d.contents); } if(d.ground){ ground.length=0; ground.push(...d.ground); nextGround=d.nextGround||100; }
@@ -588,7 +615,7 @@ function tick(){
     // тупик: живых нет, биоматериала нет, ничего не растёт — станция закрывает серию
     if(S.taskOpen && !S.seriesClosed && own.length && !own.some(u=>u.alive) && S.bioStock<=0 && !S.growing){ S.seriesClosed=true; note('station',{st:S.k,series:'closed'}); setTimeout(()=>evt(27,0,0,S.k),2000/speed); }
     if(S.growing){ S.growing.tLeft-=dt; if(S.growing.tLeft<=0){ const u=spawn(S.growing.sensors,S); S.growing=null; evt(6,u.id); } } }
-  packTick(); for(const S of stations) turretTick(S,dt);
+  packTick(); for(const T of turrets) turretTick(T,dt);
   for(const u of units){
     if(u.alive){
       if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>LINK_LOST_S && !u.autoDone){ u.autoDone=true; note('unit',{unit:u.id,autonomy:u.autonomy,x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); if(u.autonomy===1) u.target=null; if(u.autonomy===2){ const sp=stOf(u).spawn; u.target={x:sp.x,y:sp.y}; u.mode=3; } } }
@@ -633,7 +660,8 @@ const r1=v=>+v.toFixed(1), r2=v=>+v.toFixed(2), xy=p=>p?[r1(p.x),r1(p.y)]:null;
 function truth(){ return {
   units:units.map(u=>({id:u.id,st:u.st,x:r1(u.x),y:r1(u.y),h:r2(u.heading),alive:u.alive,mode:u.mode,stealth:u.stealth,stance:u.stance,reflex:u.reflex,light:u.lightOn,tg:xy(u.target),
     pulse:Math.round(u.pulse),skin:Math.round(u.skin),bone:Math.round(u.bone),glu:Math.round(u.glucose),chg:Math.round(u.charge),psy:Math.round(u.psyche),fear:r2(u.fear),car:u.carrier,items:u.items,cam:u.sensors.camera})),
-  stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang,team:S.team,bio:S.bioStock,power:S.power,turret:S.turret?{x:r1(S.turret.x),y:r1(S.turret.y),ang:r2(S.turret.ang),fov:r2(S.turret.fov),range:S.turret.range,on:!!S.turret.on,tgt:S.turret.tgt,aim:r1(S.turret.aimT),rel:r1(S.turret.reloadT)}:null})),
+  stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang,team:S.team,bio:S.bioStock,power:S.power})),
+  turrets:turrets.map(T=>({id:T.id,st:T.st,x:r1(T.x),y:r1(T.y),ang:r2(T.ang),fov:r2(T.fov),range:T.range,on:T.on,powered:T.powered,broken:T.broken,ammo:T.ammo,tgt:T.tgt,aim:r1(T.aimT),rel:r1(T.reloadT),cut:T.cut?r1(T.cut.t):null})),
   pack:pack.map(p=>({i:p.i,x:r1(p.x),y:r1(p.y),h:r2(p.heading),act:p.act,hp:p.hp,fear:r2(p.fear),tired:r2(p.tired),nerve:r2(nerve(p)),size:p.size,tg:xy(p.target),foe:p.foe&&foeOf(p)?[...xy(p.foe),p.foe.u]:null,told:p.told?p.told.v:null,item:p.item||null,lit:p.lit!==undefined&&t-p.lit<0.6,why:p.why,rest:r1(p.rest),hold:r1(p.hold)})),
   ground:ground.map(g=>({id:g.id,x:g.x,y:g.y,items:contents[g.id]||[]})),
   cries:cries.filter(c=>t-c.t<4).map(c=>({x:c.x,y:c.y,word:c.word,age:+(t-c.t).toFixed(1)})) }; }

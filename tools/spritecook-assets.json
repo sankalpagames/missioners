@@ -160,5 +160,8 @@
  },
  "boulder2_sheet": {
   "asset_id": "204721af-9e46-4021-9e8d-faab3ae60e98"
+ },
+ "turret_sheet": {
+  "asset_id": "87d0cd81-b398-4cd8-af8a-c02da706cad1"
  }
 }

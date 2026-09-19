@@ -37,18 +37,19 @@ function levelText(){ const L=LEVEL; const o=[];
 const LEVEL = {`);
   o.push(`  stations: [`);
   L.stations.forEach((S,k)=>{ o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}, spawn:{x:${num(S.spawn.x)}, y:${num(S.spawn.y)}}, airlock:{x:${num(S.airlock.x)}, y:${num(S.airlock.y)}}, subs:[   // ARK-04${1+k}`);
-    for(const s of S.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; if(s.turret) f+=`, turret:{fov:${s.turret.fov}, range:${s.turret.range}, aim:${s.turret.aim}, reload:${s.turret.reload}}`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
+    for(const s of S.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
     o.push(`    ] },`); });
   o.push(`  ],`);
   o.push(`  pois: [`);
   for(const p of L.pois){ o.push(`    { id:${p.id}, x:${num(p.x)}, y:${num(p.y)}, subs:[   // ${nameOf(p.id)}`);
-    for(const s of p.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; if(s.turret) f+=`, turret:{fov:${s.turret.fov}, range:${s.turret.range}, aim:${s.turret.aim}, reload:${s.turret.reload}}`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
+    for(const s of p.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
     o.push(`    ] },`); }
   o.push(`  ],`);
   const pts=a=>a.map(p=>`{x:${num(p.x)},y:${num(p.y)}}`).join(', ');
   o.push(`  canyon: {`); o.push(`    pts: [${pts(L.canyon.pts)}],`); o.push(`    w: [${L.canyon.w.map(num).join(', ')}],`);
   o.push(`    branch: { pts: [${pts(L.canyon.branch.pts)}], w: [${L.canyon.branch.w.map(num).join(', ')}] },`); o.push(`  },`);
   if(L.bounds) o.push(`  bounds: {x0:${num(L.bounds.x0)}, y0:${num(L.bounds.y0)}, x1:${num(L.bounds.x1)}, y1:${num(L.bounds.y1)}},`);
+  o.push(`  turrets: [`); for(const T of (L.turrets||[])) o.push(`    {st:${T.st}, x:${num(T.x)}, y:${num(T.y)}, f:${num(T.f||0)}${T.fov?', fov:'+num(T.fov):''}${T.range?', range:'+num(T.range):''}${T.aim?', aim:'+num(T.aim):''}${T.reload?', reload:'+num(T.reload):''}},`); o.push(`  ],`);
   o.push(`  hulls: [`); for(const h of L.hulls) o.push(`    {x:${num(h.x)}, y:${num(h.y)}, r:${num(h.r)}, h:${num(h.h)}},${h.name?'   // '+h.name:''}`); o.push(`  ],`);
   o.push(`  pack: { lair:{x:${num(L.pack.lair.x)},y:${num(L.pack.lair.y)}}, members:[`); for(const m of L.pack.members) o.push(`    {x:${num(m.x)}, y:${num(m.y)}, size:${num(m.size)}, courage:${num(m.courage)}, attention:${num(m.attention)}},`); o.push(`  ] },`);
   o.push(`  decor: [`); for(const d of L.decor) o.push(`    {id:${d.id}, type:'${d.type}', x:${num(d.x)}, y:${num(d.y)}, f:${num(d.f)}, Hs:${num(d.Hs)}},`); o.push(`  ],`);
@@ -99,6 +100,8 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   // корпуса: платформа (из кодовой книги) и круги уровня
   LEVEL.stations.forEach((st,k)=>{ const X=S(st.x),Y=Sy(st.y); handles.push({kind:'station',ref:st,x:st.x,y:st.y,r:8}); ctx.strokeStyle='#aaa'; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,(st.ang||0)*Math.PI/180,0,7); ctx.stroke();
     if(layers.labels&&sc>=0.7){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+k),X-14,Y-STATION.ry*sc-4); } });
+  LEVEL.stations.forEach(st=>{ ctx.setLineDash([3,5]); ctx.strokeStyle='rgba(255,220,120,0.35)'; ctx.beginPath(); ctx.arc(S(st.x),Sy(st.y),STATION.powerR*sc,0,7); ctx.stroke(); ctx.setLineDash([]); });   // зона питания
+  for(const T of (LEVEL.turrets||[])){ handles.push({kind:'turret',ref:T,x:T.x,y:T.y,r:7}); const X=S(T.x),Y=Sy(T.y), a=(T.f||0)*Math.PI/180, fov=(T.fov||140)*Math.PI/180, R=(T.range||120)*sc; ctx.fillStyle='rgba(255,220,120,0.06)'; ctx.strokeStyle='rgba(255,220,120,0.4)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,R,a-fov/2,a+fov/2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle='#ffdc78'; ctx.fillRect(X-3,Y-3,7,7); if(layers.labels&&sc>=1){ ctx.fillText(`турель ARK-04${1+T.st}`,X+7,Y+8); } }
   for(const h of LEVEL.hulls){ handles.push({kind:'hull',ref:h,x:h.x,y:h.y,r:Math.max(6,h.r*sc)}); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(h.x),Sy(h.y),h.r*sc,0,7); ctx.stroke(); }
   // декорации: сюжетные — крестики; процедурные — точки (слой)
   if(layers.decor&&sc>=1){ ctx.fillStyle='rgba(200,200,200,0.35)'; const R=Math.max(W,H)/sc/2+20; for(const o of TER.decor({x:cx,y:cy},R)){ if(o.id>=7000&&o.id<7400&&LEVEL.decor.some(d=>d.id===o.id)) continue; const r=Math.max(1,(o.Hs||1)*0.4*sc); ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),r,0,7); ctx.fill(); } }
@@ -126,7 +129,7 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
 // ---------- положение объекта за ручкой: чтение и перемещение ----------
 function posOf(h){ return {x:h.x,y:h.y}; }
 function moveTo(h,x,y){ switch(h.kind){
-  case 'poi': case 'airlock': h.ref.x=x; h.ref.y=y; break;
+  case 'poi': case 'airlock': case 'turret': h.ref.x=x; h.ref.y=y; break;
   case 'station': { const dx=x-h.ref.x, dy=y-h.ref.y; h.ref.x=x; h.ref.y=y; h.ref.airlock.x+=dx; h.ref.airlock.y+=dy; h.ref.spawn.x+=dx; h.ref.spawn.y+=dy; break; }   // платформа едет со шлюзом и стартом
   case 'sub': h.ref.dx=x-h.poi.x; h.ref.dy=y-h.poi.y; break;
   case 'knee': { const p=h.pts[h.i]; if(!h.br&&h.i>0){ const b=LEVEL.canyon.branch.pts[0]; if(Math.abs(b.x-p.x)<1e-6&&Math.abs(b.y-p.y)<1e-6){ b.x=x; b.y=y; } }   // корень отростка сидит на колене — едет вместе
@@ -170,9 +173,11 @@ function place(kind,x,y){ const p=kind==='sub'?((sel&&(sel.kind==='poi'?sel.ref:
   if(kind==='poi'){ const np={id:+$('#add-poi-type').value,x,y,subs:[]}; LEVEL.pois.push(np); LEVEL.pois.sort((a,b)=>a.id-b.id); fillAddSelects(); select({kind:'poi',ref:np}); }
   if(kind==='decor'){ const id=Math.max(7000,...LEVEL.decor.map(d=>d.id))+1; const type=$('#add-decor-type').value; const d={id,type,x,y,f:0,Hs:SPRITES[type].H}; LEVEL.decor.push(d); TER.reload(); select({kind:'decor',ref:d}); }
   if(kind==='hull'){ const h={x,y,r:3,h:3}; LEVEL.hulls.push(h); select({kind:'hull',ref:h}); }
+  if(kind==='turret'){ LEVEL.turrets=LEVEL.turrets||[]; const st=LEVEL.stations.map((S,k)=>k).find(k=>!LEVEL.turrets.some(T=>T.st===k)); if(st===undefined){ setStatus('у каждой платформы уже есть запись турели','err'); return; } const T={st,x,y,f:0}; LEVEL.turrets.push(T); select({kind:'turret',ref:T}); }
   if(kind==='wild'){ if(LEVEL.pack.members.length>=10){ setStatus('в стае не больше 10 особей (id 250…259)','err'); return; } const m={x,y,size:1,courage:0.5,attention:0.5}; LEVEL.pack.members.push(m); select({kind:'wild',ref:m}); }
   camShot(); }
 function del(){ if(!sel) return; const k=sel.kind;
+  if(k==='turret'){ pushHist(); LEVEL.turrets.splice(LEVEL.turrets.indexOf(sel.ref),1); }
   if(k==='sub'){ pushHist(); sel.poi.subs.splice(sel.i,1); }
   else if(k==='poi'){ if(!confirm(`Удалить ориентир ${sel.ref.id} «${nameOf(sel.ref.id)}» со всеми подобъектами?`)) return; pushHist(); LEVEL.pois.splice(LEVEL.pois.indexOf(sel.ref),1); fillAddSelects(); }
   else if(k==='decor'){ pushHist(); LEVEL.decor.splice(LEVEL.decor.indexOf(sel.ref),1); TER.reload(); }
@@ -205,6 +210,7 @@ function renderProps(){ const P=$('#props'); if(!sel){ $('#sel-title').textConte
   const rows=[]; const k=sel.kind, r=sel.ref; const F=(label,get,set,attrs='step="0.1"')=>rows.push({label,html:`<input type="number" value="${num(get())}" ${attrs}>`,on:v=>set(+v)});
   const XY=(o)=>{ F('x',()=>o.x,v=>o.x=v); F('y',()=>o.y,v=>o.y=v); };
   let title='';
+  if(k==='turret'){ title=`турель ARK-04${1+r.st} · id ${230+r.st}`; XY(r); F('курс, °',()=>r.f||0,v=>r.f=v,'step="1"'); F('сектор, °',()=>r.fov||140,v=>r.fov=v,'step="5"'); F('дальность, м',()=>r.range||120,v=>r.range=v,'step="5"'); F('прицел, с',()=>r.aim||3,v=>r.aim=v,'step="0.5"'); F('перезарядка, с',()=>r.reload||10,v=>r.reload=v,'step="1"'); }
   if(k==='poi'){ title=`ориентир ${r.id} · ${nameOf(r.id)}`; XY(r); rows.push({label:'подобъектов',html:`<span>${r.subs.length} (id ${r.id*10}…${r.id*10+r.subs.length-1})</span>`}); }
   if(k==='sub'){ const id=sel.poi.id*10+sel.i; title=`объект ${id} · ${nameOf(r.type)}`; const cb=CODEBOOK[r.type]||{};
     rows.push({label:'тип',html:`<select>${Object.keys(CODEBOOK).filter(t=>t>=10&&t<250).map(t=>`<option value="${t}" ${+t===r.type?'selected':''}>${t} ${CODEBOOK[t].name}</option>`).join('')}</select>`,on:v=>{ r.type=+v; delete r.state; }});

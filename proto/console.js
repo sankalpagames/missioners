@@ -21,7 +21,7 @@ const modem={at:0,speed:1,up:false,cap:0,orbit:null,qbg:0,qcmd:0,ncmd:0,retry:0,
 function kindOf(k){ return /^IM[GD]/.test(k)?'IMG':k; }
 let speed=1, tNow=0, active=1, dbgLevel=null;   // dbgLevel и modem.dbg — правда о мире для шторки, игрок этого не видит
 const units=new Map();          // id → знание о миссионере
-const station={bio:null,cam:null,grow:null,brik:0,cut:0,at:-1e9,pos:null,name:'ARK-041'};   // pos — где стоит своя платформа: из паспорта станции (INFO)
+const station={bio:null,cam:null,grow:null,brik:0,cut:0,at:-1e9,pos:null,name:'ARK-041',turrets:[],turretGeo:{},turretReq:{}};   // turrets — из пульса (состояние, патроны), turretGeo — из паспорта (где стоит, сектор), turretReq — запрошено кнопкой, до подтверждения пульсом   // pos — где стоит своя платформа: из паспорта станции (INFO)
 const known=new Map();          // ключ → объект с координатами (только из полученных данных)
 const journal=new Map();        // id объекта → [{t, unit, text}] — что узнали, изучив или взаимодействуя
 function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push({t:tNow,unit,text}); if($('.tabs button.on').dataset.tab==='journal') renderJournal(); }
@@ -81,7 +81,7 @@ function onDeliver(pkt){
     case 'IMG0': case 'IMG1': case 'IMG2': case 'IMG3': decodeImg(pkt); break;
     case 'IMD0': case 'IMD1': case 'IMD2': case 'IMD3': decodeImd(pkt); break;
     case 'EVT': decodeEvt(pkt); break;
-    case 'INFO': { const text=decText(pkt.bytes); const tl=text.split('\n').find(l=>l.startsWith('задача:')); if(tl) $('#task').textContent=tl; const rr=/возврат:.*?(\d+) м/.exec(text); if(rr) station.returnR=+rr[1]; /* радиус возврата — из паспорта, для круга на карте */ const pp=/платформа: (-?[\d.]+), (-?[\d.]+); курс (-?\d+)/.exec(text); if(pp) station.pos={x:+pp[1],y:+pp[2],ang:+pp[3]*Math.PI/180}; const nm=/^(ARK-\d+),/.exec(text); if(nm) station.name=nm[1]; if(boot.onInfo) boot.onInfo(text,pkt); else log('станция: '+text.replace(/\n/g,' · '),'sys'); break; }
+    case 'INFO': { const text=decText(pkt.bytes); const tl=text.split('\n').find(l=>l.startsWith('задача:')); if(tl) $('#task').textContent=tl; const rr=/возврат:.*?(\d+) м/.exec(text); if(rr) station.returnR=+rr[1]; /* радиус возврата — из паспорта, для круга на карте */ const pp=/платформа: (-?[\d.]+), (-?[\d.]+); курс (-?\d+)/.exec(text); if(pp) station.pos={x:+pp[1],y:+pp[2],ang:+pp[3]*Math.PI/180}; const nm=/^(ARK-\d+),/.exec(text); if(nm) station.name=nm[1]; const tl2=/турели: (.*)/.exec(text); if(tl2){ for(const m of tl2[1].matchAll(/(\d+) \((-?\d+), (-?\d+)\) курс (-?\d+)° сектор (\d+)° дальность (\d+) м/g)) station.turretGeo[+m[1]]={x:+m[2],y:+m[3],ang:+m[4]*Math.PI/180,fov:+m[5]*Math.PI/180,range:+m[6]}; } const pw=/питание (\d+) м/.exec(text); if(pw) station.powerR=+pw[1]; if(boot.onInfo) boot.onInfo(text,pkt); else log('станция: '+text.replace(/\n/g,' · '),'sys'); break; }
     case 'CONT': { const b=pkt.bytes; contents.set(b[0],[...b.slice(2,2+b[1])]); renderDesc(); break; }
     case 'EXAM': decodeExam(pkt); break;
     case 'ACT': decodeAct(pkt); break;
@@ -97,7 +97,10 @@ function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit); if(boot.onTlm) boot.o
   const last=u.track[u.track.length-1]; if(!last||Math.hypot(last.x-u.tlm.x,last.y-u.tlm.y)>2){ u.track.push({x:u.tlm.x,y:u.tlm.y,t:tNow}); if(u.track.length>600) u.track.shift(); }
 }
 function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.brik=b[3]; station.cut=b[4]; station.at=tNow; const n=b[5];
-  for(let i=0;i<n;i++){ const id=b[6+i*5], f=b[7+i*5], ch=b[8+i*5]/2.55, it=b[9+i*5], snr=b[10+i*5]-30; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[])];
+  { const o=6+n*5, nt=b[o]??0; const prev=station.turrets; station.turrets=[]; for(let j=0;j<nt;j++){ const id=b[o+1+j*3], f=b[o+2+j*3], am=b[o+3+j*3]; const T={id, powered:!!(f&1), on:!!(f&2), broken:!!(f&4), tracking:!!(f&8), reloading:!!(f&16), ammo:am===255?null:am}; station.turrets.push(T);
+      const was=prev.find(x=>x.id===id); if(was){ if(!was.broken&&T.broken) log(`станция: турель ${id} повреждена`,'err'); if(was.ammo>0&&T.ammo===0) log(`станция: турель ${id} — патроны кончились`,'warn'); }
+      const rq=station.turretReq[id]; if(rq&&(rq.on===T.on||tNow-rq.at>90)) delete station.turretReq[id]; } }   // свои турели: состояние и патроны; без питания — данных нет (255)
+  for(let i=0;i<n;i++){ const id=b[6+i*5], f=b[7+i*5], ch=b[8+i*5]/2.55, it=b[9+i*5], snr=b[10+i*5]-30; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[]), ...(it&8?[43]:[])];
     u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.atAirlock=!!(f&32); u.charge=ch; u.snr=snr; u.hbAt=tNow;
     if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err');
     { const was=u.snrState||'ok', now=!u.carrier?'lost':snr<5?'weak':'ok'; if(u.alive&&now!==was&&u.hbAt>-1e8){ if(now==='weak') log(`станция: несущая М${id} слабеет, ${snr>0?'+':''}${snr} дБ`,'err'); if(now==='ok'&&was!=='ok'&&u.carrier) log(`станция: несущая М${id} уверенная, +${snr} дБ`,'sys'); } u.snrState=now; }
@@ -284,6 +287,9 @@ function drawMap(){ const cv=$('#map'); fitCanvas(cv,true); const ctx=cv.getCont
   if(station.returnR){ const nodes=[SP]; if(station.relay&&known.get(3)) nodes.push(known.get(3)); ctx.strokeStyle='rgba(224,169,74,0.35)'; ctx.setLineDash([4,6]); for(const n of nodes){ ctx.beginPath(); ctx.arc(sx(n.x),sy(n.y),station.returnR*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
   // знак станции — контур корпуса из кодовой книги (эллипс, люк на +x); лидар отражается от того же контура
   ctx.strokeStyle='#666'; ctx.beginPath(); ctx.ellipse(sx(SP.x),sy(SP.y),STATION.rx*sc,STATION.ry*sc,SP.ang||0,0,7); ctx.stroke(); ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.fillText('станция',sx(SP.x)-8*sc-44,sy(SP.y)+3);
+  ctx.setLineDash([3,5]); ctx.strokeStyle='rgba(255,220,120,0.35)'; ctx.beginPath(); ctx.arc(sx(SP.x),sy(SP.y),(station.powerR||STATION.powerR)*sc,0,7); ctx.stroke(); ctx.setLineDash([]);   // зона питания — знание протокола, как эллипс корпуса
+  for(const T of station.turrets){ const g=station.turretGeo[T.id]; if(!g) continue; const X=sx(g.x),Y=sy(g.y), live=T.powered&&T.on&&!T.broken; if(live){ ctx.fillStyle='rgba(255,220,120,0.07)'; ctx.strokeStyle='rgba(255,220,120,0.35)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,g.range*sc,g.ang-g.fov/2,g.ang+g.fov/2); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    ctx.fillStyle=T.broken?'#8a3a3a':live?'#ffdc78':'#777'; ctx.fillRect(X-3,Y-3,7,7); ctx.fillText(`турель ${T.id}${T.ammo==null?'':' · '+T.ammo}`,X+6,Y+4); }
   for(const u of units.values()){ const col=UCOL[(u.id-1)%UCOL.length]; ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); const t0=map.trackLife?tNow-map.trackLife:-1; u.track.filter(p=>!(p.t<t0)).forEach((p,i)=>i?ctx.lineTo(sx(p.x),sy(p.y)):ctx.moveTo(sx(p.x),sy(p.y))); ctx.stroke(); ctx.globalAlpha=1; }
   ctx.font='10px monospace';
   const tg=T(), au0=units.get(active), gp=au0&&au0.goalPos;
@@ -454,6 +460,10 @@ setInterval(()=>{
   { const growing=station.grow!=null; $('#btn-grow').disabled=growing||station.bio===0; $('#g-cam').disabled=!station.cam; $('#g-cam-l').classList.toggle('dim',!station.cam); if(!station.cam) $('#g-cam').checked=false;
     $('#grow-state').textContent=growing?`идёт выращивание: готовность через ${Math.floor(station.grow/60)}:${String(station.grow%60).padStart(2,'0')}`:station.bio===0?'биоматериала нет':`готово к запуску · биоматериал ${station.bio??'—'} ед.`;
     $('#grow-prog').style.width=growing?((180-station.grow)/180*100)+'%':'0%'; }
+  { const tt=$('#turrets tbody'); tt.innerHTML=''; for(const T of station.turrets){ const rq=station.turretReq[T.id]; const st=T.broken?'повреждена':!T.powered?'без питания, данных нет':T.on?(T.tracking?'ведёт цель':T.reloading?'перезарядка':'включена'):'выключена';
+      tt.insertAdjacentHTML('beforeend',`<tr><td>${T.id}</td><td>${st}</td><td>${T.ammo==null?'—':T.ammo}</td><td><button class="tur ${rq?'req':''}" data-id="${T.id}" data-on="${T.on?0:1}" ${T.broken||!T.powered?'disabled':''}>${rq?(rq.on?'включить ●':'выключить ●'):T.on?'выключить':'включить'}</button></td></tr>`); }
+    if(!station.turrets.length) tt.innerHTML='<tr><td colspan="4" class="dim">нет данных — ждите пульс</td></tr>';
+    for(const b of tt.querySelectorAll('button.tur')) b.onclick=()=>{ const id=+b.dataset.id, on=+b.dataset.on; if(send([28,on,id],`турель ${id}: ${on?'включить':'выключить'}`)) station.turretReq[id]={on:!!on,at:tNow}; }; }
   const tb=$('#roster tbody'); tb.innerHTML=''; for(const v of [...units.values()].sort((a,b)=>a.id-b.id)) tb.insertAdjacentHTML('beforeend',`<tr><td>М${v.id}</td><td>${v.alive?'жив':'мёртв'}</td><td>${v.carrier?'есть':'<span style="color:#d9534f">нет</span>'}</td><td>${[v.camera?'камера':'',v.sonar?'лидар':''].filter(Boolean).join(', ')||'—'}</td><td>${v.charge==null?'—':v.charge.toFixed(0)+'%'}</td><td>${(v.items||[]).map(i=>ITEMS[i]).join(', ')||'—'}</td><td>${v.streaming?'да':''}</td></tr>`);
   // вкладки
   const tab=$('.tabs button.on').dataset.tab;

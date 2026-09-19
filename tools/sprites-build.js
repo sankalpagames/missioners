@@ -8,7 +8,7 @@ const RAW=path.join(__dirname,'raw'), OUT=path.join(__dirname,'..','proto'); con
 
 function slice(d){ const cols=new Uint32Array(d.w); for(let y=0;y<d.h;y++)for(let x=0;x<d.w;x++) if(d.alpha[y*d.w+x]>100) cols[x]++;
   let runs=[], on=false, st=0; for(let x=0;x<=d.w;x++){ const v=x<d.w&&cols[x]>0; if(v&&!on){st=x;on=true;} if(!v&&on){ runs.push([st,x]); on=false; } }
-  while(runs.length<5){ const ws=runs.map(r=>r[1]-r[0]).sort((a,b)=>a-b); const med=ws[Math.floor(ws.length/2)]; const k=runs.findIndex(r=>r[1]-r[0]>1.5*med); if(k<0) break;
+  while(runs.length<5){ const ws=runs.map(r=>r[1]-r[0]).sort((a,b)=>a-b); const med=Math.min(ws[Math.floor(ws.length/2)], ws.reduce((a,b)=>a+b,0)/5); const k=runs.findIndex(r=>r[1]-r[0]>1.5*med); if(k<0) break;   // ориентир ширины — медиана, но не шире пятой части листа: слипшиеся четыре вида тоже делятся
     const [a,b]=runs[k]; let best=-1, bv=Infinity; for(let x=a+Math.floor((b-a)*0.3); x<a+Math.floor((b-a)*0.7); x++) if(cols[x]<bv){ bv=cols[x]; best=x; } runs.splice(k,1,[a,best],[best,b]); }
   return runs.map(([x0,x1])=>{ let y0=d.h,y1=0; for(let y=0;y<d.h;y++)for(let x=x0;x<x1;x++) if(d.alpha[y*d.w+x]>100){ if(y<y0)y0=y; if(y>y1)y1=y; } return {x0,y0,w:x1-x0,h:y1-y0+1}; }); }
 function shrink(d,v){ const h=VH, w=Math.max(1,Math.round(v.w*VH/v.h)); const g=new Uint8Array(w*h), a=new Uint8Array(w*h);

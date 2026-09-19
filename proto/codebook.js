@@ -42,23 +42,23 @@ const CODEBOOK = {
   250:{ key:'unknown',      name:'объект, класс не определён', states:['Двуногое. Кожа с тем же рисунком пор, что у миссионера. Смотрит.'] },
   251:{ key:'body',         name:'тело миссионера',     states:['Не двигается.'], container:0 },
   33: { key:'bundle',       name:'свёрток',             states:['Оставлено на грунте.'], container:0 },
-  34: { key:'turret',       name:'турель',              states:['Лампа горит. Ствол ведёт по сектору.','Лампа не горит.'] },
+  34: { key:'turret',       name:'турель',              states:['Включена. Лампа горит, ствол ведёт по сектору.','Выключена. Лампа не горит.','Повреждена. Головка сорвана с оси, лампа разбита.'] },   // действия — в мире: своя вкл/выкл, чужая — резать; патроны — «положить»
   252:{ key:'missionary',   name:'миссионер',           states:['Наш. Идёт.'] },
 };
 
-const ITEMS = { 40:'пищевой брикет', 41:'резак', 42:'камера' };
+const ITEMS = { 40:'пищевой брикет', 41:'резак', 42:'камера', 43:'патроны' };   // патроны — пачка на 8 выстрелов, кладётся в турель
 
 // Спрайты для камеры (атлас sprites.png, см. tools/sprites-build.js). sheet — лист из 5 ракурсов (0°, 45°, 90°, 135°, 180°; остальные зеркалом),
 // H — реальная высота в метрах (ширина — по пропорции ракурса), view — фиксированный вид, flat — декаль на земле (рисунок в terrain.js).
 // Типы без записи в кадр не попадают (отдельные ящики, надпись — часть штабеля; люк — часть платформы). Декорации — по имени.
 // Корпус платформы в плане: эллипс 16×9 м, длинная ось по курсу, люк на торце +x (в 2 м перед ним — ориентир «шлюз», 16,0).
 // Одна геометрия для лидара, столкновений, спрайта в кадре и знака станции на карте.
-const STATION = { x:6, y:0, rx:8, ry:4.5, ang:0, h:7 };
+const STATION = { x:6, y:0, rx:8, ry:4.5, ang:0, h:7, powerR:40 };   // powerR — зона питания вокруг корпуса, м: что внутри — запитано (турели); розетки и кабели — потом
 const SPRITES = {
   2:{sheet:'crates_sheet',H:2.4},                                                     // штабель — один объект-ориентир
   11:{sheet:'floodlight_sheet',H:3.0}, 12:{flat:true}, 16:{flat:true}, 17:{sheet:'mast_sheet',H:7}, 18:{sheet:'cabinet_sheet',H:1.8}, 19:{flat:true},
   20:{sheet:'mound_sheet',H:0.7}, 21:{sheet:'marker_sheet',H:1.1}, 22:{sheet:'bones_sheet',H:0.5}, 23:{sheet:'wreck_sheet',H:4}, 24:{sheet:'hatch_sheet',H:2.0}, 25:{flat:true},
-  27:{flat:true}, 28:{sheet:'stone_sheet',H:0.4}, 29:{sheet:'pile_sheet',H:1.4}, 30:{sheet:'glyphs_hd',H:2.0}, 31:{flat:true}, 32:{sheet:'small_sheet',view:0,H:0.25}, 33:{sheet:'small_sheet',view:1,H:0.4}, 34:{sheet:'cabinet_sheet',H:1.6},
+  27:{flat:true}, 28:{sheet:'stone_sheet',H:0.4}, 29:{sheet:'pile_sheet',H:1.4}, 30:{sheet:'glyphs_hd',H:2.0}, 31:{flat:true}, 32:{sheet:'small_sheet',view:0,H:0.25}, 33:{sheet:'small_sheet',view:1,H:0.4}, 34:{sheet:'turret_sheet',H:1.6},
   250:{sheet:'creature2_sheet',H:1.6}, sleep:{sheet:'creature_sleep_sheet',H:0.6},   // существо стоит / спит
   251:{sheet:'body2_sheet',H:0.55}, 252:{sheet:'missionary5_sheet',H:1.8}, walk:{sheet:'missionary_walk_sheet',H:1.8},
   station:{sheet:'platform2_sheet',H:7},
@@ -115,6 +115,9 @@ const EVENTS = {
   35:'инструкция на потерю несущей',
   36:'турель: луч на теле',
   37:'турель: выстрел',
+  38:'турель: патроны кончились',
+  39:'турель повреждена',
+  40:'турель переключена',
 };
 
 if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, AUTONOMY, EVENTS, encText, decText };
