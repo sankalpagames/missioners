@@ -7,10 +7,10 @@
 //        > 60                — промотать 60 с игрового
 //        x 8                 — ускорение
 //        где                 — правда о мире: координаты особей и тел (отладка, агент этого не видит)
-//        м 100 50            — телепорт миссионера (отладка)
+//        м 100 50            — телепорт миссионера (отладка); о 2 100 50 — телепорт особи
 //        свет / тьма         — фонарь миссионера
 const fs=require('fs'), path=require('path'), readline=require('readline'); const P=path.join(__dirname,'..','proto')+'/';
-const src=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+'\nreturn {tick, pack, units, T:()=>t, handle:m=>onmessage({data:m})};';
+const src=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+'\nreturn {tick, pack, units, stations, T:()=>t, handle:m=>onmessage({data:m})};';
 let W=null; const fmt=s=>`${String(s.toFixed(0)).padStart(5)}с`;
 const shims={ self:{location:{search:'?v=0'}}, importScripts(){}, postMessage(m){
     if(m.t==='agent') console.log(`${fmt(m.at)}  О${m.who}: ${m.text}`);
@@ -27,7 +27,8 @@ rl.on('line',line=>{ const s=line.trim(); if(!s) return; let m;
   if(s==='?') W.handle({t:'agentState'});
   else if((m=/^>\s*(\d+)$/.exec(s))){ clearInterval(timer); for(let i=0;i<+m[1]*10;i++) W.tick(); run(); console.log(`       … ${m[1]} с, сейчас ${fmt(W.T())}`); }
   else if((m=/^x\s*(\d+)$/.exec(s))){ speed=+m[1]; run(); console.log(`       ×${speed}`); }
-  else if(s==='где'){ console.log('       [отладка, правда о мире] '+W.pack.map(p=>`О${p.i+1}(${p.x.toFixed(0)},${p.y.toFixed(0)}) ${p.act}${p.hp<=0?' мёртв':''}`).join(' ')+' | '+W.units.map(v=>`М${v.id}(${v.x.toFixed(0)},${v.y.toFixed(0)})${v.alive?'':' мёртв'}`).join(' ')); }
+  else if(s==='где'){ console.log('       [отладка, правда о мире] '+W.stations.filter(S=>S.turret).map(S=>`турель ${S.name} (${S.turret.x.toFixed(0)},${S.turret.y.toFixed(0)}) ${S.turret.tgt?'ведёт '+(S.turret.tgt.p!==undefined?'О'+(S.turret.tgt.p+1):'М'+S.turret.tgt.u)+' '+S.turret.aimT.toFixed(1)+' с':S.turret.reloadT>0?'перезарядка':'ждёт'} | `).join('')+W.pack.map(p=>`О${p.i+1}(${p.x.toFixed(0)},${p.y.toFixed(0)}) ${p.act}${p.hp<=0?' мёртв':''}`).join(' ')+' | '+W.units.map(v=>`М${v.id}(${v.x.toFixed(0)},${v.y.toFixed(0)})${v.alive?'':' мёртв'}`).join(' ')); }
+  else if((m=/^о\s*(\d+)\s+(-?\d+)\s+(-?\d+)$/.exec(s))){ const p=W.pack[+m[1]-1]; if(p){ p.x=+m[2]; p.y=+m[3]; p.target=null; p.act='idle'; p.told={v:'тп'}; console.log(`       [отладка] О${m[1]} перенесён`); } }
   else if((m=/^м\s*(-?\d+)\s+(-?\d+)$/.exec(s))){ u.x=+m[1]; u.y=+m[2]; u.target=null; console.log('       [отладка] М1 перенесён'); }
   else if(s==='свет'||s==='тьма'){ u.stealth=s==='тьма'; console.log(`       [отладка] скрытность ${u.stealth?'вкл':'выкл'}`); }
   else W.handle({t:'intent', text:s}); });

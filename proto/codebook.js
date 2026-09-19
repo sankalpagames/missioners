@@ -42,6 +42,7 @@ const CODEBOOK = {
   250:{ key:'unknown',      name:'объект, класс не определён', states:['Двуногое. Кожа с тем же рисунком пор, что у миссионера. Смотрит.'] },
   251:{ key:'body',         name:'тело миссионера',     states:['Не двигается.'], container:0 },
   33: { key:'bundle',       name:'свёрток',             states:['Оставлено на грунте.'], container:0 },
+  34: { key:'turret',       name:'турель',              states:['Лампа горит. Ствол ведёт по сектору.','Лампа не горит.'] },
   252:{ key:'missionary',   name:'миссионер',           states:['Наш. Идёт.'] },
 };
 
@@ -57,7 +58,7 @@ const SPRITES = {
   2:{sheet:'crates_sheet',H:2.4},                                                     // штабель — один объект-ориентир
   11:{sheet:'floodlight_sheet',H:3.0}, 12:{flat:true}, 16:{flat:true}, 17:{sheet:'mast_sheet',H:7}, 18:{sheet:'cabinet_sheet',H:1.8}, 19:{flat:true},
   20:{sheet:'mound_sheet',H:0.7}, 21:{sheet:'marker_sheet',H:1.1}, 22:{sheet:'bones_sheet',H:0.5}, 23:{sheet:'wreck_sheet',H:4}, 24:{sheet:'hatch_sheet',H:2.0}, 25:{flat:true},
-  27:{flat:true}, 28:{sheet:'stone_sheet',H:0.4}, 29:{sheet:'pile_sheet',H:1.4}, 30:{sheet:'glyphs_hd',H:2.0}, 31:{flat:true}, 32:{sheet:'small_sheet',view:0,H:0.25}, 33:{sheet:'small_sheet',view:1,H:0.4},
+  27:{flat:true}, 28:{sheet:'stone_sheet',H:0.4}, 29:{sheet:'pile_sheet',H:1.4}, 30:{sheet:'glyphs_hd',H:2.0}, 31:{flat:true}, 32:{sheet:'small_sheet',view:0,H:0.25}, 33:{sheet:'small_sheet',view:1,H:0.4}, 34:{sheet:'cabinet_sheet',H:1.6},
   250:{sheet:'creature2_sheet',H:1.6}, sleep:{sheet:'creature_sleep_sheet',H:0.6},   // существо стоит / спит
   251:{sheet:'body2_sheet',H:0.55}, 252:{sheet:'missionary5_sheet',H:1.8}, walk:{sheet:'missionary_walk_sheet',H:1.8},
   station:{sheet:'platform2_sheet',H:7},
@@ -112,6 +113,8 @@ const EVENTS = {
   33:'стойка при контакте',
   34:'бегство окончено: тело стоит',
   35:'инструкция на потерю несущей',
+  36:'турель: луч на теле',
+  37:'турель: выстрел',
 };
 
 if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, AUTONOMY, EVENTS, encText, decText };

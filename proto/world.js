@@ -3,6 +3,8 @@
 const LAB=/&lab\b/.test(self.location.search);   // лаборатория лидара: одичалые спят, тело не умирает; остальное — как в игре
 const VER=self.location.search.replace(/^\?v=/,'').replace(/&.*$/,'')||'0'; importScripts('level.js?v='+VER,'codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);
 const NST=Math.max(1,Math.min(LEVEL.stations.length,+(/&st=(\d+)/.exec(self.location.search)||[])[1]||1));   // сколько платформ поднято: решает хост (одиночная игра — одна)
+const TEAMS=((/&teams=([\d,]+)/.exec(self.location.search)||[])[1]||'').split(',').map(Number);   // команда каждой платформы (кто с кем): нет — все в одной; одичалые всегда сами за себя
+const teamOf=k=>TEAMS[k]||0;
 CAM.load(VER);   // атлас спрайтов грузится асинхронно; до загрузки объекты в кадре — серые блоки
 
 const DT = 0.1;
@@ -23,7 +25,8 @@ const stations = LEVEL.stations.slice(0,NST).map((L,k)=>{ const ang=(L.ang||0)*M
   const dx=a.x-L.x, dy=a.y-L.y, d=Math.hypot(dx,dy)||1, ox=dx/d, oy=dy/d;   // наружу — от центра корпуса к шлюзу
   return { k, name:'ARK-04'+(1+k), x:L.x, y:L.y, ang, spawn:{...L.spawn}, airlock:a,
     subs:L.subs.slice(0,4).map(s=>[s.type,s.dx,s.dy,s.f===undefined?undefined:s.f*Math.PI/180]),
-    bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2,
+    bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2, team:teamOf(k),
+    turret:(()=>{ const i=L.subs.findIndex(s=>s.type===34); if(i<0||i>3) return null; const s=L.subs[i], c=s.turret||{}; return { id:160+k*4+i, x:a.x+s.dx, y:a.y+s.dy, ang:(s.f===undefined?0:s.f)*Math.PI/180, fov:(c.fov||120)*Math.PI/180, range:c.range||60, aim:c.aim||3, reload:c.reload||10, aimT:0, reloadT:0, tgt:null }; })(),
     // стационарная камера у шлюза: смотрит от люка наружу, сигнала не требует — она на станции
     cam:{ id:0, st:k, x:a.x-4*ox, y:a.y-4*oy, heading:Math.atan2(oy,ox), goal:{x:a.x+44*ox-8*oy,y:a.y+44*oy+8*ox}, lightOn:true, charge:100, alive:true, lastImg:{}, pendingImg:null, frameNo:0, sensors:{camera:true}, sub:{img:{interval:0,level:2,delta:true}}, subT:{img:0}, items:[] } }; });
 const SPOIS = stations.map(S=>({ id:240+S.k, x:S.airlock.x, y:S.airlock.y, subs:S.subs, station:S, idBase:160+S.k*4 }));
@@ -110,7 +113,7 @@ function packStep(p,sp){ const tg=p.target; if(!tg) return; let aim=tg; const cp
   p.heading=dirTo(p,aim); if(stepBody(p,sp*DT)) p.stuckT=0; else { p.stuckT+=DT; if(p.stuckT>3){ p.stuckT=0; p.target=null; if(p.told){ say(p,'не пройти, стою'); } } } }
 // крик: слово = реакция. Слышат особи в радиусе с затуханием за стенами; кулдаун на глотку. Тела рядом вздрагивают — звук, слов не разбирают
 function cry(p,word){ if(p.throat>0) return false; p.throat=6; cries.push({word,x:p.x,y:p.y,t,i:p.i}); const R=120*(0.8+0.4*p.size); const heard=[];
-  for(const q of pack){ if(q===p) continue; const d=dist(p,q); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,q,1.5)); if(loud>0.05) heard.push([q,loud]); }
+  for(const q of pack){ if(q===p||q.act==='dead') continue; const d=dist(p,q); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,q,1.5)); if(loud>0.05) heard.push([q,loud]); }
   note('cry',{who:p.i,word,x:+p.x.toFixed(1),y:+p.y.toFixed(1),heard:heard.map(([q])=>q.i)}); say(p,`кричу «${word}»`);
   for(const [q,loud] of heard) hear(q,word,p,loud);   // заметка раньше реакций: эхо в логе идёт после крика
   for(const u of units){ if(!u.alive) continue; const d=dist(p,u); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,u,1.5)); u.startle=Math.min(1,(u.startle||0)+0.6*loud); }
@@ -135,6 +138,7 @@ function sense(p){ const k=(p.act==='sleep'?0.2+0.3*p.attention:0.6+0.8*p.attent
   if(fresh){ note('pack',{who:p.i,sense:bd<=detectRadius(best)*k?'see':'hear',unit:best.id,d:+bd.toFixed(1),mode:best.mode,stealth:best.stealth,light:best.lightOn,nerve:+nerve(p).toFixed(2)}); const ce=nerve(p); if(ce<0.35) cry(p,'тревога'); else if(Math.random()<0.25+0.7*p.attention) cry(p,'чужой'); } }
 // рефлексы раз в полсекунды: по действующей храбрости и расстоянию до чужого
 function decide(p){ const ce=nerve(p), foe=foeOf(p), d=foe?dist(p,foe):1e9, atLair=dist(p,LAIR)<3;
+  if(p.lit!==undefined && t-p.lit<0.6 && ce<0.6){ const T=stations.map(S=>S.turret).find(T=>T&&T.tgt&&T.tgt.p===p.i); if(T){ if(p.act!=='flee'||p.why!=='луч'){ p.fear=Math.min(1,p.fear+0.2*(1-p.courage)); p.act='flee'; p.told=null; p.hold=10; const L=dist(p,T)||1; p.target={x:p.x+(p.x-T.x)*40/L, y:p.y+(p.y-T.y)*40/L}; p.why='луч'; if(ce<0.35) cry(p,'тревога'); } return; } }   // луч на мне: пугливая бежит от света (не к логову — прочь) и ни на что не отвлекается, пока луч на ней; храбрая идёт дальше
   if(foe && d<10) p.fear=Math.min(1,p.fear+0.015*(1-p.courage)); p.fear=Math.max(0,p.fear-(atLair||p.rest>0?0.01:0.004));
   if(p.act==='attack') p.tired=Math.min(1,p.tired+0.006); else p.tired=Math.max(0,p.tired-0.01);
   if(p.rest>0){ p.rest-=0.5; if(atLair && p.hp<p.hpMax){ p.heal=(p.heal||0)+0.5; if(p.heal>=40){ p.heal=0; p.hp++; } } p.why=`передышка ${p.rest.toFixed(0)} с`; if(foe && d<2.5){ p.act='attack'; p.why='зажали у логова'; } else if(atLair){ p.act='rest'; p.target=null; } else { p.act='home'; p.target={...LAIR}; } return; }   // передышка: не выходит; зажали — огрызается
@@ -154,7 +158,7 @@ function packSpeed(p){ const v=p.act==='flee'?2.0 : p.act==='attack'?1.1*(0.7+0.
 function backOff(p,foe){ const cp=TER.inside(p.x,p.y); if(cp && cp.along>0 && !cp.branch){ const fa=TER.canyon(foe.x,foe.y).along, a=cp.along+(cp.along>=fa?10:-10); if(a>TER.LEN-1) return null; return TER.canyonPoint(Math.max(0,a)/TER.LEN); }
   const L=dist(p,foe)||1; return {x:p.x+(p.x-foe.x)*10/L, y:p.y+(p.y-foe.y)*10/L}; }
 function packTick(){ 
-  for(const p of pack){ p.throat=Math.max(0,p.throat-DT); p.alert=Math.max(0,p.alert-DT); p.rage=Math.max(0,p.rage-DT);
+  for(const p of pack){ if(p.act==='dead') continue; p.throat=Math.max(0,p.throat-DT); p.alert=Math.max(0,p.alert-DT); p.rage=Math.max(0,p.rage-DT);
     if(!LAB && (Math.floor(t/DT)+p.i)%5===0){ sense(p); decide(p); if(p.told && (p.act==='flee'||p.act==='home'||p.act==='rest')) p.told=null; perceive(p); if(p.act!==p.lastAct){ const f=foeOf(p); note('pack',{who:p.i,act:p.act,was:p.lastAct,why:p.why,hp:p.hp,fear:+p.fear.toFixed(2),foe:f?f.u:undefined,x:+p.x.toFixed(1),y:+p.y.toFixed(1)}); p.lastAct=p.act; } }
     if(p.act==='attack'){ const foe=foeOf(p); const u=foe&&units.find(u=>u.id===foe.u&&u.alive&&dist(p,u)<30); if(u){ const d=dist(p,u); p.foe={x:u.x,y:u.y,t,u:u.id};   // цель в 30 м не теряет — ведёт её; дальше — только если чувства поймают снова
         if(d>2.2){ p.target={x:u.x,y:u.y}; p.hitT=0; } else { p.target=null; p.heading=dirTo(p,u); p.hitT+=DT; if(p.hitT>2){ p.hitT=0; u.skin-=10*p.size; u.bone-=4*p.size; u.pain=1; u.psyche-=6; u.bitAt=t; u.bitBy=p; evt(4,u.id); say(p,'укусил двуногого'); note('pack',{who:p.i,bite:u.id,skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),reflex:u.reflex,stance:u.stance}); } } } }
@@ -167,7 +171,7 @@ function packTick(){
 // досягаемости; 10 с без угрозы — продолжает задачу. Бегство: к ближайшему узлу (шлюз своей платформы, мачта с усилителем), пока
 // чужих не видно 20 с, потом стоит.
 function contact(u,threat){ if(u.bitAt!==undefined && t-u.bitAt<3) return u.bitBy; const R=threat?8:u.lightOn?15:4; let best=null, bd=R;
-  for(const p of pack){ if(p.act==='sleep') continue; const d=dist(u,p); if(d>=bd) continue; if(threat && d>3 && p.act!=='attack' && p.act!=='approach') continue; if(losFrac(u,p)<0.34){ bd=d; best=p; } } return best; }
+  for(const p of pack){ if(p.act==='sleep'||p.act==='dead') continue; const d=dist(u,p); if(d>=bd) continue; if(threat && d>3 && p.act!=='attack' && p.act!=='approach') continue; if(losFrac(u,p)<0.34){ bd=d; best=p; } } return best; }
 function nearestNode(u){ const S=stOf(u); let best={x:S.spawn.x,y:S.spawn.y}, bd=dist(u,best); if(antennaBoost){ const m=poi(3); const d=dist(u,m); if(d<bd){ best={x:m.x,y:m.y}; bd=d; } } return best; }
 function stanceTick(u,dt){
   if(!u.reflex){ if(!u.stance) return; const c=contact(u,u.stance===2); if(!c) return;
@@ -183,7 +187,7 @@ function stanceTick(u,dt){
       const a=c.along-8; if(c.d<c.w/2+4 && c.along>-50) u.target = a>0 ? TER.canyonPoint(a/TER.LEN) : {x:TUN_A.x+c.dir.x*a, y:TUN_A.y+c.dir.y*a};   // по оси расщелины, у входа и на подходе — вдоль направления входа наружу
       else u.target={...n}; } }
 }
-function fightBack(u){ let q=null, qd=4; for(const p of pack){ const d=dist(u,p); if(d<qd){ qd=d; q=p; } } if(!q){ u.atkTimer=0; return; }
+function fightBack(u){ let q=null, qd=4; for(const p of pack){ if(p.act==='dead') continue; const d=dist(u,p); if(d<qd){ qd=d; q=p; } } if(!q){ u.atkTimer=0; return; }
   u.atkTimer+=DT; if(u.atkTimer<2) return; u.atkTimer=0; const was=q.hp; q.hp=Math.max(0,q.hp-1); q.fear=Math.min(1,q.fear+0.35*(1.2-q.courage)); wake(q); q.foe={x:u.x,y:u.y,t,u:u.id};
   say(q,'двуногий ударил меня'); note('pack',{who:q.i,hitBy:u.id,hp:q.hp,fear:+q.fear.toFixed(2),nerve:+nerve(q).toFixed(2)});
   if(nerve(q)<0.5) cry(q,'тревога');
@@ -202,10 +206,10 @@ function say(p, text){ if(muted) return; postMessage({t:'agent', n:++agentN, at:
 const RUMBS = ['востоке','юго-востоке','юге','юго-западе','западе','северо-западе','севере','северо-востоке'];   // +y на карте — юг
 const RUMB_DIR = {восток:0,'юго-восток':1,юг:2,'юго-запад':3,запад:4,'северо-запад':5,север:6,'северо-восток':7};
 function rumb(a,b){ return RUMBS[Math.round(bearingDeg(a,b)/45)%8]; }
-const ACT_WORDS = { sleep:'сплю', idle:'стою', freeze:'замер, смотрю', approach:'подхожу к двуногому', attack:'нападаю', back:'отхожу от двуногого',
+const ACT_WORDS = { dead:'лежу, мёртв', sleep:'сплю', idle:'стою', freeze:'замер, смотрю', approach:'подхожу к двуногому', attack:'нападаю', back:'отхожу от двуногого',
   flee:'бегу к логову', home:'иду к логову', rest:'отдыхаю у логова', goto:'иду', stay:'жду' };
 // ориентиры, которые особь видит издалека: платформы и крупные ориентиры уровня — дальность по высоте, стены — как у зрения
-let LANDMARKS=null; function landmarks(){ return LANDMARKS=LANDMARKS||[ ...stations.map(S=>({key:'st'+S.k, name:'постройка', x:S.x, y:S.y, H:STATION.h})),
+let LANDMARKS=null; function landmarks(){ return LANDMARKS=LANDMARKS||[ ...stations.map(S=>({key:'st'+S.k, get name(){ return S.turret&&S.turret.on?'постройка со светом':'постройка'; }, x:S.x, y:S.y, H:STATION.h})),
   ...POIS.filter(p=>p.id<=5).map(p=>({key:'poi'+p.id, name:CODEBOOK[p.id].name, x:p.x, y:p.y, H:Math.max(0.5,...p.subs.map(s=>OBJ_H[s[0]]||0))})) ]; }   // лениво: OBJ_H объявлен ниже
 function seesLandmark(p,L){ const d=dist(p,L); if(d>Math.min(300,40*L.H)) return false; const q=d>8?{x:L.x+(p.x-L.x)*6/d, y:L.y+(p.y-L.y)*6/d}:p; return losFrac(p,q,1.2,L.H)<0.34; }   // луч до 6 м перед ориентиром: свой корпус его не закрывает
 function farWord(d){ return d<3?'вплотную':d<15?'близко':d<60?'недалеко':'далеко'; }
@@ -215,8 +219,11 @@ function foeText(p){ const f=foeOf(p); if(!f || t-f.t>1.5) return ''; const u=un
   const sp=u.target?speedFor(u):0, mv=sp<=0?'стоит':sp<1?'крадётся':sp<2?'идёт':'бежит';
   return `вижу двуногого ${u.lightOn?'со светом':'без света'}, ${farWord(dist(p,u))}, на ${rumb(p,u)}, ${mv}`; }
 function nearItems(p,r=6){ return objectsAround(p,r).filter(o=>!o.pack&&!o.landmark&&isContainer(o)&&containerOpen(o)&&contentsOf(o).length); }   // открытые контейнеры с содержимым рядом: ящики, свёртки, тела
-function stateWords(p){ return { act:ACT_WORDS[p.act]||p.act, fear:p.fear<0.3?'спокоен':p.fear<0.6?'тревожно':'страшно',
-  hp:p.hp>=p.hpMax?'цел':p.hp>p.hpMax/2?'ранен':'едва жив', tired:p.tired>0.8?'устал':'', place:placeWord(p) }; }
+// класс с гистерезисом: у порога значение дрожит, слово — нет
+function band(v,bands,prev){ const i=bands.findIndex(b=>b[0]===prev); if(i>=0){ const lo=i>0?bands[i][1]-0.05:-1, hi=i<bands.length-1?bands[i+1][1]+0.05:2; if(v>=lo&&v<hi) return prev; } let w=bands[0][0]; for(const b of bands) if(v>=b[1]) w=b[0]; return w; }
+const FEAR_BANDS=[['спокоен',0],['тревожно',0.3],['страшно',0.6]];
+function stateWords(p){ return { act:p.act==='flee'&&p.why==='луч'?'бегу от света':ACT_WORDS[p.act]||p.act, fear:band(p.fear,FEAR_BANDS,p.per&&p.per.fear),
+  hp:p.act==='dead'?'мёртв':p.hp>=p.hpMax?'цел':p.hp>p.hpMax/2?'ранен':'едва жив', tired:p.tired>0.8?'устал':'', place:placeWord(p) }; }
 // раз в полсекунды после рефлексов: что изменилось — то и сказано. Первый вызов — молча, базовая картина (полная — agentState)
 function perceive(p){ const first=!p.per; const per=p.per=p.per||{seen:{}}; const w=stateWords(p), out=[];
   const foe=foeText(p); if(foe!==(per.foe||'')){ if(foe) out.push(foe); else if(per.foe) out.push('двуногого больше не чувствую'); per.foe=foe; }
@@ -224,7 +231,7 @@ function perceive(p){ const first=!p.per; const per=p.per=p.per||{seen:{}}; cons
   const carry=p.item?'несу: '+ITEMS[p.item]:''; if(carry!==(per.carry||'')){ if(carry) out.push(carry); else if(per.carry) out.push('положил'); per.carry=carry; }
   if(p.act!=='sleep' && (Math.floor(t/DT)+p.i)%20===0){ const near=nearItems(p).map(o=>`${nameOf(o)} — ${contentsOf(o).map(i=>ITEMS[i]).join(', ')}`).join('; '); if(near!==(per.near||'')){ if(near) out.push('рядом: '+near); per.near=near; }
     for(const L of landmarks()){ const s=seesLandmark(p,L); if(s && !per.seen[L.key]) out.push(`вижу: ${L.name}, ${farWord(dist(p,L))}, на ${rumb(p,L)}`); per.seen[L.key]=s; }
-    for(const q of pack){ if(q===p||q.hp>0) continue; const k='dead'+q.i; const s=dist(p,q)<40 && losFrac(p,q)<0.34; if(s && !per.seen[k]) out.push(`${pname(q)} лежит, мёртв, ${farWord(dist(p,q))}, на ${rumb(p,q)}`); per.seen[k]=s; }
+    for(const q of pack){ if(q===p||q.act!=='dead') continue; const k='dead'+q.i; const s=dist(p,q)<40 && losFrac(p,q)<0.34; if(s && !per.seen[k]) out.push(`${pname(q)} лежит, мёртв, ${farWord(dist(p,q))}, на ${rumb(p,q)}`); per.seen[k]=s; }
     for(const u of units){ if(u.alive) continue; const k='body'+u.id; const s=dist(p,u)<40 && losFrac(p,u)<0.34; if(s && !per.seen[k]) out.push(`тело двуногого лежит, ${farWord(dist(p,u))}, на ${rumb(p,u)}`); per.seen[k]=s; } }
   if(!first) for(const s of out) say(p,s); }
 // полная картина сейчас — для входа агента: по особи строка состояния, чужой, что видит вокруг
@@ -237,7 +244,7 @@ function intent(line){
   const m=/^о?\s*(\d+)\s*[:,—-]?\s*(.+)$/iu.exec(String(line||'').trim()); if(!m) return {ok:false, why:'не понял: нужно «О2: домой»'};
   const p=pack[+m[1]-1], v=m[2].trim().toLowerCase().replace(/[«»"']/g,''); if(!p) return {ok:false, why:'такой особи нет'};
   const no=why=>({ok:false, who:p.i+1, why});
-  if(p.hp<=0) return no('мёртв');
+  if(p.act==='dead') return no('мёртв');
   if(p.act==='sleep') wake(p,'слово');   // голос в голове будит
   if(p.rest>0) return no('на передышке у логова, не выйдет');
   if(p.rage>0 && p.act==='attack') return no('дерётся');
@@ -256,7 +263,7 @@ function intent(line){
   else if(/^к крикнувшему/.test(v)){ const c=[...cries].reverse().find(c=>c.i!==p.i && t-c.t<30); if(!c) return no('крика не слышал'); go({x:c.x,y:c.y}); }
   else if(/^домой/.test(v)) go({...LAIR});
   else if(/^на лёжку/.test(v)) go({...p.home});
-  else if(/^к о\s*(\d+)/.test(v)){ const q=pack[+/^к о\s*(\d+)/.exec(v)[1]-1]; if(!q||q===p) return no('такой особи нет'); if(q.hp<=0) return no(`${pname(q)} мёртв`); if(dist(p,q)>VOICE_R) return no(`не знаю, где ${pname(q)}`); go({x:q.x,y:q.y}); }
+  else if(/^к о\s*(\d+)/.test(v)){ const q=pack[+/^к о\s*(\d+)/.exec(v)[1]-1]; if(!q||q===p) return no('такой особи нет'); if(q.act==='dead') return no(`${pname(q)} мёртв`); if(dist(p,q)>VOICE_R) return no(`не знаю, где ${pname(q)}`); go({x:q.x,y:q.y}); }
   else if(/^на (северо-восток|северо-запад|юго-восток|юго-запад|север|юг|восток|запад)( далеко| близко| чуть)?/.test(v)){ const mm=/^на (северо-восток|северо-запад|юго-восток|юго-запад|север|юг|восток|запад)( далеко| близко| чуть)?/.exec(v);
     const a=RUMB_DIR[mm[1]]*Math.PI/4, R=mm[2]===' далеко'?150:mm[2]===' близко'?20:mm[2]===' чуть'?8:50; go({x:p.x+Math.cos(a)*R, y:p.y+Math.sin(a)*R}); }
   else if(/^к /.test(v)){ const stem=w=>w.slice(0,Math.max(3,w.length-2)), want=stem(v.slice(2).trim().split(' ').pop());
@@ -270,6 +277,31 @@ function intent(line){
   else { p.act='goto'; p.target=tg; p.why='слово: '+v; }
   note('agent',{who:p.i,intent:v,x:+p.x.toFixed(1),y:+p.y.toFixed(1),to:tg?{x:+tg.x.toFixed(1),y:+tg.y.toFixed(1)}:undefined,nerve:+ce.toFixed(2)});
   return {ok:true, who:p.i+1}; }
+
+// ---------- турель платформы (design.md §12а, roadmap п. 0б (в) 5) ----------
+// Лампа у самой турели: видит только то, что освещает — сектор fov вокруг курса, дальность range, без стены (losFrac). Захват — по
+// движению (скорость > 0,3 м/с): одичалые и тела чужих команд (свои — по транспондеру ПС-2, не цель). Прицел aim с: цель, вышедшая
+// из сектора, дальности или за камень, сбрасывает захват; остановиться не спасает — лампа уже на ней. Точность 100 %, насмерть.
+// Перезарядка reload с. Без питания лампа не горит — турель слепа. Освещённая особь чувствует луч; выстрел слышен далеко.
+function turretTargets(S,T){ const out=[]; const inSector=(o)=>{ const d=dist(T,o); if(d>T.range) return false; let a=Math.atan2(o.y-T.y,o.x-T.x)-T.ang; a=Math.atan2(Math.sin(a),Math.cos(a)); return Math.abs(a)<=T.fov/2 && losFrac(T,o,1.6,1.2)<0.34; };
+  for(const p of pack){ if(p.act==='dead'||!p.target||packSpeed(p)<0.3) continue; if(inSector(p)) out.push({p}); }
+  for(const u of units){ if(!u.alive||stOf(u).team===S.team||!u.target||speedFor(u)<0.3) continue; if(inSector(u)) out.push({u}); }
+  return out; }
+function turretHolds(T,o){ const d=dist(T,o); if(d>T.range) return false; let a=Math.atan2(o.y-T.y,o.x-T.x)-T.ang; a=Math.atan2(Math.sin(a),Math.cos(a)); return Math.abs(a)<=T.fov/2 && losFrac(T,o,1.6,1.2)<0.34; }
+function turretTick(S,dt){ const T=S.turret; if(!T) return; T.on=S.power>0; T.reloadT=Math.max(0,T.reloadT-dt); if(!T.on){ if(T.tgt) turretDrop(S,T); return; }
+  const cur=T.tgt?(T.tgt.p!==undefined?pack[T.tgt.p]:units.find(u=>u.id===T.tgt.u)):null;
+  if(cur && (cur.act==='dead'||cur.alive===false||!turretHolds(T,cur))){ turretDrop(S,T); return; }
+  if(!cur){ const c=turretTargets(S,T); if(!c.length) return; const best=c.reduce((a,b)=>dist(T,a.p||a.u)<dist(T,b.p||b.u)?a:b); T.tgt=best.p?{p:best.p.i}:{u:best.u.id}; T.aimT=0;
+    if(best.p){ best.p.lit=t; say(best.p,'на меня направили свет'); } else evt(36,best.u.id); note('turret',{st:S.k,lock:best.p?'О'+(best.p.i+1):'М'+best.u.id}); return; }
+  T.aimT+=dt; if(cur.lit!==undefined) cur.lit=t; if(T.aimT<T.aim||T.reloadT>0) return;
+  T.reloadT=T.reload; T.aimT=0; T.tgt=null; evt(37,0,cur.i!==undefined?250+cur.i:cur.id,S.k); note('turret',{st:S.k,shot:cur.i!==undefined?'О'+(cur.i+1):'М'+cur.id,x:+cur.x.toFixed(0),y:+cur.y.toFixed(0)});
+  if(cur.i!==undefined) killPack(cur,'выстрел'); else { cur.skin=0; cur.pain=1; }
+  // выстрел слышен: стая — страх и слово, тела — вздрагивают
+  for(const q of pack){ if(q.act==='dead') continue; const d=dist(T,q); if(d>400) continue; const loud=(1-d/400)*(1-0.7*losFrac(T,q,1.6,1.2)); if(loud<0.05) continue; wake(q,'выстрел'); q.fear=Math.min(1,q.fear+0.3*(1-q.courage)*loud); q.alert=20; say(q,`выстрел, ${d<60?'близко':d<150?'недалеко':'далеко'}, на ${rumb(q,T)}`); }
+  for(const u of units){ if(!u.alive) continue; const d=dist(T,u); if(d>400) continue; u.startle=Math.min(1,(u.startle||0)+0.6*(1-d/400)); } }
+function turretDrop(S,T){ const cur=T.tgt&&T.tgt.p!==undefined?pack[T.tgt.p]:null; T.tgt=null; T.aimT=0; if(cur&&cur.act!=='dead') say(cur,'свет ушёл'); }
+// смерть особи: лежит, где упала; ноша — свёрток рядом
+function killPack(p,why){ p.hp=0; p.act='dead'; p.target=null; p.told=null; p.foe=null; if(p.item){ dropBundle(p.x,p.y,p.item); p.item=null; } note('pack',{who:p.i,dead:why,x:+p.x.toFixed(1),y:+p.y.toFixed(1)}); }
 
 // ---------- столкновения: тело не проходит сквозь корпус, скалы и стены тоннеля; вдоль препятствия скользит ----------
 const BODY_R = 0.6;
@@ -347,7 +379,7 @@ function nameOf(o){
   return (CODEBOOK[o.type]||CODEBOOK[250]).name;
 }
 function examText(o){
-  if(o.pack){ const p=o.pack, sz=p.size>1.15?', крупное':p.size<0.85?', мелкое':'', a=p.act; return a==='sleep'||a==='rest' ? `Двуногое${sz}, лежит. ${a==='rest'?'Смотрит.':'Дышит.'} Кожа с тем же рисунком пор, что у миссионера.`
+  if(o.pack){ const p=o.pack, sz=p.size>1.15?', крупное':p.size<0.85?', мелкое':'', a=p.act; if(a==='dead') return `Двуногое${sz}, лежит. Не дышит. Кожа с тем же рисунком пор, что у миссионера.`; return a==='sleep'||a==='rest' ? `Двуногое${sz}, лежит. ${a==='rest'?'Смотрит.':'Дышит.'} Кожа с тем же рисунком пор, что у миссионера.`
     : `Двуногое${sz}. Кожа с тем же рисунком пор, что у миссионера. ${a==='flee'||a==='home'||a==='back'?'Уходит.':a==='attack'||a==='approach'?'Идёт сюда.':'Смотрит.'}`; }
   if(o.unit){ const v=o.unit; if(v.alive) return `${v.st===o.viewer.st?'Наш.':'Той же серии, платформа '+stOf(v).name+'.'} ${v.target?'Идёт.':'Стоит.'} Пульс на вид ${v.pulse<100?'ровный':'частый'}.`; return withContents(o,'Не двигается.'); }
   const cb=CODEBOOK[o.type]||CODEBOOK[250]; return withContents(o,(cb.states||[])[stateOf(o.id)]||'');
@@ -363,7 +395,7 @@ function posBytes(u){ const c=v=>Math.max(0,Math.min(65535,Math.round(v*10)+3276
 function decPos(b,o){ return { x:(((b[o]<<8)|b[o+1])-32768)/10, y:(((b[o+2]<<8)|b[o+3])-32768)/10 }; }
 function rayCircle(ox,oy,dx,dy,c){ const fx=ox-c.x, fy=oy-c.y; const b=2*(fx*dx+fy*dy), cc=fx*fx+fy*fy-c.r*c.r; const D=b*b-4*cc; if(D<0) return Infinity; const s=Math.sqrt(D); const t1=(-b-s)/2, t2=(-b+s)/2; if(t1>0) return t1; if(t2>0) return t2; return Infinity; }
 // что отражает лидар: только тела с объёмом (радиус, м); следы, надписи, кабели, вода — нет
-const SONAR_R={13:0.8,14:0.8,17:0.3,18:0.6,20:1.5,21:0.15,22:0.4,23:3,28:0.4,29:1.5,32:0.2,33:0.3};   // люки и прожектор — часть корпуса, он отражает сам
+const SONAR_R={13:0.8,14:0.8,17:0.3,18:0.6,20:1.5,21:0.15,22:0.4,23:3,28:0.4,29:1.5,32:0.2,33:0.3,34:0.4};   // люки и прожектор — часть корпуса, он отражает сам
 // Лидар: 64 луча по кругу под наклоном tilt° к горизонту с высоты SONAR_H над грунтом; на луч — байт наклонной дальности
 // и бит «сплошное». Бит — измерение, а не подсказка мира: на каждый азимут датчик даёт второй луч на SONAR_DT выше, две точки
 // попадания лежат на поверхности, и крутизна хорды между ними — уклон поверхности вдоль луча. Хорда круче MAX_SLOPE (40°, куда
@@ -371,7 +403,7 @@ const SONAR_R={13:0.8,14:0.8,17:0.3,18:0.6,20:1.5,21:0.15,22:0.4,23:3,28:0.4,29:
 // Наклон вниз даёт эхо от грунта: подъём впереди укорачивает дальность, понижение удлиняет — профиль рельефа за те же байты.
 // Пакет: [x,y съёмки (4), наклон+90 (1), высота датчика (2), маска (8), дальности (64)] = 79 Б
 const SONAR_H=1.7, SONAR_DT=3*Math.PI/180;   // высота датчика над грунтом (голова; глаза камеры — 1,6) и разнос пары лучей по вертикали
-const OBJ_H={13:1,14:1,17:7,18:1.8,20:0.7,21:1.1,22:0.5,23:4,28:0.4,29:1.4,32:0.25,33:0.4};   // высота отражателя, м; тела — 1,8 / 0,5, одичалые — по размеру
+const OBJ_H={13:1,14:1,17:7,18:1.8,20:0.7,21:1.1,22:0.5,23:4,28:0.4,29:1.4,32:0.25,33:0.4,34:1.6};   // высота отражателя, м; тела — 1,8 / 0,5, одичалые — по размеру
 // декорации (`TER.decor`) отражают тоже — кадр и лидар видят одно: радиус футпринта в долях высоты спрайта `Hs`, высота — `Hs`;
 // сухостой — нет (тонкие стебли), столбик кабеля — 8 см, луч в него почти не попадает
 const DECOR_R={boulder:0.45,boulder2:0.5,rocks:0.8,outcrop:0.6,hoodoo:0.3,debris:0.6,cairn:0.4,post:0};
@@ -399,7 +431,7 @@ function camHeading(u){ return u.goal && dist(u,u.goal)>1.5 ? Math.atan2(u.goal.
 // что попадает в кадр: объекты мира с подменой типа по состоянию (спит / идёт / тело), платформа, декорации
 function sceneObjects(u){ const out=[];
   for(const o of objectsAround(u,140)){ if(o.landmark && !SPRITES[o.type]) continue; if(o.type===26) continue;
-    let type=o.type, Hs; if(o.pack){ const p=o.pack; type=p.act!=='sleep'?250:'sleep'; Hs=(p.act!=='sleep'?1.6:0.6)*p.size; } if(o.unit) type=o.unit.alive?(o.unit.target?'walk':252):251;
+    let type=o.type, Hs; if(o.pack){ const p=o.pack, ly=p.act==='sleep'||p.act==='dead'; type=ly?'sleep':250; Hs=(ly?0.6:1.6)*p.size; } if(o.unit) type=o.unit.alive?(o.unit.target?'walk':252):251;
     if(!SPRITES[type]) continue; const facing=o.unit?o.unit.heading:o.pack?(o.pack.target?o.pack.heading:Math.atan2(u.y-o.y,u.x-o.x)):o.facing;   // тела и идущие особи — по курсу, стоящая особь — на камеру, объекты — по уровню
     out.push({id:o.id,type,x:o.x,y:o.y,facing,Hs}); }
   for(const S of stations) out.push({id:900+S.k,type:'station',x:S.x,y:S.y,facing:S.ang}); return out.concat(TER.decor(u,120)); }
@@ -548,7 +580,7 @@ function tick(){
     // тупик: живых нет, биоматериала нет, ничего не растёт — станция закрывает серию
     if(S.taskOpen && !S.seriesClosed && own.length && !own.some(u=>u.alive) && S.bioStock<=0 && !S.growing){ S.seriesClosed=true; note('station',{st:S.k,series:'closed'}); setTimeout(()=>evt(27,0,0,S.k),2000/speed); }
     if(S.growing){ S.growing.tLeft-=dt; if(S.growing.tLeft<=0){ const u=spawn(S.growing.sensors,S); S.growing=null; evt(6,u.id); } } }
-  packTick();
+  packTick(); for(const S of stations) turretTick(S,dt);
   for(const u of units){
     if(u.alive){
       if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>LINK_LOST_S && !u.autoDone){ u.autoDone=true; note('unit',{unit:u.id,autonomy:u.autonomy,x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); if(u.autonomy===1) u.target=null; if(u.autonomy===2){ const sp=stOf(u).spawn; u.target={x:sp.x,y:sp.y}; u.mode=3; } } }
@@ -561,7 +593,7 @@ function tick(){
           u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<1){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); note('unit',{unit:u.id,stuck:true,x:+u.x.toFixed(1),y:+u.y.toFixed(1),slope:+TER.slope(u.x,u.y).toFixed(2)}); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
       stanceTick(u,dt); if(u.reflex===5) fightBack(u);
       // страх: ближайшая бодрствующая особь (уходящая не в счёт) и крики рядом — звук тело слышит, слов не разбирает
-      let fearT=0; for(const p of pack){ const w=p.act==='attack'||p.act==='approach'?1:p.act==='sleep'||p.act==='flee'||p.act==='home'?0:0.5; if(w) fearT=Math.max(fearT,w*(1-dist(u,p)/80)); }
+      let fearT=0; for(const p of pack){ const w=p.act==='attack'||p.act==='approach'?1:p.act==='sleep'||p.act==='dead'||p.act==='flee'||p.act==='home'?0:0.5; if(w) fearT=Math.max(fearT,w*(1-dist(u,p)/80)); }
       u.startle=Math.max(0,(u.startle||0)-dt*0.1); fearT=Math.min(1,fearT+0.5*u.startle); u.fear+=(fearT-u.fear)*dt/2; u.pain=Math.max(0,u.pain-dt/8);
       const rest=u.mode===4; const pulseT=60+55*u.exertion+95*u.fear+45*u.pain-(rest?8:0); u.pulse+=(pulseT-u.pulse)*dt/3;
       u.glucose-=dt*0.003*(1+2*u.exertion+u.fear);   // покой ~9 ч, ходьба ~3 ч

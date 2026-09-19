@@ -37,12 +37,12 @@ function levelText(){ const L=LEVEL; const o=[];
 const LEVEL = {`);
   o.push(`  stations: [`);
   L.stations.forEach((S,k)=>{ o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}, spawn:{x:${num(S.spawn.x)}, y:${num(S.spawn.y)}}, airlock:{x:${num(S.airlock.x)}, y:${num(S.airlock.y)}}, subs:[   // ARK-04${1+k}`);
-    for(const s of S.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
+    for(const s of S.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; if(s.turret) f+=`, turret:{fov:${s.turret.fov}, range:${s.turret.range}, aim:${s.turret.aim}, reload:${s.turret.reload}}`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
     o.push(`    ] },`); });
   o.push(`  ],`);
   o.push(`  pois: [`);
   for(const p of L.pois){ o.push(`    { id:${p.id}, x:${num(p.x)}, y:${num(p.y)}, subs:[   // ${nameOf(p.id)}`);
-    for(const s of p.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
+    for(const s of p.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; if(s.turret) f+=`, turret:{fov:${s.turret.fov}, range:${s.turret.range}, aim:${s.turret.aim}, reload:${s.turret.reload}}`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
     o.push(`    ] },`); }
   o.push(`  ],`);
   const pts=a=>a.map(p=>`{x:${num(p.x)},y:${num(p.y)}}`).join(', ');
