@@ -7,7 +7,7 @@ const MAX_SLOPE=0.84;
 const cv=$('#map'), ctx=cv.getContext('2d');
 let W=1, H=1, cx=180, cy=100, sc=1.2;
 const S=(x)=>W/2+(x-cx)*sc, Sy=(y)=>H/2+(y-cy)*sc, iS=(px)=>cx+(px-W/2)/sc, iSy=(py)=>cy+(py-H/2)/sc;
-const layers={hm:true,iso:true,grid:false,labels:true,sectors:true,targets:true,senses:true};
+const layers={hm:true,iso:true,grid:false,labels:true,sectors:true,targets:true,senses:true,ret:true};
 const hm={cv:document.createElement('canvas'),box:null,timer:null};
 function isoStep(){ return sc>=5?0.5 : sc>=2?1 : sc>=0.8?2 : 5; }
 function hmDirty(ms=80){ clearTimeout(hm.timer); hm.timer=setTimeout(()=>{ MAPDRAW.heightmap(hm.cv,{W,H,sc,iS,iSy,hm:layers.hm,iso:layers.iso,steep:true,isoStep:isoStep(),MAX_SLOPE}); hm.box={x0:iS(0),y0:iSy(0),x1:iS(W),y1:iSy(H)}; draw(); },ms); }
@@ -55,6 +55,8 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   const C=LEVEL.canyon; const band=(pts,w,col,perSeg)=>{ for(let i=0;i<pts.length-1;i++){ const p=pts[i], q=pts[i+1]; const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L; const w0=(w[i]!==undefined?w[i]:w[w.length-1])/2, w1=perSeg?w0:(w[i+1]!==undefined?w[i+1]:w[w.length-1])/2;
       ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(S(p.x+nx*w0),Sy(p.y+ny*w0)); ctx.lineTo(S(q.x+nx*w1),Sy(q.y+ny*w1)); ctx.lineTo(S(q.x-nx*w1),Sy(q.y-ny*w1)); ctx.lineTo(S(p.x-nx*w0),Sy(p.y-ny*w0)); ctx.closePath(); ctx.fill(); } };
   band(C.pts,C.w,'rgba(80,140,255,0.18)',false); band(C.branch.pts,C.branch.w,'rgba(80,140,255,0.12)',true);
+  if(LEVEL.bounds){ const b=LEVEL.bounds; ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(255,92,92,0.5)'; ctx.strokeRect(S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); ctx.setLineDash([]); }   // край уровня
+  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; for(const n of LEVEL.stations){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),500*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }   // радиус возврата ПС-2 (без мачты: усилитель — состояние мира, в логе его пока нет)
   // платформы, корпуса, ориентиры, логово
   LEVEL.stations.forEach((st,k)=>{ const X=S(st.x),Y=Sy(st.y); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,(st.ang||0)*Math.PI/180,0,7); ctx.stroke(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+k),X-14,Y-STATION.ry*sc-6); } });
   for(const h of LEVEL.hulls){ ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(h.x),Sy(h.y),h.r*sc,0,7); ctx.stroke(); }
@@ -84,7 +86,8 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     if(p.lit){ ctx.strokeStyle='#ffdc78'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(X,Y,r+4,0,7); ctx.stroke(); ctx.lineWidth=1; }
     ctx.fillStyle=col; ctx.beginPath(); ctx.arc(X,Y,r,0,7); ctx.fill(); if(dead){ ctx.strokeStyle='#000'; ctx.beginPath(); ctx.moveTo(X-3,Y-3); ctx.lineTo(X+3,Y+3); ctx.moveTo(X-3,Y+3); ctx.lineTo(X+3,Y-3); ctx.stroke(); }
     else if(p.act!=='sleep'&&p.act!=='rest'){ ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(p.h)*(r+5),Y+Math.sin(p.h)*(r+5)); ctx.stroke(); }
-    if(layers.labels){ ctx.fillStyle=col; ctx.fillText(`О${p.i+1} ${ACT_RU[p.act]||p.act}${p.item?' ◆':''}${p.told&&!dead?' ●':''}`,X+r+4,Y+8); } }
+    if(p.item){ ctx.fillStyle='#cfd6de'; ctx.beginPath(); ctx.moveTo(X,Y-r-7); ctx.lineTo(X+3,Y-r-4); ctx.lineTo(X,Y-r-1); ctx.lineTo(X-3,Y-r-4); ctx.closePath(); ctx.fill(); if(sc>=2){ ctx.fillText(ITEMS[p.item],X+5,Y-r-6); } }   // ноша
+    if(layers.labels){ ctx.fillStyle=col; ctx.fillText(`О${p.i+1} ${ACT_RU[p.act]||p.act}${p.told&&!dead?' ●':''}`,X+r+4,Y+8); } }
   const sel=pinned||hover; if(sel){ const o=findSel(f,sel); if(o){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),11,0,7); ctx.stroke(); } }
   ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fillText(`1 px = ${(1/sc).toFixed(2)} м · ${cur.toFixed(1)} с`,8,H-10); }
 function findSel(f,sel){ if(sel.kind==='unit') return f.units.find(u=>u.id===sel.id); if(sel.kind==='pack') return f.pack[sel.i]; if(sel.kind==='turret') return f.turrets[sel.k]; if(sel.kind==='ground') return f.ground.find(g=>g.id===sel.id); return null; }

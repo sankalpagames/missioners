@@ -306,7 +306,9 @@ function killPack(p,why){ p.hp=0; p.act='dead'; p.target=null; p.told=null; p.fo
 // ---------- столкновения: тело не проходит сквозь корпус, скалы и стены тоннеля; вдоль препятствия скользит ----------
 const BODY_R = 0.6;
 const MAX_SLOPE=0.84;   // tg 40°: круче тело не идёт — стены расщелины, обрыв; дюны, осыпь, завал проходимы
-function blocked(x,y,fromX,fromY){
+const BOUNDS=LEVEL.bounds||{x0:-1e4,y0:-1e4,x1:1e4,y1:1e4};   // край уровня: рельеф определён везде, но дальше никто не ступает
+function inBounds(x,y){ return x>=BOUNDS.x0&&x<=BOUNDS.x1&&y>=BOUNDS.y0&&y<=BOUNDS.y1; }
+function blocked(x,y,fromX,fromY){ if(!inBounds(x,y)) return true;
   const len=Math.hypot(x-fromX,y-fromY)||1; if((TER.H(x,y)-TER.H(fromX,fromY))/len>MAX_SLOPE) return true;
   for(const c of HULLS){ if(hullIn(x,y,c,BODY_R)) return true; }
   return false;
@@ -320,6 +322,7 @@ function outsideHulls(x,y,from){ for(const c of HULLS){ if(!hullIn(x,y,c,BODY_R)
   return {x,y}; }
 function stepBody(u,len){
   const dx=Math.cos(u.heading)*len, dy=Math.sin(u.heading)*len;
+  if(!inBounds(u.x+dx,u.y+dy)) return false;   // край уровня: без скольжения вдоль рамки, чтобы не дрожать на месте
   if(!blocked(u.x+dx,u.y+dy,u.x,u.y)){ u.x+=dx; u.y+=dy; return true; }
   // скольжение: пробуем повернуть шаг на ±45°, ±90°
   for(const a of [Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2]){ const h=u.heading+a, sx=Math.cos(h)*len, sy=Math.sin(h)*len; if(!blocked(u.x+sx,u.y+sy,u.x,u.y)){ u.x+=sx; u.y+=sy; return true; } }
@@ -503,7 +506,7 @@ onmessage = e => {
   if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ const c=!!m.carriers[u.id]; u.carrier=c; u.snr=m.snr?m.snr[u.id]:0; if(c!==u.carrierNoted){ u.carrierFlipAt=u.carrierFlipAt??t; if(u.carrierNoted===undefined || t-u.carrierFlipAt>=1){ u.carrierNoted=c; u.carrierFlipAt=undefined; if(u.alive) note('unit',{unit:u.id,carrier:c,snr:+u.snr.toFixed(1),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); } } else u.carrierFlipAt=undefined; } return; }   // станция измеряет уровень сигнала каждого тела; миссионер сам слышит несущую — физика, не данные; заметка — когда состояние продержалось секунду
   if(m.t==='imgAck'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='imgCancel'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u){ u.pendingImg=null; delete u.lastImg[m.level]; } return; }   // кадр не дошёл: следующий на этом уровне — ключевой
-  if(m.t==='tp'){ if(m.pack!==undefined){ const p=pack[m.pack]; if(p&&p.act!=='dead'){ p.x=m.x; p.y=m.y; p.target=null; p.act='idle'; p.told={v:'тп'}; note('debug',{tp:'О'+(m.pack+1),x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
+  if(m.t==='tp'){ m.x=Math.max(BOUNDS.x0,Math.min(BOUNDS.x1,m.x)); m.y=Math.max(BOUNDS.y0,Math.min(BOUNDS.y1,m.y)); if(m.pack!==undefined){ const p=pack[m.pack]; if(p&&p.act!=='dead'){ p.x=m.x; p.y=m.y; p.target=null; p.act='idle'; p.told={v:'тп'}; note('debug',{tp:'О'+(m.pack+1),x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
     const u=units.find(u=>u.id===m.unit)||units[0]; if(u){ u.x=m.x; u.y=m.y; u.target=null; note('debug',{tp:u.id,x:+m.x.toFixed(0),y:+m.y.toFixed(0)}); } return; }
   if(m.t==='peek'){ const u=units.find(u=>u.id===m.unit)||units[0]; if(u) postMessage({t:'peekImg',unit:u.id,img:render(u,64)}); return; }   // отладка: чистый рендер мимо канала
   if(m.t==='intent'){ postMessage({t:'agentAck', id:m.id, line:m.text, ...intent(m.text)}); return; }   // намерение агента стаи: ответ принято / отказано с причиной

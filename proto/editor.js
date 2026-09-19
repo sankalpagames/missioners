@@ -48,6 +48,7 @@ const LEVEL = {`);
   const pts=a=>a.map(p=>`{x:${num(p.x)},y:${num(p.y)}}`).join(', ');
   o.push(`  canyon: {`); o.push(`    pts: [${pts(L.canyon.pts)}],`); o.push(`    w: [${L.canyon.w.map(num).join(', ')}],`);
   o.push(`    branch: { pts: [${pts(L.canyon.branch.pts)}], w: [${L.canyon.branch.w.map(num).join(', ')}] },`); o.push(`  },`);
+  if(L.bounds) o.push(`  bounds: {x0:${num(L.bounds.x0)}, y0:${num(L.bounds.y0)}, x1:${num(L.bounds.x1)}, y1:${num(L.bounds.y1)}},`);
   o.push(`  hulls: [`); for(const h of L.hulls) o.push(`    {x:${num(h.x)}, y:${num(h.y)}, r:${num(h.r)}, h:${num(h.h)}},${h.name?'   // '+h.name:''}`); o.push(`  ],`);
   o.push(`  pack: { lair:{x:${num(L.pack.lair.x)},y:${num(L.pack.lair.y)}}, members:[`); for(const m of L.pack.members) o.push(`    {x:${num(m.x)}, y:${num(m.y)}, size:${num(m.size)}, courage:${num(m.courage)}, attention:${num(m.attention)}},`); o.push(`  ] },`);
   o.push(`  decor: [`); for(const d of L.decor) o.push(`    {id:${d.id}, type:'${d.type}', x:${num(d.x)}, y:${num(d.y)}, f:${num(d.f)}, Hs:${num(d.Hs)}},`); o.push(`  ],`);
@@ -84,6 +85,7 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   if(layers.grid){ const g=sc>=4?10:sc>=1?50:sc>=0.3?100:500; ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=1;
     for(let x=Math.ceil(iS(0)/g)*g;x<=iS(W);x+=g){ ctx.beginPath(); ctx.moveTo(S(x)+0.5,0); ctx.lineTo(S(x)+0.5,H); ctx.stroke(); ctx.fillText(x,S(x)+3,8); }
     for(let y=Math.ceil(iSy(0)/g)*g;y<=iSy(H);y+=g){ ctx.beginPath(); ctx.moveTo(0,Sy(y)+0.5); ctx.lineTo(W,Sy(y)+0.5); ctx.stroke(); ctx.fillText(y,3,Sy(y)-7); } }
+  if(LEVEL.bounds){ const b=LEVEL.bounds; ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(255,92,92,0.5)'; ctx.strokeRect(S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); ctx.setLineDash([]); }   // край уровня
   // радиус возврата: станция и мачта (с усилителем)
   if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; ctx.lineWidth=1; const m=poiOf(3); for(const n of [...LEVEL.stations, ...( $('#boost').checked&&m?[m]:[] )]){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),RETURN_R*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
   // расщелина: полоса шириной w (интерполяция по колену), ось, колена
