@@ -72,7 +72,8 @@ const TXT_ENC = {}; [...TXT_ALPHABET].forEach((ch,i)=>TXT_ENC[ch]=i+1);
 function encText(s){ const out=new Uint8Array(s.length); let n=0; for(const ch of s){ out[n++]=TXT_ENC[ch]||TXT_ENC['?']; } return out.slice(0,n); }
 function decText(b){ let s=''; for(const v of b) s+=v?TXT_ALPHABET[v-1]||'?':''; return s; }
 
-const MODES = { 1:'исследование', 2:'скрытность', 3:'отступление', 4:'отдых', 5:'бой' };
+const MODES = { 1:'исследование', 3:'отступление', 4:'отдых', 5:'бой', 6:'бегство' };   // 1, 3, 4 — команда; 5, 6 — рефлекс по стойке (tech.md §5)
+const STANCES = { 0:'пассивно', 1:'бегство', 2:'бой' };
 
 const EVENTS = {
   1:'миссионер прибыл в точку',
@@ -103,6 +104,12 @@ const EVENTS = {
   26:'приборы обесточены: заряда нет',
   27:'станция: серия 1 исчерпана. ПС-7 остаётся открытой',
   28:'станция: отказ по ПС-2 — цель дальше радиуса возврата',
+  29:'контакт: тело приняло бой',
+  30:'контакт: тело бежит к узлу',
+  31:'контакт окончен: тело продолжает задачу',
+  32:'скрытность',
+  33:'стойка при контакте',
+  34:'бегство окончено: тело стоит',
 };
 
-if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, EVENTS, encText, decText };
+if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, EVENTS, encText, decText };

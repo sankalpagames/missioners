@@ -64,7 +64,10 @@ class Room {
     if(m.t==='hello'){ this.hello(ws,+m.since||0,m.op,+m.st||0); return; }
     if(!ws.live) return;
     m.st=ws.st;   // станция — та, к которой подключён оператор, а не та, что назвал клиент
-    if(m.t==='up'||m.t==='autonomy'){ this.st.handle(m); this.lastCmd=Date.now(); return; }   // lastCmd — для лобби: не просто сидят, а что-то делают
+    if(m.t==='up'||m.t==='autonomy'){ this.st.handle(m); this.lastCmd=Date.now();   // lastCmd — для лобби: не просто сидят, а что-то делают
+      // эхо сокомандникам той же платформы: кто что отправил — знание земной стороны, канала не проходит (tech.md §8)
+      const e=enc(m.t==='up'?{t:'echo',st:ws.st,op:ws.op.name,bytes:m.bytes}:{t:'echo',st:ws.st,op:ws.op.name,autonomy:{unit:m.unit,v:m.v}}); for(const c of this.clients) if(c!==ws && c.live && c.st===ws.st) c.send(e);
+      return; }
     if(DEBUG&&(m.t==='cfg'||m.t==='tp'||m.t==='peek')) this.st.handle(m);   // speed/load/save от клиентов не принимаются: ускорение — настройка комнаты, мир — у сервера
   }
   save(){ const d={v:2, savedAt:Date.now(), world:this.st.snapshot(), n:this.st.rxN(), cfg:this.cfg, seen:this.seen, rings:this.rings.map(r=>r.slice(-TAIL))};

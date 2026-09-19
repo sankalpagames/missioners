@@ -42,6 +42,9 @@ function rayHull(ox,oy,dx,dy,c){ if(c.r!==undefined) return rayCircle(ox,oy,dx,d
 // t ∈ [0,1] — доля пути вглубь расщелины, −1 — снаружи. Дальше от входа — глубже, сильнее затухание радио
 function tunnelT(x,y){ const c=TER.inside(x,y); return c && c.along>0 ? Math.min(1,c.along/TER.LEN) : -1; }
 function inCorridor(x,y,margin=0){ return !!TER.inside(x,y,margin); }
+// затухание радио в расщелине, дБ: 8 у входа + 22 к концу; у стены и у входа — плавно за 2 м, а не скачком (тело, скользящее вдоль
+// стены, иначе теряло и ловило несущую каждый такт)
+function obstDb(u){ const c=TER.canyon(u.x,u.y); if(c.along<=0 || c.d>=c.w/2+1) return 0; const k=Math.min(1,(c.w/2+1-c.d)/2)*Math.min(1,c.along/2); return k*(8+22*Math.min(1,c.along/TER.LEN)); }
 function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
 function bearingDeg(from,to){ return (Math.atan2(to.y-from.y,to.x-from.x)*180/Math.PI+360)%360; }
 
@@ -59,19 +62,23 @@ function containerOpen(o){ if(o.unit) return true; const cb=CODEBOOK[o.type]; re
 function contentsOf(o){ if(o.unit){ const v=o.unit; return [...(v.sensors.camera?[42]:[]), ...v.items]; } return contents[o.id]||[]; }
 const units = []; let nextUnit = 1;
 function spawn(sensors,S){
-  const u = { id:nextUnit++, st:S.k, alive:true, x:S.spawn.x, y:S.spawn.y, heading:0, target:null, mode:1, lightOn:true,
+  const u = { id:nextUnit++, st:S.k, alive:true, x:S.spawn.x, y:S.spawn.y, heading:0, target:null, mode:1, stealth:false, stance:0, reflex:0, lightOn:true,
     pulse:72, glucose:92, electro:96, toxin:0, skin:100, bone:100, psyche:88, charge:100, gen:0.8, cons:1.0,
     fear:0, pain:0, exertion:0, txDbm:0, dmgTimer:0, atkTimer:0,
     sensors:{ camera:!!sensors.camera, sonar:!!sensors.sonar },
-    tlmTimer:Math.random(), carrier:true, linkLostFor:0, autoDone:false, autonomy:0,
+    tlmTimer:Math.random(), carrier:true, carrierNoted:true, linkLostFor:0, autoDone:false, autonomy:0,
     sub:{ tlm:1, sonar:0, desc:0, img:{interval:0,level:2,delta:true} }, goal:null, items:[], pending:null, subT:{ sonar:0, desc:0, img:0 }, lastImg:{}, pendingImg:null, frameNo:0 };
   units.push(u); return u;
 }
 for(const S of stations) spawn({camera:true, sonar:true},S);          // первый миссионер каждой станции уже готов и несёт её единственную камеру
 let antennaBoost = 0;
 
-function speedFor(m){ return m===2?0.6 : m===3?2.6 : m===4?0 : m===5?1.0 : 1.4; }
-function detectRadius(m){ return m===2?6 : m===4?35 : 70; }   // без фонаря почти не замечает: идёт на свет
+// Режим (mode) — команда: 1 исследование, 3 отступление, 4 отдых. Скрытность (stealth) и стойка при контакте (stance: 0 пассивно,
+// 1 бегство, 2 бой) — настройки, хранятся на теле. Рефлекс (reflex: 0 нет, 5 бой, 6 бегство) — что тело делает сейчас по стойке;
+// пока он идёт, скрытность не действует: свет включён, шаг обычный. Всё это — в байте 15 телеметрии (tech.md §5).
+function speedFor(u){ if(u.reflex===6) return 2.6; if(u.reflex===5) return 0; if(u.stealth) return u.mode===4?0:0.6; return u.mode===3?2.6 : u.mode===4?0 : 1.4; }
+function detectRadius(u){ return !u.lightOn?6 : u.mode===4?35 : 70; }   // без фонаря почти не замечает: идёт на свет
+function modeByte(u){ return (u.mode&7)|(u.stealth?8:0)|((u.stance&3)<<4)|(u.reflex===5?64:u.reflex===6?128:0); }
 
 // ---------- одичалые (design.md §12а) ----------
 // Стая — бывшие миссионеры без голоса в голове: тела те же, живут рефлексами. Черты из уровня: size (размер), courage (храбрость),
@@ -117,10 +124,10 @@ function wake(p,why='проснулась'){ if(p.act==='sleep'){ p.act='idle'; 
 // чувства: свет фонаря (в скрытности — почти ничего), шаги; спящая слышит и видит хуже, внимательная — дальше; стены режут и то и другое
 function sense(p){ const k=(p.act==='sleep'?0.2+0.3*p.attention:0.6+0.8*p.attention)*(p.alert>0?1.4:1); let best=null, bd=1e9;
   for(const u of units){ if(!u.alive) continue; const d=dist(p,u); if(d>120 || d>=bd) continue;
-    const seeR=detectRadius(u.mode)*k, sp=u.target?speedFor(u.mode):0, hearR=Math.min(80,12*sp*sp)*k;   // шум шагов ∝ квадрату скорости: крадущегося слышно с 4 м, бегущего — с 80 if(d>seeR && d>hearR) continue;
+    const seeR=detectRadius(u)*k, sp=u.target?speedFor(u):0, hearR=Math.min(80,12*sp*sp)*k;   // шум шагов ∝ квадрату скорости: крадущегося слышно с 4 м, бегущего — с 80 if(d>seeR && d>hearR) continue;
     const f=losFrac(p,u); if(d<=seeR && f<0.34 || d<=hearR*(1-0.75*f)){ best=u; bd=d; } }
   if(!best) return; const fresh=!foeOf(p); p.foe={x:best.x,y:best.y,t,u:best.id}; wake(p);
-  if(fresh){ note('pack',{who:p.i,sense:bd<=detectRadius(best.mode)*k?'see':'hear',unit:best.id,d:+bd.toFixed(1),mode:best.mode,light:best.lightOn,nerve:+nerve(p).toFixed(2)}); const ce=nerve(p); if(ce<0.35) cry(p,'тревога'); else if(Math.random()<0.25+0.7*p.attention) cry(p,'чужой'); } }
+  if(fresh){ note('pack',{who:p.i,sense:bd<=detectRadius(best)*k?'see':'hear',unit:best.id,d:+bd.toFixed(1),mode:best.mode,stealth:best.stealth,light:best.lightOn,nerve:+nerve(p).toFixed(2)}); const ce=nerve(p); if(ce<0.35) cry(p,'тревога'); else if(Math.random()<0.25+0.7*p.attention) cry(p,'чужой'); } }
 // рефлексы раз в полсекунды: по действующей храбрости и расстоянию до чужого
 function decide(p){ const ce=nerve(p), foe=foeOf(p), d=foe?dist(p,foe):1e9, atLair=dist(p,LAIR)<3;
   if(foe && d<10) p.fear=Math.min(1,p.fear+0.015*(1-p.courage)); p.fear=Math.max(0,p.fear-(atLair||p.rest>0?0.01:0.004));
@@ -145,10 +152,32 @@ function packTick(){
   for(const p of pack){ p.throat=Math.max(0,p.throat-DT); p.alert=Math.max(0,p.alert-DT); p.rage=Math.max(0,p.rage-DT);
     if(!LAB && (Math.floor(t/DT)+p.i)%5===0){ sense(p); decide(p); if(p.act!==p.lastAct){ const f=foeOf(p); note('pack',{who:p.i,act:p.act,was:p.lastAct,why:p.why,hp:p.hp,fear:+p.fear.toFixed(2),foe:f?f.u:undefined,x:+p.x.toFixed(1),y:+p.y.toFixed(1)}); p.lastAct=p.act; } }
     if(p.act==='attack'){ const foe=foeOf(p); const u=foe&&units.find(u=>u.id===foe.u&&u.alive&&dist(p,u)<30); if(u){ const d=dist(p,u); p.foe={x:u.x,y:u.y,t,u:u.id};   // цель в 30 м не теряет — ведёт её; дальше — только если чувства поймают снова
-        if(d>2.2){ p.target={x:u.x,y:u.y}; p.hitT=0; } else { p.target=null; p.heading=dirTo(p,u); p.hitT+=DT; if(p.hitT>2){ p.hitT=0; u.skin-=10*p.size; u.bone-=4*p.size; u.pain=1; u.psyche-=6; evt(4,u.id); note('pack',{who:p.i,bite:u.id,skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),mode:u.mode}); } } } }
+        if(d>2.2){ p.target={x:u.x,y:u.y}; p.hitT=0; } else { p.target=null; p.heading=dirTo(p,u); p.hitT+=DT; if(p.hitT>2){ p.hitT=0; u.skin-=10*p.size; u.bone-=4*p.size; u.pain=1; u.psyche-=6; u.bitAt=t; u.bitBy=p; evt(4,u.id); note('pack',{who:p.i,bite:u.id,skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),reflex:u.reflex,stance:u.stance}); } } } }
     if(p.target) packStep(p,packSpeed(p)); }
   while(cries.length && t-cries[0].t>6) cries.shift(); }
-// отпор резаком: тело в режиме «бой» бьёт ближайшую особь в 4 м раз в 2 с; на нуле она уходит в логово на передышку
+// отпор резаком: тело в рефлексе «бой» бьёт ближайшую особь в 4 м раз в 2 с; на нуле она уходит в логово на передышку
+// Стойка при контакте — рефлекс тела, канал для него слишком медленный. Контакт — глазами тела, без стены между, или укус за
+// последние 3 с. Для бегства — любая бодрствующая особь в 15 м при фонаре (4 без): увидел — побежал. Для боя — угроза: особь идёт
+// на тело или нападает в 8 м, либо любая вплотную (3 м); смотрящая с 12 м — не повод. Бой: тело стоит и бьёт, пока чужой в
+// досягаемости; 10 с без угрозы — продолжает задачу. Бегство: к ближайшему узлу (шлюз своей платформы, мачта с усилителем), пока
+// чужих не видно 20 с, потом стоит.
+function contact(u,threat){ if(u.bitAt!==undefined && t-u.bitAt<3) return u.bitBy; const R=threat?8:u.lightOn?15:4; let best=null, bd=R;
+  for(const p of pack){ if(p.act==='sleep') continue; const d=dist(u,p); if(d>=bd) continue; if(threat && d>3 && p.act!=='attack' && p.act!=='approach') continue; if(losFrac(u,p)<0.34){ bd=d; best=p; } } return best; }
+function nearestNode(u){ const S=stOf(u); let best={x:S.spawn.x,y:S.spawn.y}, bd=dist(u,best); if(antennaBoost){ const m=poi(3); const d=dist(u,m); if(d<bd){ best={x:m.x,y:m.y}; bd=d; } } return best; }
+function stanceTick(u,dt){
+  if(!u.reflex){ if(!u.stance) return; const c=contact(u,u.stance===2); if(!c) return;
+    if(u.stance===2){ u.reflex=5; u.savedTarget=u.target; u.target=null; u.lastContact=t; evt(29,u.id); note('unit',{unit:u.id,reflex:'бой',who:c.i,d:+dist(u,c).toFixed(1),stealth:u.stealth}); }
+    else { u.reflex=6; u.pending=null; u.target=null; const n=nearestNode(u); u.goal={...n}; u.lastContact=t; evt(30,u.id); note('unit',{unit:u.id,reflex:'бегство',who:c.i,d:+dist(u,c).toFixed(1),to:n}); }
+    return; }
+  if(contact(u,u.reflex===5)) u.lastContact=t;
+  if(u.reflex===5 && t-u.lastContact>10){ u.reflex=0; u.target=u.savedTarget||null; u.savedTarget=null; evt(31,u.id); note('unit',{unit:u.id,reflex:'конец боя',resume:!!u.target}); }
+  if(u.reflex===6){ const n=nearestNode(u);
+    if(t-u.lastContact>20 || dist(u,n)<3){ u.reflex=0; u.target=null; evt(34,u.id); note('unit',{unit:u.id,reflex:'конец бегства',x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); return; }
+    // бежит по точкам: в расщелине — по оси к выходу (как одичалые), снаружи — к узлу; новая точка, когда прежняя близко
+    if(!u.target || dist(u,u.target)<3){ const c=TER.canyon(u.x,u.y); u.stuck=0; u.bestD=undefined;
+      const a=c.along-8; if(c.d<c.w/2+4 && c.along>-50) u.target = a>0 ? TER.canyonPoint(a/TER.LEN) : {x:TUN_A.x+c.dir.x*a, y:TUN_A.y+c.dir.y*a};   // по оси расщелины, у входа и на подходе — вдоль направления входа наружу
+      else u.target={...n}; } }
+}
 function fightBack(u){ let q=null, qd=4; for(const p of pack){ const d=dist(u,p); if(d<qd){ qd=d; q=p; } } if(!q){ u.atkTimer=0; return; }
   u.atkTimer+=DT; if(u.atkTimer<2) return; u.atkTimer=0; const was=q.hp; q.hp=Math.max(0,q.hp-1); q.fear=Math.min(1,q.fear+0.35*(1.2-q.courage)); wake(q); q.foe={x:u.x,y:u.y,t,u:u.id};
   note('pack',{who:q.i,hitBy:u.id,hp:q.hp,fear:+q.fear.toFixed(2),nerve:+nerve(q).toFixed(2)});
@@ -185,7 +214,7 @@ function evt(code, unit=0, arg=0, st){ emit('cmd','EVT', unit, new Uint8Array([c
 // Заметка мира: что решил и почему — в лог хоста (tech.md §12). Консоль этого не видит: станция не пересылает note операторам.
 // Ставится там, где if с числами решает игровой исход и потом спросят «почему оно так». Не трассировка: сотни строк на час, не тысячи.
 function note(kind, data){ if(muted) return; postMessage({ t:'note', at:+t.toFixed(1), kind, ...data }); }
-const CMD_NAMES={1:'описание',2:'лидар',3:'кадр',6:'идти',7:'режим',8:'действие',9:'передатчик',10:'вырастить',11:'статус',12:'телеметрия',13:'лидар-подписка',14:'описание-подписка',15:'пульс',16:'кадр-подписка',17:'стоп',18:'смотреть',19:'изучить',20:'съесть',21:'склад',22:'положить',23:'взять'};
+const CMD_NAMES={1:'описание',2:'лидар',3:'кадр',6:'идти',7:'режим',8:'действие',9:'передатчик',10:'вырастить',11:'статус',12:'телеметрия',13:'лидар-подписка',14:'описание-подписка',15:'пульс',16:'кадр-подписка',17:'стоп',18:'смотреть',19:'изучить',20:'съесть',21:'склад',22:'положить',23:'взять',24:'скрытность',25:'стойка'};
 function emitAuto(kind, unit, payload){ emit('bg', kind, unit, payload); }   // периодические подписки идут фоном
 
 // ---------- телеметрия миссионера (16 байт) ----------
@@ -194,7 +223,7 @@ function telemetry(u){
   b[0]=c(u.pulse); b[1]=c(u.electro); b[2]=c(u.glucose); b[3]=c(u.toxin); b[4]=c(u.skin); b[5]=c(u.bone); b[6]=c(u.psyche);
   b[7]=pack.some(p=>p.act!=='sleep' && dist(u,p)<90)?1:0;
   b[8]=c(u.cons*50); b[9]=c(u.charge*2.55); b[10]=c(u.gen*50);
-  const [xh,xl,yh,yl]=posBytes(u); b[11]=xh; b[12]=xl; b[13]=yh; b[14]=yl; b[15]=u.mode;
+  const [xh,xl,yh,yl]=posBytes(u); b[11]=xh; b[12]=xl; b[13]=yh; b[14]=yl; b[15]=modeByte(u);
   return b;
 }
 // ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), склад брикетов, склад резаков, n, (id, флаги, заряд, предметы, SNR+30)*] ----------
@@ -352,7 +381,7 @@ function doPending(u){
 onmessage = e => {
   const m=e.data;
   if(m.t==='speed'){ speed=m.v; schedule(); return; }
-  if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ const c=!!m.carriers[u.id]; if(c!==u.carrier && u.alive) note('unit',{unit:u.id,carrier:c,snr:+((m.snr||{})[u.id]||0).toFixed(1),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); u.carrier=c; u.snr=m.snr?m.snr[u.id]:0; } return; }   // станция измеряет уровень сигнала каждого тела   // миссионер сам слышит несущую станции — физика, не данные
+  if(m.t==='link'){ for(const u of units) if(u.id in m.carriers){ const c=!!m.carriers[u.id]; u.carrier=c; u.snr=m.snr?m.snr[u.id]:0; if(c!==u.carrierNoted){ u.carrierFlipAt=u.carrierFlipAt??t; if(u.carrierNoted===undefined || t-u.carrierFlipAt>=1){ u.carrierNoted=c; u.carrierFlipAt=undefined; if(u.alive) note('unit',{unit:u.id,carrier:c,snr:+u.snr.toFixed(1),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); } } else u.carrierFlipAt=undefined; } return; }   // станция измеряет уровень сигнала каждого тела; миссионер сам слышит несущую — физика, не данные; заметка — когда состояние продержалось секунду
   if(m.t==='imgAck'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u&&u.pendingImg&&u.pendingImg.level===m.level){ if(m.ok) u.lastImg[m.level]=u.pendingImg.f; u.pendingImg=null; } return; }
   if(m.t==='autonomy'){ const u=units.find(u=>u.id===m.unit); if(u) u.autonomy=m.v; return; }
   if(m.t==='imgCancel'){ const u=m.unit===0?stations[m.st||0].cam:units.find(u=>u.id===m.unit); if(u){ u.pendingImg=null; delete u.lastImg[m.level]; } return; }   // кадр не дошёл: следующий на этом уровне — ключевой
@@ -377,14 +406,14 @@ onmessage = e => {
   const u=unit===0&&(cmd===3||cmd===16) ? S.cam : units.find(u=>u.id===unit); if(!u || u.st!==S.k) return;   // чужим телом эта станция не управляет
   if(u!==S.cam){
     if(!u.carrier){ evt(25,u.id); return; }                                              // станция не слышит тело — команда не дойдёт
-    if(!u.alive && [1,6,7,8,17,18,19,20,21,22,23].includes(cmd)){ evt(24,u.id); return; }  // мёртвому — только приборы
+    if(!u.alive && [1,6,7,8,17,18,19,20,21,22,23,24,25].includes(cmd)){ evt(24,u.id); return; }  // мёртвому — только приборы
   }
   switch(cmd){
     case 1: if(u.alive) describe(u); break;
     case 2: if(!u.sensors.sonar) evt(2,u.id); else if(u.charge<=0) evt(26,u.id); else { if(arg) u.sonarTilt=Math.max(-45,Math.min(45,arg-90)); sonar(u); } break;   // arg: наклон+90, 0 — горизонт (старый формат)
     case 3: if(u.sensors.camera && u.charge<=0) evt(26,u.id); else if(u.sensors.camera && u.charge>0){ if(m.bytes[3]) imageDelta(u,Math.min(3,arg),'cmd'); else imagePyramid(u,Math.min(3,arg),'cmd'); } break;
     case 16: if(u.sensors.camera){ u.sub.img={interval:arg,level:Math.min(3,m.bytes[3]),delta:!!m.bytes[4]}; u.subT.img=0; u.lastImg={}; } break;
-    case 17: if(u.alive){ u.target=null; u.pending=null; evt(15,u.id); } break;
+    case 17: if(u.alive){ u.target=null; u.pending=null; if(u.reflex===6) u.reflex=0; evt(15,u.id); } break;   // стоп снимает и бегство: оператор видит больше тела
     case 21: { const item=arg, toUnit=!!m.bytes[3]; if(!atAirlock(u)){ evt(2,u.id); break; }
       if(item===42){ if(toUnit){ if(S.camInv>0&&!u.sensors.camera){ S.camInv--; u.sensors.camera=true; u.lastImg={}; evt(20,u.id,42); } else evt(2,u.id); } else { if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; S.camInv++; evt(19,u.id,42); } else evt(2,u.id); } }
       else { if(toUnit){ if(S.store[item]>0){ S.store[item]--; u.items.push(item); evt(20,u.id,item); } else evt(2,u.id); } else { const i=u.items.indexOf(item); if(i>=0){ u.items.splice(i,1); S.store[item]++; evt(19,u.id,item); } else evt(2,u.id); } }
@@ -394,7 +423,9 @@ onmessage = e => {
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
     case 6: if(u.alive){ const g=decPos(m.bytes,3); if(beyondReturn(u,g)) break; u.goal={x:g.x,y:g.y}; const {x,y}=outsideHulls(g.x,g.y,u); u.target={x,y}; u.bestD=undefined; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
-    case 7: if(u.alive){ u.mode=arg; u.lightOn=(arg!==2); if(arg===3){ const sp=S.spawn; u.target={x:sp.x,y:sp.y}; u.goal={x:sp.x,y:sp.y}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
+    case 7: if(u.alive && [1,3,4].includes(arg)){ u.mode=arg; if(arg===3){ const sp=S.spawn; u.target={x:sp.x,y:sp.y}; u.goal={x:sp.x,y:sp.y}; u.pending=null; } if(arg===4) u.target=null; evt(7,u.id,arg); } break;
+    case 24: if(u.alive){ u.stealth=!!arg; evt(32,u.id,arg?1:0); } break;   // скрытность — настройка; действует, пока нет рефлекса
+    case 25: if(u.alive){ u.stance=Math.min(2,arg); evt(33,u.id,u.stance); } break;   // стойка при контакте
     case 8: beginAction(u,'act',arg); break;
     case 19: beginAction(u,'exam',arg); break;
     case 9: u.txDbm=arg-20; evt(8,u.id,9); break;
@@ -413,7 +444,7 @@ function snapshot(){
 function restore(d){
   t=d.t; nextUnit=d.nextUnit; msgId=d.msgId; for(const k in objState) delete objState[k]; Object.assign(objState,d.objState);
   if(d.pack) d.pack.forEach((s,i)=>{ if(pack[i]) Object.assign(pack[i],s,{i}); }); antennaBoost=d.antennaBoost;
-  units.length=0; for(const su of d.units){ units.push({st:0, ...su, lastImg:{}, pendingImg:null}); }
+  units.length=0; for(const su of d.units){ const u={st:0, stealth:false, stance:0, reflex:0, carrierNoted:true, ...su, lastImg:{}, pendingImg:null}; if(u.mode===2){ u.mode=1; u.stealth=true; } if(u.mode===5){ u.mode=1; u.stance=2; } units.push(u); }
   for(const sd of d.stations||[]){ const S=stations[sd.k]; if(!S) continue; const {camSub,cam,...o}=sd; Object.assign(S,o,{k:S.k}); if(camSub) S.cam.sub=camSub; S.cam.lastImg={}; S.cam.pendingImg=null; }
   if(d.contents){ for(const k in contents) delete contents[k]; Object.assign(contents,d.contents); } if(d.ground){ ground.length=0; ground.push(...d.ground); nextGround=d.nextGround||100; }
 }
@@ -433,12 +464,13 @@ function tick(){
     if(u.alive){
       if(!u.carrier){ u.linkLostFor+=dt; if(u.linkLostFor>20 && !u.autoDone){ u.autoDone=true; note('unit',{unit:u.id,autonomy:u.autonomy,x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); if(u.autonomy===1) u.target=null; if(u.autonomy===2){ const sp=stOf(u).spawn; u.target={x:sp.x,y:sp.y}; u.mode=3; } } }
       else { u.linkLostFor=0; u.autoDone=false; }
-      const sp=speedFor(u.mode);
-      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:0.5)){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3) evt(1,u.id); }
+      u.lightOn=!(u.stealth && !u.reflex);
+      const sp=speedFor(u);
+      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:0.5)){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3 && u.reflex!==6) evt(1,u.id); }
         else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
           // застревание — по продвижению: за 4 с не приблизился к цели на метр → стоп
           u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<1){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); note('unit',{unit:u.id,stuck:true,x:+u.x.toFixed(1),y:+u.y.toFixed(1),slope:+TER.slope(u.x,u.y).toFixed(2)}); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
-      if(u.mode===5) fightBack(u);
+      stanceTick(u,dt); if(u.reflex===5) fightBack(u);
       // страх: ближайшая бодрствующая особь (уходящая не в счёт) и крики рядом — звук тело слышит, слов не разбирает
       let fearT=0; for(const p of pack){ const w=p.act==='attack'||p.act==='approach'?1:p.act==='sleep'||p.act==='flee'||p.act==='home'?0:0.5; if(w) fearT=Math.max(fearT,w*(1-dist(u,p)/80)); }
       u.startle=Math.max(0,(u.startle||0)-dt*0.1); fearT=Math.min(1,fearT+0.5*u.startle); u.fear+=(fearT-u.fear)*dt/2; u.pain=Math.max(0,u.pain-dt/8);
@@ -464,7 +496,7 @@ function tick(){
     if(S.hbInterval){ S.hbTimer+=dt; if(S.hbTimer>=S.hbInterval){ S.hbTimer=0; heartbeat(S); } } }
   if(muted) return;
   postMessage({ t:'phys', extraGain:antennaBoost,
-    units:units.map(u=>{ const tT=tunnelT(u.x,u.y), S=stOf(u); return {id:u.id, st:u.st, dist:Math.max(1,Math.hypot(u.x-S.x,u.y-S.y)), obstDb:tT>=0?8+22*tT:0, txDbm:u.charge>0?u.txDbm:-99, alive:u.alive}; }),   // без заряда передатчик молчит; расстояние — до своей станции
+    units:units.map(u=>{ const S=stOf(u); return {id:u.id, st:u.st, dist:Math.max(1,Math.hypot(u.x-S.x,u.y-S.y)), obstDb:obstDb(u), txDbm:u.charge>0?u.txDbm:-99, alive:u.alive}; }),   // без заряда передатчик молчит; расстояние — до своей станции
     dbg:{ units:units.map(u=>({id:u.id,st:u.st,x:u.x,y:u.y,alive:u.alive})), stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang})), pack:pack.map(p=>({x:p.x,y:p.y,act:p.act,fear:+p.fear.toFixed(2),hp:p.hp,size:p.size})), cries:cries.filter(c=>t-c.t<4).map(c=>({x:c.x,y:c.y,word:c.word,age:+(t-c.t).toFixed(1)})) } });
 }
 // правда о мире для отладочной шторки (игрок этого не видит): расщелина и ориентиры — один раз при старте
