@@ -41,7 +41,7 @@ soft overcast lighting, no outlines, photographic shading, transparent backgroun
 
 - Для персонажей — `one figure` / `one creature`, для предметов — `one object`.
 - Размер задавать словами в метрах и пропорцией («about two meters across», «roughly three times wider than tall», «tall and narrow») — влияет на пропорцию вида, а реальную высоту всё равно задаёт `H` в `SPRITES`.
-- **Фронт (вид 0°) — это то, куда смотрит курс объекта в мире.** У платформы — торец с люком, у фигуры — лицо. В мире `facing` у объекта, у декораций — из хеша.
+- **Фронт (вид 0°) — это то, куда смотрит курс объекта в мире.** У платформы — торец с люком, у фигуры — лицо. В мире `facing` у объекта из уровня (нет — по хешу id), у процедурного декора — из хеша.
 - Освещение — «soft overcast»: солнце и тени добавляет рендер, запечённое направленное освещение поворачивалось бы вместе с ракурсом.
 - Без «thick dark outline»: контур на 64 px ничего не даёт, а при усреднении растворяется.
 - Плоские вещи (следы, гарь, кабель, вода) — не спрайты, а процедурные декали в `terrain.js` (`DECAL`).
@@ -93,9 +93,9 @@ soft overcast lighting, no outlines, photographic shading, transparent backgroun
 | `turret_sheet` | 34 | 1,6 | турель: тренога, головка со стволом и лампой, короб патронов, кабель; фронт — куда смотрят ствол и лампа (19.09) |
 | `missionary5_sheet`, `missionary_walk_sheet`, `body2_sheet` | 252, `walk`, 251 | 1,8 / 1,8 / 0,55 | |
 | `creature2_sheet`, `creature_sleep_sheet` | 250, `sleep` | 1,6 / 0,6 | |
-| `boulder_sheet`, `boulder2_sheet`, `rocks_sheet`, `stalks_sheet` | декорации | 1,8 / 1,2 / 0,5 / 1,4 | валун угловатый, окатанный, россыпь, сухостой на органическом мате |
-| `outcrop_sheet`, `hoodoo_sheet` | декорации | 5 / 7 | скальный выход у подножия, останец на дальней равнине |
-| `debris_sheet`, `cairn_sheet`, `post_sheet` | декорации | 1,1 / 1,0 / 1,5 | обломки обшивки у корабля, пирамидка тропы, столбик кабельной линии |
+| `boulder_sheet`, `boulder2_sheet`, `rocks_sheet`, `stalks_sheet` | декор | 1,8 / 1,2 / 0,5 / 1,4 | валун угловатый, окатанный, россыпь, сухостой на органическом мате |
+| `outcrop_sheet`, `hoodoo_sheet` | декор | 5 / 7 | скальный выход у подножия, останец на дальней равнине |
+| `debris_sheet`, `cairn_sheet`, `post_sheet` | декор | 1,1 / 1,0 / 1,5 | обломки обшивки у корабля, пирамидка тропы, столбик кабельной линии |
 
 Расстановка декора — `TER.decor` (процедурный) и `FIXED` (`LEVEL.decor`) в `terrain.js`. Старые pixel-art одиночные спрайты и ранние версии (в манифесте без `_sheet`, `missionary`…`missionary4`, `creature`, `creature_alert`, `creature_feral`, `station`, `platform`) — не используются.
 
