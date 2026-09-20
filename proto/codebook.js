@@ -164,7 +164,7 @@ function baseAt(site){ const ang=site.ang||0, a=ang*Math.PI/180, c=Math.cos(a), 
   return { x:site.x, y:site.y, ang, airlock:R(BASE.airlock.dx,BASE.airlock.dy), spawn:R(BASE.spawn.dx,BASE.spawn.dy),
     subs:[...BASE.subs, ...(site.subs||[])].slice(0,10).map(rot), turret:{x:tp.x, y:tp.y, f:T.f+ang, fov:T.fov, range:T.range, aim:T.aim, reload:T.reload} }; }
 const SPRITES = {
-  13:{sheet:'crates_sheet',H:1.0}, 14:{sheet:'crates_sheet',H:1.0},                          // ящики: пока лист штабеля в масштабе одного ящика (art.md §8 — свой лист)
+  13:{sheet:'crate_sheet',H:0.9}, 14:{sheet:'crate_sheet',H:0.9},                            // ящик запечатан / вскрытый — один лист (второе состояние — art.md §8)
   11:{sheet:'floodlight_sheet',H:3.0}, 12:{flat:true}, 16:{flat:true}, 17:{sheet:'mast_sheet',H:7}, 18:{sheet:'cabinet_sheet',H:1.8}, 19:{flat:true}, 35:{sheet:'cabinet_sheet',H:1.8}, 36:{sheet:'cabinet_sheet',H:0.9},
   20:{sheet:'mound_sheet',H:0.7}, 21:{sheet:'marker_sheet',H:1.1}, 22:{sheet:'bones_sheet',H:0.5}, 23:{sheet:'wreck_sheet',H:4}, 24:{sheet:'hatch_sheet',H:2.0}, 25:{flat:true},
   27:{flat:true}, 28:{sheet:'stone_sheet',H:0.4}, 29:{sheet:'pile_sheet',H:1.4}, 30:{sheet:'glyphs_hd',H:2.0}, 31:{flat:true}, 32:{sheet:'small_sheet',view:0,H:0.25}, 33:{sheet:'small_sheet',view:1,H:0.4}, 34:{sheet:'turret_sheet',H:1.6},

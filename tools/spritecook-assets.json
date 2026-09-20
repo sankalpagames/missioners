@@ -163,5 +163,8 @@
  },
  "turret_sheet": {
   "asset_id": "87d0cd81-b398-4cd8-af8a-c02da706cad1"
+ },
+ "crate_sheet": {
+  "asset_id": "c92e2345-2369-4441-b964-456944f8fa0a"
  }
 }
