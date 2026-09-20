@@ -171,7 +171,8 @@ function wake(p,why='проснулась'){ if(p.act==='sleep'){ p.act='idle'; 
 // чувства: свет фонаря (в скрытности — почти ничего), шаги; спящая слышит и видит хуже, внимательная — дальше; стены режут и то и другое
 function sense(p){ const k=(p.act==='sleep'?0.2+0.3*p.attention:0.6+0.8*p.attention)*(p.alert>0?1.4:1); let best=null, bd=1e9, how='see';
   for(const u of units){ if(!u.alive) continue; const d=dist(p,u); if(d>120 || d>=bd) continue;
-    const seeR=detectRadius(u)*k, sp=u.target?speedFor(u):0, hearR=Math.min(80,12*sp*sp)*k;   // шум шагов ∝ квадрату скорости: крадущегося слышно с 4 м, бегущего — с 80 if(d>seeR && d>hearR) continue;
+    const seeR=detectRadius(u)*k, sp=u.target?speedFor(u):0, hearR=Math.min(80,12*sp*sp)*k;   // шум шагов ∝ квадрату скорости: крадущегося слышно с 4 м, бегущего — с 80
+    if(d>seeR && d>hearR) continue;
     const f=losFrac(p,u); if(d<=seeR && f<0.34 || d<=hearR*(1-0.75*f)){ best=u; bd=d; how=d<=seeR&&f<0.34?'see':'hear'; } }
   if(!best) return; const fresh=!foeOf(p); p.foe={x:best.x,y:best.y,t,u:best.id,how}; wake(p);
   if(fresh){ note('pack',{who:p.i,sense:bd<=detectRadius(best)*k?'see':'hear',unit:best.id,d:+bd.toFixed(1),mode:best.mode,stealth:best.stealth,light:best.lightOn,nerve:+nerve(p).toFixed(2)}); const ce=nerve(p); if(ce<0.35) cry(p,'тревога'); else if(Math.random()<0.25+0.7*p.attention) cry(p,'чужой'); } }
@@ -362,14 +363,19 @@ function inBounds(x,y){ return x>=BOUNDS.x0&&x<=BOUNDS.x1&&y>=BOUNDS.y0&&y<=BOUN
 function blocked(x,y,fromX,fromY){ if(!inBounds(x,y)) return true;
   const len=Math.hypot(x-fromX,y-fromY)||1; if((TER.H(x,y)-TER.H(fromX,fromY))/len>MAX_SLOPE) return true;
   for(const c of HULLS){ if(hullIn(x,y,c,BODY_R)) return true; }
-  return false;
+  return !!solidDecor(x,y,BODY_R);
 }
+// процедурный декор в столкновениях: валун, выход породы, останец выше колена — стена по радиусу отражателя (тому же, что в лидаре);
+// россыпь камней и стебли проходятся. Декор уровня без коллайдера проходится — так решил автор карты
+const DECOR_SOLID=new Set(['boulder','boulder2','outcrop','hoodoo']);
+function solidDecor(x,y,pad){ for(const d of TER.decor({x,y},6)){ if(!d.proc||!DECOR_SOLID.has(d.type)||d.Hs<0.8) continue; if(Math.hypot(x-d.x,y-d.y)<decorR(d)+pad) return d; } return null; }
 // цель внутри корпуса (платформа, обломки — сам ориентир стоит в их центре) → ближайшая точка снаружи, к ней и идти
 // (радиально от центра корпуса; цель в самом центре — со стороны тела)
 function outsideHulls(x,y,from,pad=BODY_R+0.4){ for(const c of HULLS){ if(!hullIn(x,y,c,BODY_R)) continue; let vx=x-c.x, vy=y-c.y; if(Math.hypot(vx,vy)<0.5){ vx=from.x-c.x; vy=from.y-c.y; }
     if(c.r!==undefined){ const d=Math.hypot(vx,vy)||1; return {x:c.x+vx/d*(c.r+pad), y:c.y+vy/d*(c.r+pad)}; }
     const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=vx*ca+vy*sa, ly=-vx*sa+vy*ca; const k=Math.hypot(lx/(c.rx+pad),ly/(c.ry+pad))||1; const ox=lx/k, oy=ly/k;   // в осях эллипса
     return {x:c.x+ox*ca-oy*sa, y:c.y+ox*sa+oy*ca}; }
+  { const d=solidDecor(x,y,BODY_R); if(d){ let vx=x-d.x, vy=y-d.y; if(Math.hypot(vx,vy)<0.5){ vx=from.x-d.x; vy=from.y-d.y; } const n=Math.hypot(vx,vy)||1; return {x:d.x+vx/n*(decorR(d)+pad), y:d.y+vy/n*(decorR(d)+pad)}; } }   // цель в валуне — к его краю
   return {x,y}; }
 function stepBody(u,len){
   const dx=Math.cos(u.heading)*len, dy=Math.sin(u.heading)*len;
@@ -399,15 +405,19 @@ function telemetry(u){
   const [xh,xl,yh,yl]=posBytes(u); b[11]=xh; b[12]=xl; b[13]=yh; b[14]=yl; b[15]=modeByte(u);
   return b;
 }
-// ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), склад брикетов, склад резаков, n, (id, флаги, заряд, предметы, SNR+30)*] ----------
+// ---------- пульс станции (раз в 2 с): [биозапас, склад камер, рост(с|255), склад брикетов, склад резаков, n, (id, флаги, заряд, предметы|передатчик, SNR+30, телеметрия с, лидар с, описание с, автосъёмка)*, турели, ретрансляторы, автосъёмка шлюза] ----------
+// Подписки и передатчик в пульсе — настройки тела, которые держит станция: по ним консоли одной платформы сходятся в переключателях (одна поменяла — другие увидят пульсом)
+const imgSubByte=s=>Math.min(31,s.interval|0)|(s.delta?32:0)|((s.level&3)<<6);   // автосъёмка одним байтом: интервал 0…31 с, бит 5 — дельта, биты 6–7 — уровень
 function heartbeat(S){
   const own=units.filter(u=>u.st===S.k);
   const b=[S.bioStock, S.camInv, S.growing?Math.ceil(S.growing.tLeft):255, S.store[40], S.store[41], own.length];
-  for(const u of own){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)|(u.items.includes(43)?8:0), Math.max(0,Math.min(255,Math.round((u.snr||0)+30)))); }
+  for(const u of own){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)|(u.items.includes(43)?8:0)|(Math.max(0,Math.min(3,Math.round(u.txDbm/10+1)))<<4), Math.max(0,Math.min(255,Math.round((u.snr||0)+30))),
+    Math.min(255,u.sub.tlm|0), Math.min(255,u.sub.sonar|0), Math.min(255,u.sub.desc|0), imgSubByte(u.sub.img)); }
   // свои турели: станция знает их все; без питания (потом — без связи) данных нет, только флаг
   const own_t=turrets.filter(T=>T.st===S.k); b.push(own_t.length); for(const T of own_t) b.push(T.id, (T.powered?1:0)|(T.on?2:0)|(T.broken?4:0)|(T.tgt?8:0)|(T.reloadT>0?16:0), T.powered?T.ammo:255);
   // ретрансляторы, чей маяк станция слышит на своём канале: id, флаги (включён, переносной); где стоит — из паспорта (INFO)
   const rr=relays.filter(R=>R.reach[S.k]); b.push(rr.length); for(const R of rr) b.push(R.id, (R.on?1:0)|(R.type===36?2:0));
+  b.push(imgSubByte(S.cam.sub.img));   // автосъёмка камеры шлюза
   emit('bg','HB',0,new Uint8Array(b),S.k);
 }
 

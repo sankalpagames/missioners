@@ -113,16 +113,29 @@ function decodeTlm(pkt){ const b=pkt.bytes, u=U(pkt.unit); if(boot.onTlm) boot.o
   u.tlmAt=tNow; u.hist.push({t:tNow,...u.tlm}); if(u.hist.length>3000) u.hist.shift();
   const last=u.track[u.track.length-1]; if(!last||Math.hypot(last.x-u.tlm.x,last.y-u.tlm.y)>2){ u.track.push({x:u.tlm.x,y:u.tlm.y,t:tNow}); if(u.track.length>600) u.track.shift(); }
 }
+// подписки и передатчик тела — по пульсу: настройки держит станция, консоли одной платформы сходятся в переключателях. Своя только что
+// отправленная команда ещё в очереди — её значение не трогать (subReq: поле → когда отправлено), пока станция его не подтвердит или не пройдёт 90 с
+const SUB_RU={tlm:'телеметрия',sonar:'лидар',desc:'описание',img:'автосъёмка',level:'уровень кадра',delta:'дельта',tx:'передатчик'};
+function syncSubs(u,who,got){ const rq=u.subReq||(u.subReq={}); let changed=false; const first=!u.hbSeen; u.hbSeen=true;
+  for(const k in got){ const v=got[k]; if((k==='level'||k==='delta')&&!got.img) continue;   // уровень и дельта без подписки — местная настройка кнопки «снять», станция их не держит
+    if(rq[k]!==undefined){ if(u.subs[k]===v||tNow-rq[k]>90) delete rq[k]; else continue; }
+    if(u.subs[k]===v) continue; if(!first) log(`${who} ${SUB_RU[k]}: ${k==='tx'?(v>0?'+':'')+v+' дБм':typeof v==='boolean'?(v?'вкл':'выкл'):k==='level'?[8,16,32,64][v]+'px':v?'каждые '+v+' с':'выкл'} — по пульсу станции`,'sys'); u.subs[k]=v; changed=true; }
+  if(changed&&(u===stcam||u.id===active)) syncSubControls(); }
+function noteSubReq(u,keys){ const rq=u.subReq||(u.subReq={}); for(const k of keys) rq[k]=tNow; }
+function syncSubControls(){ const u=units.get(active); if(u){ $('#sub-tlm').value=u.subs.tlm; $('#tx-pow').value=u.subs.tx||0; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta; }
+  $('#st-sub-img').value=stcam.subs.img; $('#st-img-level').value=stcam.subs.level; $('#st-img-delta').checked=stcam.subs.delta; }
 function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.brik=b[3]; station.cut=b[4]; station.at=tNow; const n=b[5];
-  { const o=6+n*5, nt=b[o]??0; const prev=station.turrets; station.turrets=[]; for(let j=0;j<nt;j++){ const id=b[o+1+j*3], f=b[o+2+j*3], am=b[o+3+j*3]; const T={id, powered:!!(f&1), on:!!(f&2), broken:!!(f&4), tracking:!!(f&8), reloading:!!(f&16), ammo:am===255?null:am}; station.turrets.push(T);
+  { const o=6+n*9, nt=b[o]??0; const prev=station.turrets; station.turrets=[]; for(let j=0;j<nt;j++){ const id=b[o+1+j*3], f=b[o+2+j*3], am=b[o+3+j*3]; const T={id, powered:!!(f&1), on:!!(f&2), broken:!!(f&4), tracking:!!(f&8), reloading:!!(f&16), ammo:am===255?null:am}; station.turrets.push(T);
       const was=prev.find(x=>x.id===id); if(was){ if(!was.broken&&T.broken) log(`станция: турель ${id} повреждена`,'err'); if(was.ammo>0&&T.ammo===0) log(`станция: турель ${id} — патроны кончились`,'warn'); }
       const rq=station.turretReq[id]; if(rq&&(rq.on===T.on||tNow-rq.at>90)) delete station.turretReq[id]; }
     // ретрансляторы, чей маяк слышен на канале станции: id, флаги (включён, переносной); нет в пульсе — не слышен. Перемены в журнал пишут события 3/41/42
     const o2=o+1+nt*3, nr=b[o2]??0; const prevR=station.relays; station.relays=[]; for(let j=0;j<nr;j++){ const id=b[o2+1+j*2], f=b[o2+2+j*2]; const R={id, on:!!(f&1), mobile:!!(f&2)}; station.relays.push(R);
       const rq=station.relayReq[id]; if(rq&&(rq.on===R.on||tNow-rq.at>90)) delete station.relayReq[id]; }
-    for(const was of prevR) if(!station.relays.find(x=>x.id===was.id)) delete station.relayReq[was.id]; }   // свои турели: состояние и патроны; без питания — данных нет (255)
-  for(let i=0;i<n;i++){ const id=b[6+i*5], f=b[7+i*5], ch=b[8+i*5]/2.55, it=b[9+i*5], snr=b[10+i*5]-30; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[]), ...(it&8?[43]:[])];
+    for(const was of prevR) if(!station.relays.find(x=>x.id===was.id)) delete station.relayReq[was.id];
+    const o3=o2+1+nr*2; if(b.length>o3) syncSubs(stcam,'камера шлюза',{img:b[o3]&31, delta:!!(b[o3]&32), level:b[o3]>>6}); }   // свои турели: состояние и патроны; без питания — данных нет (255)
+  for(let i=0;i<n;i++){ const id=b[6+i*9], f=b[7+i*9], ch=b[8+i*9]/2.55, it=b[9+i*9], snr=b[10+i*9]-30; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[]), ...(it&8?[43]:[])];
     u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.atAirlock=!!(f&32); u.charge=ch; u.snr=snr; u.hbAt=tNow;
+    syncSubs(u,'М'+id,{tlm:b[11+i*9], sonar:b[12+i*9], desc:b[13+i*9], img:b[14+i*9]&31, delta:!!(b[14+i*9]&32), level:b[14+i*9]>>6, tx:[-10,0,10][(it>>4)&3]??u.subs.tx});
     if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err');
     { const was=u.snrState||'ok', now=!u.carrier?'lost':snr<5?'weak':'ok'; if(u.alive&&now!==was&&u.hbAt>-1e8){ if(now==='weak') log(`станция: несущая М${id} слабеет, ${snr>0?'+':''}${snr} дБ`,'err'); if(now==='ok'&&was!=='ok'&&u.carrier) log(`станция: несущая М${id} уверенная, +${snr} дБ`,'sys'); } u.snrState=now; }
     if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} не принимается`,'err');
@@ -249,7 +262,7 @@ function drawEcg(dt){ const cv=$('#ecg'), ctx=cv.getContext('2d'), u=units.get(a
 
 function renderUnits(){ const el=$('#units'); el.innerHTML=''; [...units.values()].sort((a,b)=>a.id-b.id).forEach(u=>{ const b=document.createElement('button'); b.className=(u.id===active?'on ':'')+(u.alive?'':'dead ')+(u.alive&&u.hbAt>-1e8?(!u.carrier?'lost':(u.snr??99)<5?'weak':''):''); b.textContent=`${u.alive?(u.carrier?'●':'◌'):'○'} М${u.id}`; b.onclick=()=>{ active=u.id; selectUnit(); }; b.ondblclick=()=>{ map.focus=pos(u.id); if(map.zoom<3) map.zoom=3; $$('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.tab==='map')); $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-map')); drawMap(); }; el.appendChild(b); }); }
 function selectUnit(){ const u=units.get(active); renderUnits(); renderDesc(); renderCmds(); drawSonar(u.sonarData,u.sonarMask,u.sonarTilt||0); showImg(u); updateTarget();
-  $('#sub-tlm').value=u.subs.tlm; $('#tx-pow').value=u.subs.tx||0; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta;
+  syncSubControls();
   $('#sonar-body').hidden=!u.sonar; $('#sonar-none').hidden=u.sonar; $('#img-body').hidden=!u.camera; $('#img-none').hidden=u.camera; $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }
 function renderDesc(){ const u=units.get(active), el=$('#desc'); el.innerHTML=''; $('#desc-unit').textContent='М'+active; if(!u||!u.desc.length){ el.innerHTML='<div class="dim small">нет данных</div>'; return; }
   el.insertAdjacentHTML('beforeend',`<div class="dim small">${(tNow-u.descAt).toFixed(0)} с назад</div>`); const tg=T();
@@ -433,14 +446,14 @@ $('#airlock').onclick=e=>{ const b=e.target.closest('[data-tr]'); if(!b) return;
   try{ const hh=localStorage.getItem('missioners.logh'); if(hh) lw.style.height=hh; }catch(e){} }
 $('#v-items').onclick=e=>{ const b=e.target.closest('[data-eat]'); if(b) return send([20,+b.dataset.eat,active],`М${active} съесть брикет`); const dr=e.target.closest('[data-drop]'); if(dr) send([22,+dr.dataset.drop,active,0],`М${active} сбросить ${ITEMS[+dr.dataset.drop]} на грунт`); };
 $('#st-btn-img').onclick=()=>{ const lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; send([3,lvl,0,d],`камера шлюза: кадр ${[8,16,32,64][lvl]}×${[8,16,32,64][lvl]}${d?' (дельта)':''}`); };
-function sendStSub(){ const iv=+$('#st-sub-img').value, lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; Object.assign(stcam.subs,{img:iv,level:lvl,delta:!!d}); send([16,iv,0,lvl,d],`камера шлюза: автосъёмка ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
+function sendStSub(){ const iv=+$('#st-sub-img').value, lvl=+$('#st-img-level').value, d=$('#st-img-delta').checked?1:0; Object.assign(stcam.subs,{img:iv,level:lvl,delta:!!d}); noteSubReq(stcam,['img','level','delta']); send([16,iv,0,lvl,d],`камера шлюза: автосъёмка ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
 $('#st-sub-img').onchange=sendStSub; $('#st-img-level').onchange=()=>{ if(+$('#st-sub-img').value) sendStSub(); }; $('#st-img-delta').onchange=()=>{ if(+$('#st-sub-img').value) sendStSub(); };
-function sendImgSub(){ const u=units.get(active); const iv=+$('#sub-img').value, lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; Object.assign(u.subs,{img:iv,level:lvl,delta:!!d}); if(iv&&!u.camera) return log('М'+active+': камера не установлена','err'); send([16,iv,active,lvl,d],`М${active} автосъёмка: ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
+function sendImgSub(){ const u=units.get(active); const iv=+$('#sub-img').value, lvl=+$('#img-level').value, d=$('#img-delta').checked?1:0; Object.assign(u.subs,{img:iv,level:lvl,delta:!!d}); noteSubReq(u,['img','level','delta']); if(iv&&!u.camera) return log('М'+active+': камера не установлена','err'); send([16,iv,active,lvl,d],`М${active} автосъёмка: ${iv?'каждые '+iv+' с ('+[8,16,32,64][lvl]+'px'+(d?', дельта':'')+')':'выкл'}`); }
 $('#sub-img').onchange=sendImgSub; $('#img-level').onchange=()=>{ units.get(active).subs.level=+$('#img-level').value; if(+$('#sub-img').value) sendImgSub(); }; $('#img-delta').onchange=()=>{ units.get(active).subs.delta=$('#img-delta').checked; if(+$('#sub-img').value) sendImgSub(); };
-$('#tx-pow').onchange=e=>{ const v=+e.target.value; units.get(active).subs.tx=v; send([9,v+20,active],`М${active} передатчик ${v>0?'+':''}${v} дБм`); };
-$('#sub-tlm').onchange=e=>{ units.get(active).subs.tlm=+e.target.value; send([12,+e.target.value,active],`М${active} телеметрия: ${e.target.selectedOptions[0].text}`); };
-$('#sub-sonar').onchange=e=>{ units.get(active).subs.sonar=+e.target.value; send([13,+e.target.value,active],`М${active} лидар: ${e.target.selectedOptions[0].text}`); };
-$('#sub-desc').onchange=e=>{ units.get(active).subs.desc=+e.target.value; send([14,+e.target.value,active],`М${active} описание: ${e.target.selectedOptions[0].text}`); };
+$('#tx-pow').onchange=e=>{ const v=+e.target.value; units.get(active).subs.tx=v; noteSubReq(units.get(active),['tx']); send([9,v+20,active],`М${active} передатчик ${v>0?'+':''}${v} дБм`); };
+$('#sub-tlm').onchange=e=>{ units.get(active).subs.tlm=+e.target.value; noteSubReq(units.get(active),['tlm']); send([12,+e.target.value,active],`М${active} телеметрия: ${e.target.selectedOptions[0].text}`); };
+$('#sub-sonar').onchange=e=>{ units.get(active).subs.sonar=+e.target.value; noteSubReq(units.get(active),['sonar']); send([13,+e.target.value,active],`М${active} лидар: ${e.target.selectedOptions[0].text}`); };
+$('#sub-desc').onchange=e=>{ units.get(active).subs.desc=+e.target.value; noteSubReq(units.get(active),['desc']); send([14,+e.target.value,active],`М${active} описание: ${e.target.selectedOptions[0].text}`); };
 $('#sub-hb').onchange=e=>send([15,+e.target.value,0],`пульс станции: ${e.target.selectedOptions[0].text}`);
 $$('button[data-autonomy]').forEach(b=>b.onclick=()=>{ if(send([26,+b.dataset.autonomy,active],`М${active} без несущей: ${AUTONOMY[b.dataset.autonomy]}`)) req(active,'autonomy',+b.dataset.autonomy); });
 $('#btn-grow').onclick=()=>{ const mask=($('#g-cam').checked?1:0)|($('#g-sonar').checked?2:0); if(send([10,mask,0],`станция: вырастить миссионера (${$('#g-cam').checked?'камера, ':''}${$('#g-sonar').checked?'лидар':''})`)){ $('#btn-grow').disabled=true; $('#grow-state').textContent='команда отправлена, ожидание подтверждения станции…'; } };

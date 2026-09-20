@@ -107,6 +107,12 @@ function levelLint(L){ const out=[]; const cols=[];
     if(o.scenery&&(CODEBOOK[o.type]||{}).actions) out.push({text:`примета ${o.id} «${(CODEBOOK[o.type]||{}).name}» имеет действия — это объект, не примета`, ref:o}); }
   for(const p of L.pois){ if(!p.text) out.push({text:`указатель ${p.id} «${p.name}» без текста осмотра`, ref:p}); }
   if((L.pack.members||[]).length>6) out.push({text:`особей ${L.pack.members.length}: id 250 + i уходит за байт, лишние в описании не адресуются`, ref:L.pack.lair});
+  // край уровня: за ним тела не ступают — площадка, объект, указатель или логово снаружи (с запасом 30 м у площадки) недостижимы
+  { const b=L.terrain.bounds; if(b){ const outside=(p,m=0)=>p.x<b.x0+m||p.x>b.x1-m||p.y<b.y0+m||p.y>b.y1-m;
+      L.sites.forEach((st,i)=>{ if(outside(st,30)) out.push({text:`площадка ${1+i} у края уровня или за ним (${b.x0}…${b.x1} × ${b.y0}…${b.y1}): тела не сдвинутся`, ref:st}); });
+      for(const o of L.objects) if(outside(o)) out.push({text:`объект ${o.id} за краем уровня`, ref:o});
+      for(const p of L.pois) if(outside(p)) out.push({text:`указатель ${p.id} «${p.name}» за краем уровня`, ref:p});
+      if(L.pack.lair&&outside(L.pack.lair)) out.push({text:'логово за краем уровня', ref:L.pack.lair}); } }
   return out; }
 // Текст файла карты (proto/maps/ID.js) из уровня в памяти — один сериализатор для редактора и tools/level-convert.js. Комментарии-имена — из кодовой книги.
 function levelText(L){ const o=[]; const num=v=>String(Math.round(v*100)/100); const nm=t=>(CODEBOOK[t]||{}).name||('тип '+t); const q=s=>"'"+String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n')+"'";

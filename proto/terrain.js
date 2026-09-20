@@ -70,7 +70,8 @@ const TER = (()=>{
     31:(u,v)=>{ const r=Math.hypot(u/3.2,v/2.2)*(1+0.25*(vnoise(u,v)-0.5)); if(r>1) return null; const spec=ss(0.85,1,vnoise(u*3+9,v*3)); return {a:0.9*(1-ss(0.8,1,r)),d:-45+70*spec}; },   // вода: пятно с бликами
   };
 
-  // ---- декор: объекты кадра и лидара, но не объекты мира (не в описании, не на карте); с коллайдером — стена для ходьбы (world.js HULLS) ----
+  // ---- декор: объекты кадра и лидара, но не объекты мира (не в описании, не на карте); с коллайдером — стена для ходьбы (world.js HULLS);
+  // процедурный (proc) — валуны, выходы породы, останцы — стена по своему радиусу отражателя (world.js solidDecor), россыпь и стебли проходятся ----
   // из уровня (FIXED, LEVEL.decor): завал в конце расщелины, обломки вокруг корабля, пирамидки по тропе ящики → расщелина, столбики кабеля станция → мачта
   function decor(u,R){ const out=FIXED.filter(o=>Math.abs(o.x-u.x)<R&&Math.abs(o.y-u.y)<R); const cell=9; const i0=Math.floor((u.x-R)/cell), i1=Math.floor((u.x+R)/cell), j0=Math.floor((u.y-R)/cell), j1=Math.floor((u.y+R)/cell);
     for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const h=hash(i*31+7,j*17+3), h2=hash(i*13+1,j*29+5), h3=hash(i*7+11,j*3+13); const x=(i+0.15+0.7*h2)*cell, y=(j+0.15+0.7*h3)*cell;
@@ -78,14 +79,14 @@ const TER = (()=>{
       const talus = n<0 ? ss(-75,-40,n)*(1-ss(-34,-26,n)) : 0;
       let dens = 0.06 + 0.5*talus; dens*=(1-landing(x,y)); if(c && c.along>-40) dens=0; if(n>-26 && n<60) dens=0;
       if(h>=dens) continue; const low=hills(x,y)+dunes(x,y)<-0.3; const kind = h2<0.4? 'rocks' : h2<0.62? 'boulder' : (h2<0.85||!low)? 'boulder2' : 'stalks';
-      const Hs = kind==='boulder'? 1.0+1.6*h3 : kind==='boulder2'? 0.8+0.9*h3 : kind==='rocks'? 0.35+0.4*h3 : 1.1+0.6*h3; out.push({id:5000+i*1000+j, type:kind, x, y, facing:h3*6.28, Hs, decor:true}); }
+      const Hs = kind==='boulder'? 1.0+1.6*h3 : kind==='boulder2'? 0.8+0.9*h3 : kind==='rocks'? 0.35+0.4*h3 : 1.1+0.6*h3; out.push({id:5000+i*1000+j, type:kind, x, y, facing:h3*6.28, Hs, decor:true, proc:true}); }
     // крупное — по редкой сетке: выходы породы у подножия гряды, останцы на дальней равнине
     const big=45; const bi0=Math.floor((u.x-R-big)/big), bi1=Math.floor((u.x+R+big)/big), bj0=Math.floor((u.y-R-big)/big), bj1=Math.floor((u.y+R+big)/big);
     for(let i=bi0;i<=bi1;i++)for(let j=bj0;j<=bj1;j++){ const h=hash(i*53+5,j*59+7), h2=hash(i*61+3,j*67+1), h3=hash(i*71+9,j*73+2); const x=(i+0.2+0.6*h2)*big, y=(j+0.2+0.6*h3)*big; if(Math.abs(x-u.x)>R+30||Math.abs(y-u.y)>R+30) continue;
       const rx=x-RIDGE.c.x, ry=y-RIDGE.c.y; const n=rx*RIDGE.n.x+ry*RIDGE.n.y; const c=corridor(x,y); if(c && c.along>-45) continue; if(landing(x,y)>0.05) continue; if(n>-30 && n<70) continue;
       const foot = n<0 ? ss(-110,-45,n)*(1-ss(-38,-30,n)) : 0; const far = Math.hypot(x,y)>220;
-      if(foot>0 && h<0.55*foot) out.push({id:8000+i*1000+j,type:'outcrop',x,y,facing:h2*6.28,Hs:3.5+3*h3,decor:true});
-      else if(far && h2>0.5 && h<0.12) out.push({id:8500+i*1000+j,type:'hoodoo',x,y,facing:h2*6.28,Hs:5+4*h3,decor:true}); }
+      if(foot>0 && h<0.55*foot) out.push({id:8000+i*1000+j,type:'outcrop',x,y,facing:h2*6.28,Hs:3.5+3*h3,decor:true,proc:true});
+      else if(far && h2>0.5 && h<0.12) out.push({id:8500+i*1000+j,type:'hoodoo',x,y,facing:h2*6.28,Hs:5+4*h3,decor:true,proc:true}); }
     return out; }
 
   // ---- свет и дальние планы ----
