@@ -29,12 +29,14 @@ function reset(){ frames=[]; events=[]; cries=[]; pinned=hover=null; feedIdx=-1;
 // одна запись лога → кадр phys, крик, строка ленты. Лента держится по времени: вставка с конца (записи идут почти по порядку)
 function ev(e){ let i=events.length; while(i>0&&events[i-1].t>e.t) i--; events.splice(i,0,e); if(live.on&&events.length>5000) events.splice(0,events.length-5000); }   // вставка по времени с конца: записи идут почти по порядку
 function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line); }catch(e){ return; } const t=+r.t||0;
-  if(r.k==='phys'){ frames.push({t, units:r.units||[], pack:r.pack||[], turrets:r.turrets||[], ground:r.ground||[]}); if(live.on){ live.lastPhys=performance.now(); if(frames.length>LIVE_KEEP) frames.splice(0,frames.length-LIVE_KEEP); } return; }
+  if(r.k==='phys'){ frames.push({t, units:r.units||[], pack:r.pack||[], turrets:r.turrets||[], relays:r.relays||[], ground:r.ground||[]}); if(live.on){ live.lastPhys=performance.now(); if(frames.length>LIVE_KEEP) frames.splice(0,frames.length-LIVE_KEEP); } return; }
   if(r.k==='agent'){ ev({t:r.at??t, cls:'pack', text:`О${r.who}: ${r.text}`}); return; }
   if(r.k==='agentAck'){ ev({t, cls:'ack', text:`→ «${r.line}» — ${r.ok?'принято':'отказано'}${r.why?': '+r.why:''}`}); return; }
   if(r.k==='note'){ if(r.kind==='cry'){ cries.push({t, x:r.x, y:r.y, who:r.who, word:r.word}); if(cries.length>500) cries.splice(0,cries.length-500); ev({t, cls:'cry', text:`крик О${r.who+1} «${r.word}»${r.heard&&r.heard.length?' — слышали О'+r.heard.map(i=>i+1).join(', О'):' — никто не слышал'}`}); }
     else if(r.kind==='turret'&&r.shot) ev({t, cls:'shot', text:`турель ARK-04${1+(r.st||0)}: выстрел по ${r.shot}`});
     else if(r.kind==='turret') ev({t, cls:'note', text:`турель ARK-04${1+(r.st||0)}: захват ${r.lock}`});
+    else if(r.kind==='relay'&&r.reach!==undefined) ev({t, cls:'note', text:`ретранслятор ${r.id}: ${r.reach?'в сети':'вне сети'} ARK-04${1+(r.st||0)} (${r.d} м из ${r.range}, канал ${r.freq})`});
+    else if(r.kind==='relay'&&r.by!==undefined) ev({t, cls:'note', text:`ретранслятор ${r.id}: ${r.on?'включён':'выключен'}, канал ${r.freq} — ${r.by==='станция'?'ARK-04'+(1+r.st):'М'+r.by}`});
     else { const {k,t:_,at,kind,...rest}=r; ev({t, cls:'note', text:`${kind}: ${Object.entries(rest).map(([a,b])=>a+'='+(typeof b==='object'?JSON.stringify(b):b)).join(' ')}`}); } return; }
   if(r.k==='pkt'&&r.kind==='EVT'){ const b=b64(r.b); ev({t:r.at??t, cls:'op', text:`ARK-04${1+(r.st||0)}: событие ${b[0]}${r.unit?' М'+r.unit:''} — ${EVENTS[b[0]]||'?'}${b[1]?' ('+b[1]+')':''}`}); return; }
   if(r.k==='up'){ ev({t, cls:'op', text:`ARK-04${1+(r.st||0)}: команда ${r.bytes[0]}${r.bytes[2]?' М'+r.bytes[2]:''} (${r.bytes[1]})`}); return; }
@@ -73,7 +75,7 @@ const mmss=t=>`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t
 function frameAt(t){ if(!frames.length) return null; let lo=0, hi=frames.length-1; while(lo<hi){ const m=(lo+hi+1)>>1; if(frames[m].t<=t) lo=m; else hi=m-1; }
   const a=frames[lo], b=frames[lo+1]; if(!b||b.t-a.t>2.5||t<=a.t) return a; const k=(t-a.t)/(b.t-a.t);
   const mix=(pa,pb)=>({...pa, x:pa.x+(pb.x-pa.x)*k, y:pa.y+(pb.y-pa.y)*k});
-  return { t, units:a.units.map(u=>{ const v=b.units.find(v=>v.id===u.id); return v&&u.alive?mix(u,v):u; }), pack:a.pack.map(p=>{ const q=b.pack[p.i]; return q&&p.act!=='dead'?mix(p,q):p; }), turrets:a.turrets, ground:a.ground }; }
+  return { t, units:a.units.map(u=>{ const v=b.units.find(v=>v.id===u.id); return v&&u.alive?mix(u,v):u; }), pack:a.pack.map(p=>{ const q=b.pack[p.i]; return q&&p.act!=='dead'?mix(p,q):p; }), turrets:a.turrets, relays:a.relays, ground:a.ground }; }
 
 // ---------- рисование ----------
 const UCOL=['#7fe07f','#5fd0ff','#e0a94a','#d98cff','#ff9f5f'];
@@ -88,7 +90,7 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
       ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(S(p.x+nx*w0),Sy(p.y+ny*w0)); ctx.lineTo(S(q.x+nx*w1),Sy(q.y+ny*w1)); ctx.lineTo(S(q.x-nx*w1),Sy(q.y-ny*w1)); ctx.lineTo(S(p.x-nx*w0),Sy(p.y-ny*w0)); ctx.closePath(); ctx.fill(); } };
   band(C.pts,C.w,'rgba(80,140,255,0.18)',false); band(C.branch.pts,C.branch.w,'rgba(80,140,255,0.12)',true);
   if(LEVEL.bounds){ const b=LEVEL.bounds; ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(255,92,92,0.5)'; ctx.strokeRect(S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); ctx.setLineDash([]); }   // край уровня
-  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; for(const n of bases()){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),500*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }   // радиус возврата ПС-2 (без мачты: усилитель — состояние мира, в логе его пока нет)
+  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; const f0=frameAt(cur); for(const n of [...bases(), ...((f0&&f0.relays)||[]).filter(R=>R.linked.length)]){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),500*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }   // радиус возврата ПС-2: площадки и ретрансляторы-узлы из phys
   // платформы, корпуса, ориентиры, логово
   for(const B of bases()){ const X=S(B.x),Y=Sy(B.y); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,B.ang*Math.PI/180,0,7); ctx.stroke(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+B.k),X-14,Y-STATION.ry*sc-6); } }
   for(const h of LEVEL.hulls){ ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(h.x),Sy(h.y),h.r*sc,0,7); ctx.stroke(); }
@@ -102,6 +104,9 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     ctx.fillStyle=T.broken?'#8a3a3a':live?'#ffdc78':'#777'; ctx.fillRect(X-3,Y-3,7,7);
     if(T.tgt){ const o=T.tgt.p!==undefined?f.pack[T.tgt.p]:f.units.find(u=>u.id===T.tgt.u); if(o){ ctx.strokeStyle='rgba(255,220,120,0.9)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(o.x),Sy(o.y)); ctx.stroke(); ctx.lineWidth=1; ctx.strokeStyle='#ffdc78'; ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),9,-Math.PI/2,-Math.PI/2+Math.PI*2*Math.min(1,T.aim/3)); ctx.stroke(); } }
     if(layers.labels&&sc>=1) { ctx.fillStyle='#ffdc78'; ctx.fillText(`турель${T.ammo!==undefined?' · '+T.ammo:''}${T.rel>0?' · перезарядка':''}${T.cut!=null?' · режут':''}`,X+7,Y+8); } }
+  // ретрансляторы: ромб, включённый — залитый; в сети какой платформы — подпись
+  for(const R of f.relays||[]){ const X=S(R.x),Y=Sy(R.y), r=R.kind==='переносной'?4:5; ctx.beginPath(); ctx.moveTo(X,Y-r); ctx.lineTo(X+r,Y); ctx.lineTo(X,Y+r); ctx.lineTo(X-r,Y); ctx.closePath(); ctx.strokeStyle=R.powered?'#e0a94a':'#777'; if(R.on&&R.powered){ ctx.fillStyle='#e0a94a'; ctx.fill(); } ctx.stroke();
+    if(layers.labels&&sc>=1){ ctx.fillStyle='#e0a94a'; ctx.fillText(`ретр. ${R.id} · канал ${R.freq||'—'}${R.linked.length?' · узел ARK-04'+R.linked.map(k=>1+k).join('/'):''}`,X+7,Y+8); } }
   // свёртки
   for(const g of f.ground){ const X=S(g.x),Y=Sy(g.y); ctx.fillStyle='#cfd6de'; ctx.beginPath(); ctx.moveTo(X,Y-3); ctx.lineTo(X+3,Y); ctx.lineTo(X,Y+3); ctx.lineTo(X-3,Y); ctx.closePath(); ctx.fill(); if(layers.labels&&sc>=2){ ctx.fillStyle='rgba(207,214,222,0.8)'; ctx.fillText(g.items.map(i=>ITEMS[i]).join(', '),X+6,Y); } }
   // крики: кольцо расходится 6 с
@@ -123,18 +128,19 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     if(layers.labels){ ctx.fillStyle=col; ctx.fillText(`О${p.i+1} ${ACT_RU[p.act]||p.act}${p.told&&!dead?' ●':''}`,X+r+4,Y+8); } }
   const sel=pinned||hover; if(sel){ const o=findSel(f,sel); if(o){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),11,0,7); ctx.stroke(); } }
   ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fillText(`1 px = ${(1/sc).toFixed(2)} м · ${cur.toFixed(1)} с`,8,H-10); }
-function findSel(f,sel){ if(sel.kind==='unit') return f.units.find(u=>u.id===sel.id); if(sel.kind==='pack') return f.pack[sel.i]; if(sel.kind==='turret') return f.turrets[sel.k]; if(sel.kind==='ground') return f.ground.find(g=>g.id===sel.id); return null; }
+function findSel(f,sel){ if(sel.kind==='unit') return f.units.find(u=>u.id===sel.id); if(sel.kind==='pack') return f.pack[sel.i]; if(sel.kind==='turret') return f.turrets[sel.k]; if(sel.kind==='relay') return (f.relays||[]).find(R=>R.id===sel.id); if(sel.kind==='ground') return f.ground.find(g=>g.id===sel.id); return null; }
 function hit(px,py){ const f=frameAt(cur); if(!f) return null; let best=null, bd=14;
   const test=(o,sel)=>{ const d=Math.hypot(S(o.x)-px,Sy(o.y)-py); if(d<bd){ bd=d; best=sel; } };
-  f.units.forEach(u=>test(u,{kind:'unit',id:u.id})); f.pack.forEach(p=>test(p,{kind:'pack',i:p.i})); f.turrets.forEach((T,k)=>T&&test(T,{kind:'turret',k})); f.ground.forEach(g=>test(g,{kind:'ground',id:g.id})); return best; }
+  f.units.forEach(u=>test(u,{kind:'unit',id:u.id})); f.pack.forEach(p=>test(p,{kind:'pack',i:p.i})); f.turrets.forEach((T,k)=>T&&test(T,{kind:'turret',k})); (f.relays||[]).forEach(R=>test(R,{kind:'relay',id:R.id})); f.ground.forEach(g=>test(g,{kind:'ground',id:g.id})); return best; }
 
 // ---------- характеристики ----------
 function kv(rows){ return '<div class="kv">'+rows.filter(r=>r[1]!==undefined&&r[1]!==null&&r[1]!=='').map(([k,v])=>`<label>${k}</label><span>${v}</span>`).join('')+'</div>'; }
-function renderInfo(){ const sel=pinned||hover, P=$('#info'); if(!sel){ P.innerHTML='<span class="dim">Наведи на тело, особь, турель или свёрток. Клик — закрепить.</span>'; return; }
+function renderInfo(){ const sel=pinned||hover, P=$('#info'); if(!sel){ P.innerHTML='<span class="dim">Наведи на тело, особь, турель, ретранслятор или свёрток. Клик — закрепить.</span>'; return; }
   const f=frameAt(cur); const o=f&&findSel(f,sel); if(!o){ P.innerHTML='<span class="dim">нет в кадре</span>'; return; } const pin=pinned?' <span class="dim">(закреплено, клик по пустому — снять)</span>':'';
   if(sel.kind==='unit') P.innerHTML=`<h3>М${o.id} · ARK-04${1+o.st}${pin}</h3>`+kv([['положение',`${o.x.toFixed(1)}, ${o.y.toFixed(1)}`],['состояние',o.alive?'жив':'мёртв'],['режим',MODES[o.mode]],['скрытность',o.stealth?'да':'нет'],['стойка',STANCES[o.stance]],['рефлекс',o.reflex===5?'бой':o.reflex===6?'бегство':'—'],['фонарь',o.light?'горит':'выключен'],['цель',o.tg?`${o.tg[0]}, ${o.tg[1]}`:'—'],['пульс',o.pulse],['кожа / кости',`${o.skin} / ${o.bone}`],['глюкоза / заряд',`${o.glu} / ${o.chg}`],['психика',o.psy],['страх',o.fear],['несущая',o.car?'есть':'нет'],['камера',o.cam?'на теле':'—'],['предметы',(o.items||[]).map(i=>ITEMS[i]).join(', ')||'—']]);
   else if(sel.kind==='pack'){ const m=LEVEL.pack.members[o.i]||{}; P.innerHTML=`<h3>О${o.i+1}${pin}</h3>`+kv([['положение',`${o.x.toFixed(1)}, ${o.y.toFixed(1)}`],['действие',`${ACT_RU[o.act]||o.act} (${o.act})`],['почему',o.why],['размер / храбрость / внимание',`${m.size} / ${m.courage} / ${m.attention}`],['действующая храбрость',o.nerve],['раны',`${o.hp} из ${Math.max(1,Math.round(3*(m.size||1)))}`],['страх',o.fear],['усталость',o.tired],['чужой',o.foe?`${o.foe[0]}, ${o.foe[1]} (М${o.foe[2]})`:'—'],['цель',o.tg?`${o.tg[0]}, ${o.tg[1]}`:'—'],['слово агента',o.told||'—'],['ноша',o.item?ITEMS[o.item]:'—'],['луч турели',o.lit?'на ней':'—'],['передышка / реакция',`${o.rest} / ${o.hold}`]]); }
   else if(sel.kind==='turret') P.innerHTML=`<h3>турель ${o.id??''} · ARK-04${1+(o.st??sel.k)}${pin}</h3>`+kv([['положение',`${o.x}, ${o.y}`],['состояние',o.broken?'повреждена':o.powered===false?'без питания':o.on===false?'выключена':'включена'],['патроны',o.ammo],['режут',o.cut!=null?o.cut+' с':undefined],['лампа',(o.on!==false&&o.powered!==false&&!o.broken)?'горит':'не горит'],['сектор',`${(o.fov*180/Math.PI).toFixed(0)}° вокруг ${(o.ang*180/Math.PI).toFixed(0)}°`],['дальность',o.range+' м'],['цель',o.tgt?(o.tgt.p!==undefined?'О'+(o.tgt.p+1):'М'+o.tgt.u):'—'],['прицел',o.aim+' с'],['перезарядка',o.rel>0?o.rel+' с':'готова']]);
+  else if(sel.kind==='relay') P.innerHTML=`<h3>ретранслятор ${o.id}${pin}</h3>`+kv([['положение',`${o.x}, ${o.y}`],['вид',o.kind],['питание',o.powered?'есть':'нет'],['состояние',o.on?'включён':'выключен'],['канал',o.freq||'не задан'],['дальность / усиление',`${o.range} м / ${o.gain>=0?'+':''}${o.gain} дБ`],['слышат',o.reach.length?o.reach.map(k=>'ARK-04'+(1+k)).join(', '):'—'],['узел для',o.linked.length?o.linked.map(k=>'ARK-04'+(1+k)).join(', '):'—']]);
   else P.innerHTML=`<h3>свёрток${pin}</h3>`+kv([['положение',`${o.x}, ${o.y}`],['внутри',o.items.map(i=>ITEMS[i]).join(', ')]]); }
 
 // ---------- лента ----------

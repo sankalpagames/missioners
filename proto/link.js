@@ -18,7 +18,7 @@ class Link {
       deepCapBps: 512, deepBer: 1e-7,
       orbit: false, orbitPeriod: 420, orbitVisible: 300, orbitPhase0: 20,
     };
-    this.phys = { units:{}, extraGain:0 };
+    this.phys = { units:{} };   // по телу: dist — до лучшего узла станции (сама станция или ретранслятор), obstDb, gain — усиление антенны узла, txDbm
     this.t = 0; this.deepBudget = 0; this.localBudget = {}; this.secBg = 0; this.rr = 0;
     this.queues = { bg:{}, cmd:[] };   // bg: по одному свежему сообщению на источник и вид
     this.retry = [];
@@ -29,11 +29,11 @@ class Link {
   blankSec(){ return {TLM:0,HB:0,SONAR:0,DESC:0,IMG:0,EVT:0,EXAM:0,ACT:0,INFO:0,CONT:0,drop:0,cap:0}; }
   kindOf(k){ return /^IM[GD]/.test(k)?'IMG':k; }
   reset(){ this.queues={bg:{},cmd:[]}; this.retry=[]; this.uplinkPending=[]; this.deepBudget=0; this.localBudget={}; }
-  setPhys(p){ this.phys.extraGain=p.extraGain; for(const u of p.units) this.phys.units[u.id]=u; }
+  setPhys(p){ for(const u of p.units) this.phys.units[u.id]=u; }
 
   // --- локальное плечо, по миссионеру ---
   fsplDb(id){ const u=this.phys.units[id]; return u? 20*Math.log10(u.dist)+20*Math.log10(this.cfg.freqMHz)-27.55 : 999; }
-  snrDb(id){ const u=this.phys.units[id]; if(!u) return -99; const c=this.cfg; return u.txDbm+c.misGainDbi+c.stGainDbi+this.phys.extraGain-this.fsplDb(id)-u.obstDb-c.noiseDbm; }
+  snrDb(id){ const u=this.phys.units[id]; if(!u) return -99; const c=this.cfg; return u.txDbm+c.misGainDbi+c.stGainDbi+(u.gain||0)-this.fsplDb(id)-u.obstDb-c.noiseDbm; }
   localCapBps(id){ const s=this.snrDb(id); if(s<this.cfg.cutoffDb) return 0; let C=this.cfg.bwHz*Math.log2(1+Math.pow(10,s/10))*this.cfg.effic; if(this.cfg.fec) C*=0.5; return C; }
   ber(id){ const s=this.snrDb(id)+(this.cfg.fec?5:0); return 0.5*erfc(Math.sqrt(Math.max(0,Math.pow(10,s/10)))); }
   per(id,bytes){ const b = id? this.ber(id) : this.cfg.deepBer; return 1-Math.pow(1-b,bytes*8); }

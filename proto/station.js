@@ -36,7 +36,7 @@ function makeStation(opts){
   // мир → станция: пакеты в канал своей платформы, физика линии — по телам платформы, остальное — хосту
   function fromWorld(m){
     if(m.t==='msg'){ const L=links[m.st||0]; if(L) L.link.enqueue(m); }
-    else if(m.t==='phys'){ for(const L of links) L.link.setPhys({extraGain:m.extraGain, units:m.units.filter(u=>(u.st||0)===L.k)}); dbg=m.dbg; }
+    else if(m.t==='phys'){ for(const L of links) L.link.setPhys({units:m.units.filter(u=>(u.st||0)===L.k)}); dbg=m.dbg; }
     else if(m.t==='note'){ const {t:_,...r}=m; log({k:'note', ...r}); }   // заметки мира — только в лог, консоли не видят
     else if(m.t==='agent'||m.t==='agentAck'||m.t==='agentState'){ if(opts.agent) opts.agent(m); if(m.t!=='agentState'){ const {t:_,...r}=m; log({k:m.t, ...r}); } }   // сторона стаи: восприятие и ответы на намерения — хосту агента, консоли не видят
     else if(m.t==='level'){ if(opts.debug) out(m); }
@@ -51,8 +51,8 @@ function makeStation(opts){
     const m={ t:'modem', st:k, at:link.t, speed, up:link.up(), cap, orbit:link.cfg.orbit?link.orbit().tLeft:null,
       qbg:link.queueBytes('bg'), qcmd:link.queueBytes('cmd'), ncmd:link.queues.cmd.length, retry:link.retry.length,
       sec:link.stats.hist[link.stats.hist.length-1]||null, cnt:{delivered:link.stats.delivered,dropped:link.stats.dropped,retrans:link.stats.retrans}, queue };
-    if(opts.debug){ const units={}; for(const id in link.phys.units) units[id]={dist:link.phys.units[id].dist, fspl:link.fsplDb(+id), obst:link.phys.units[id].obstDb, snr:link.snrDb(+id), local:link.localCapBps(+id), ber:link.ber(+id), per:link.per(+id,72)};
-      m.dbg={ world:dbg, link:{units, extraGain:link.phys.extraGain}, cfg:{...link.cfg} }; }
+    if(opts.debug){ const units={}; for(const id in link.phys.units) units[id]={dist:link.phys.units[id].dist, fspl:link.fsplDb(+id), obst:link.phys.units[id].obstDb, gain:link.phys.units[id].gain||0, node:link.phys.units[id].node||0, snr:link.snrDb(+id), local:link.localCapBps(+id), ber:link.ber(+id), per:link.per(+id,72)};
+      m.dbg={ world:dbg, link:{units}, cfg:{...link.cfg} }; }
     return m;
   }
 
@@ -76,7 +76,7 @@ function makeStation(opts){
     for(const L of links){ L.link.tick(DT); for(const id in L.link.phys.units){ carriers[id]=L.link.carrier(+id); snr[id]=L.link.snrDb(+id); } }
     W.handle({t:'link',carriers,snr});
     for(const L of links){ const sec=Math.floor(L.link.t+1e-6); if(sec!==L.lastSec){ L.lastSec=sec; out(modem(L.k)); } }
-    if(dbg && opts.log){ const sec=Math.floor(links[0].link.t+1e-6); if(sec!==lastLogSec){ lastLogSec=sec; log({k:'phys', units:dbg.units, pack:dbg.pack, turrets:dbg.turrets, ground:dbg.ground, snr:links.map(L=>Object.fromEntries(Object.keys(L.link.phys.units).map(id=>[id,+L.link.snrDb(+id).toFixed(1)]))) }); } }   // правда о мире целиком — по ней спектатор проигрывает сеанс
+    if(dbg && opts.log){ const sec=Math.floor(links[0].link.t+1e-6); if(sec!==lastLogSec){ lastLogSec=sec; log({k:'phys', units:dbg.units, pack:dbg.pack, turrets:dbg.turrets, relays:dbg.relays, ground:dbg.ground, snr:links.map(L=>Object.fromEntries(Object.keys(L.link.phys.units).map(id=>[id,+L.link.snrDb(+id).toFixed(1)]))) }); } }   // правда о мире целиком — по ней спектатор проигрывает сеанс
     }
   function handleOnce(m){
     const k=m.st||0, L=links[k]; if(!L) return;

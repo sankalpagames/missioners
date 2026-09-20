@@ -65,7 +65,10 @@ class OpConsole {
       else { if(was.alive&&!u.alive) changes.push(`М${id}: жизненные функции прекращены`); if(was.carrier!==u.carrier) changes.push(`М${id}: несущая ${u.carrier?'восстановлена':'не принимается'}`); if(was.camera!==u.camera) changes.push(`М${id}: камера ${u.camera?'на теле':'снята'}`); if(was.atAirlock!==u.atAirlock&&u.alive) changes.push(`М${id}: ${u.atAirlock?'у шлюза':'отошёл от шлюза'}`); } }
     for(const [id,u] of this.units) if(!listed.has(id)&&u.hbAt===undefined) this.units.delete(id);
     { const o=6+n*5, nt=b[o]??0; const prev=S.turrets||[]; S.turrets=[]; for(let j=0;j<nt;j++){ const id=b[o+1+j*3], f=b[o+2+j*3], am=b[o+3+j*3]; const T={id,powered:!!(f&1),on:!!(f&2),broken:!!(f&4),tracking:!!(f&8),reloading:!!(f&16),ammo:am===255?null:am}; S.turrets.push(T);
-        const w=prev.find(x=>x.id===id); const txt=this.turretText(T); if(!w) changes.push(txt); else if(w.on!==T.on||w.broken!==T.broken||w.powered!==T.powered||w.tracking!==T.tracking||w.ammo!==T.ammo) changes.push(txt); } }   // свои турели: по перемене
+        const w=prev.find(x=>x.id===id); const txt=this.turretText(T); if(!w) changes.push(txt); else if(w.on!==T.on||w.broken!==T.broken||w.powered!==T.powered||w.tracking!==T.tracking||w.ammo!==T.ammo) changes.push(txt); }
+      // ретрансляторы, чей маяк станция слышит на своём канале: по перемене; пропал из пульса — вне сети
+      const o2=o+1+nt*3, nr=b[o2]??0; const prevR=S.relays||[]; S.relays=[]; for(let j=0;j<nr;j++){ const id=b[o2+1+j*2], f=b[o2+2+j*2]; const R={id,on:!!(f&1),mobile:!!(f&2)}; S.relays.push(R); const w=prevR.find(x=>x.id===id); if(!w||w.on!==R.on) changes.push(`ретранслятор ${id}: ${R.mobile?'переносной, ':''}${R.on?'включён — узел связи':'выключен'}`); }
+      for(const w of prevR) if(!S.relays.find(x=>x.id===w.id)) changes.push(`ретранслятор ${w.id}: вне сети`); }   // свои турели: по перемене
     const now=JSON.stringify([S.bio,S.cam,S.grow,S.brik,S.cut]); if(was!==now&&was!=='[null,null,null,null,null]') changes.push(this.stationText());
     if(!replay) for(const c of changes) this.say(c); }
   turretText(T){ return `турель ${T.id}: ${T.broken?'повреждена':!T.powered?'без питания, данных нет':T.on?(T.tracking?'ведёт цель':T.reloading?'перезарядка':'включена'):'выключена'}${T.ammo==null?'':', патронов '+T.ammo}`; }
@@ -76,7 +79,7 @@ class OpConsole {
     u.desc=items; u.descAt=this.tNow; u.descPos=at; if(replay) return;
     this.say(`М${p.unit} описание (снято в ${f1(at.x)}, ${f1(at.y)}), ${items.length}: `+items.map(it=>`${it.name} [${it.id}, ${CLS_RU[it.cls]}, ${rumb(it.bearing)} ${it.bearing}°, ${it.range} м]`).join('; ')); }
   evt(p,replay){ const b=p.bytes, code=b[0], arg=b[1], un=p.unit?`М${p.unit} `:''; const txt=EVENTS[code]||('событие '+code); let s;
-    if(code===7) s=`${un}${txt}: ${MODES[arg]}`; else if(code===32) s=`${un}${txt}: ${arg?'включена':'выключена'}`; else if(code===33) s=`${un}${txt}: ${STANCES[arg]}`; else if(code===35) s=`${un}${txt}: ${AUTONOMY[arg]}`; else if(code===13) s=`${un}${txt} М${arg}`; else if(code===16) s=`${un}${txt} (id ${arg}); нужно новое описание`; else if(code===19||code===20) s=`${un}${txt}: ${ITEMS[arg]||arg}`; else if(code===28) s=`${un}${txt} (${arg*10} м от ближайшего узла${this.station.returnR?', предел '+this.station.returnR+' м':''})`; else s=`${un}${txt}`;
+    if(code===7) s=`${un}${txt}: ${MODES[arg]}`; else if(code===32) s=`${un}${txt}: ${arg?'включена':'выключена'}`; else if(code===33) s=`${un}${txt}: ${STANCES[arg]}`; else if(code===35) s=`${un}${txt}: ${AUTONOMY[arg]}`; else if(code===13) s=`${un}${txt} М${arg}`; else if(code===16) s=`${un}${txt} (id ${arg}); нужно новое описание`; else if(code===19||code===20) s=`${un}${txt}: ${ITEMS[arg]||arg}`; else if(code===28) s=`${un}${txt} (${arg*10} м от ближайшего узла${this.station.returnR?', предел '+this.station.returnR+' м':''})`; else if(code===3||code===41) s=`${txt}: ${arg}`; else if(code===42) s=`${txt}: ${arg>>1} ${arg&1?'включён':'выключен'}`; else s=`${un}${txt}`;
     if(code===5) this.unit(p.unit).alive=false; if(code===6) this.unit(p.unit);
     if(!replay) this.say(s); }
   sonar(p,replay){ const b=p.bytes, at=pos(b,0); const o=b.length>=79?3:b.length>=78?2:b.length>=77?1:0; const tilt=o?b[4]-90:0; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o); if(replay) return;
@@ -109,12 +112,13 @@ class OpConsole {
     if(/^отменить/i.test(m[1])){ const id=num(/(\d+)/); if(id==null) return {error:'отменить: нужен номер запроса из очереди (state)'}; const g=this.modem&&this.modem.queue.find(g=>g.id===id); if(!g) return {error:`в очереди нет запроса #${id}`}; return {bytes:[27,0,g.unit,id>>8,id&255], label:`отмена #${id}`}; }
     if(/^станция/i.test(m[1])){
       if(/^статус/.test(v)) return {bytes:[11,0,0], label:'статус станции'};
+      if(/^ретранслятор/.test(v)){ const id=num(/ретранслятор\s*(\d+)/); if(id==null) return {error:'ретранслятор <номер> вкл | выкл (номера — в пульсе, когда маяк слышен)'}; const on=/вкл/.test(v)?1:/выкл/.test(v)?0:null; if(on==null) return {error:'ретранслятор '+id+': вкл | выкл'}; return {bytes:[29,on,id], label:`ретранслятор ${id}: ${on?'включить':'выключить'}`}; }
       if(/^турель/.test(v)){ const id=num(/турель\s*(\d+)/); if(id==null) return {error:'турель <номер> вкл | выкл (номера — в паспорте и пульсе)'}; const on=/вкл/.test(v)?1:/выкл/.test(v)?0:null; if(on==null) return {error:'турель '+id+': вкл | выкл'}; return {bytes:[28,on,id], label:`турель ${id}: ${on?'включить':'выключить'}`}; }
       if(/^выраст/.test(v)) return {bytes:[10,(v.includes('камер')?1:0)|(v.includes('лидар')?2:0),0], label:'вырастить'};
       if(/^пульс/.test(v)){ const iv=v.includes('выкл')?0:(num(/(\d+)/)??2); return {bytes:[15,iv,0], label:'пульс станции '+iv+' с'}; }
       if(/^кадр/.test(v)) return {bytes:[3,this.level(v),0,v.includes('дельт')?1:0], label:'кадр камеры шлюза'};
       if(/^автосъемк/.test(v)){ const iv=v.includes('выкл')?0:(num(/(\d+)\s*с/)??num(/каждые\s*(\d+)/)??30); return {bytes:[16,iv,0,this.level(v),v.includes('дельт')?1:0], label:'автосъёмка шлюза'}; }
-      return {error:'станция: статус | вырастить [камера] [лидар] | пульс каждые N | кадр [8|16|32|64] [дельта] | автосъёмка каждые N [32] [дельта] | выкл | турель <номер> вкл|выкл'}; }
+      return {error:'станция: статус | вырастить [камера] [лидар] | пульс каждые N | кадр [8|16|32|64] [дельта] | автосъёмка каждые N [32] [дельта] | выкл | турель <номер> вкл|выкл | ретранслятор <номер> вкл|выкл'}; }
     const unit=+m[2]; const u=this.units.get(unit); if(!u) return {error:`М${unit}: такого тела в пульсе станции нет`};
     const rest=v.replace(/^\S+\s*/,'');   // без глагола
     const tgt=()=>{ const xy=/(-?\d+(?:[.,]\d+)?)\s+(-?\d+(?:[.,]\d+)?)$/.exec(v); if(xy) return {x:+xy[1].replace(',','.'), y:+xy[2].replace(',','.')}; const k=this.findKnown(rest); return k?{x:k.x,y:k.y,name:k.name}:null; };

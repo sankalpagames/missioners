@@ -33,6 +33,12 @@ function line(r){ const n=r; switch(r.k){
       if(r.reflex) return `   М${r.unit}: рефлекс — ${r.reflex}${r.who!==undefined?', особь #'+r.who+' в '+r.d+' м':''}${r.to?', к узлу ('+r.to.x+', '+r.to.y+')':''}${r.resume!==undefined?(r.resume?', продолжает задачу':', задачи не было'):''}${r.x!==undefined&&!r.who?' в ('+r.x+', '+r.y+')':''}`;
       if(r.autonomy!==undefined) return `   М${r.unit}: 5 с без несущей, инструкция ${['продолжать','стоп','к шлюзу'][r.autonomy]||r.autonomy} в (${r.x}, ${r.y})`;
       return JSON.stringify(r);
+    case 'relay': if(r.refuse) return `   ARK-04${1+r.st} отказала: ретранслятор ${r.id} ${r.refuse}`;
+      if(r.reach!==undefined) return `   ARK-04${1+r.st}: ретранслятор ${r.id} ${r.reach?'в сети':'вне сети'} — ${r.d} м из ${r.range}, канал ${r.freq}, питание ${r.powered?'есть':'нет'}`;
+      if(r.node!==undefined) return `   ARK-04${1+r.st}: ретранслятор ${r.id} ${r.node?'стал узлом':'узлом больше не является'} (узлов ${r.nodes})`;
+      if(r.by!==undefined) return `   ретранслятор ${r.id}: ${r.on?'включён':'выключен'}${r.freq!==undefined?', канал '+r.freq+(r.was!==undefined&&r.was!==r.freq?' (был '+r.was+')':''):''} — ${r.by==='станция'?'ARK-04'+(1+r.st):'М'+r.by}`;
+      if(r.powered!==undefined) return `   ретранслятор ${r.id}: питание ${r.powered?'появилось':'пропало'}`;
+      return JSON.stringify(r);
     case 'debug': return `   [отладка] телепорт М${r.tp} в (${r.x}, ${r.y})`;
     default: return JSON.stringify(r); }
   default: return null; } }

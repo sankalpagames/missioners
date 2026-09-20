@@ -23,7 +23,7 @@ const CODEBOOK = {
   15: { key:'scrawl',       name:'надпись',             states:['Процарапано металлом по краске. Читается плохо.','«М-07 УШЁЛ ВНИЗ. НЕ ВОЗВРАЩАЙТЕСЬ ЗА НИМ.»'], actions:[{from:0,to:1,verb:'разобрал надпись'}] },
   16: { key:'cable',        name:'кабель',              states:['Тянется к мачте. Перебит.'] },
   17: { key:'mast',         name:'мачта',               states:['Держится на двух растяжках из четырёх.'] },
-  18: { key:'cabinet',      name:'шкаф аппаратуры',     states:['Дверца открыта. Внутри блок усилителя. Питания нет.','Усилитель работает. Индикатор горит.'], actions:[{from:0,to:1,verb:'включил усилитель',req:{obj:32,state:1},fail:'Усилитель без питания: кабель у основания мачты оборван.',special:'boost'}] },
+  18: { key:'cabinet',      name:'шкаф аппаратуры',     states:['Дверца открыта. Внутри пусто: блок снят.'] },
   19: { key:'cable_cut',    name:'оборванный кабель',   states:['Срез ровный. Инструментом.','Срощен. Изоляция — обмотка из комбинезона.'], actions:[{from:0,to:1,verb:'срастил кабель',needs:41,fail:'Жилы нужно зачистить. Нужен инструмент.'}] },
   20: { key:'mound',        name:'насыпь',              states:['Свежая. Относительно.','Под грунтом — тело в корпоративном комбинезоне. Датчиков нет. Лицо знакомое.'], actions:[{from:0,to:1,verb:'раскопал'}] },
   21: { key:'marker',       name:'столбик',             states:['Кусок трубы, воткнут вертикально. Обмотан проводом.','На проводе нацарапаны номера: 01, 02, 03, 04, 05, 06. Шесть насыпей, шесть номеров. Седьмого нет.'], actions:[{from:0,to:1,verb:'осмотрел провод'}] },
@@ -43,6 +43,11 @@ const CODEBOOK = {
   251:{ key:'body',         name:'тело миссионера',     states:['Не двигается.'], container:0 },
   33: { key:'bundle',       name:'свёрток',             states:['Оставлено на грунте.'], container:0 },
   34: { key:'turret',       name:'турель',              states:['Включена. Лампа горит, ствол ведёт по сектору.','Выключена. Лампа не горит.','Повреждена. Головка сорвана с оси, лампа разбита.'] },   // действия — в мире: своя вкл/выкл, чужая — резать; патроны — «положить»
+  // Ретранслятор — узел связи (tech.md §6 «Ретранслятор»): состояния 0 выключен, 1 включён, 2 без питания — ставит мир; текст осмотра составляет мир
+  // (канал, питание, линия). Действие — в мире: выключенный — настроить на канал своей станции и включить; включённый на своём канале — выключить;
+  // на чужом — перестроить. Свойства вида — relay: range — дальность линии до станции, м; gain — усиление антенны на плече тело ↔ узел, дБ.
+  35: { key:'relay',        name:'ретранслятор',        states:['Выключен.','Включён.','Питания нет.'], relay:{range:2000, gain:6} },
+  36: { key:'relay_mobile', name:'переносной ретранслятор', states:['Выключен.','Включён.','Питания нет.'], relay:{range:400, gain:0} },
   252:{ key:'missionary',   name:'миссионер',           states:['Наш. Идёт.'] },
 };
 
@@ -76,7 +81,7 @@ function baseAt(site){ const ang=site.ang||0, a=ang*Math.PI/180, c=Math.cos(a), 
     subs:[...BASE.subs, ...(site.subs||[])].slice(0,10).map(rot), turret:{x:tp.x, y:tp.y, f:T.f+ang, fov:T.fov, range:T.range, aim:T.aim, reload:T.reload} }; }
 const SPRITES = {
   2:{sheet:'crates_sheet',H:2.4},                                                     // штабель — один объект-ориентир
-  11:{sheet:'floodlight_sheet',H:3.0}, 12:{flat:true}, 16:{flat:true}, 17:{sheet:'mast_sheet',H:7}, 18:{sheet:'cabinet_sheet',H:1.8}, 19:{flat:true},
+  11:{sheet:'floodlight_sheet',H:3.0}, 12:{flat:true}, 16:{flat:true}, 17:{sheet:'mast_sheet',H:7}, 18:{sheet:'cabinet_sheet',H:1.8}, 19:{flat:true}, 35:{sheet:'cabinet_sheet',H:1.8}, 36:{sheet:'cabinet_sheet',H:0.9},
   20:{sheet:'mound_sheet',H:0.7}, 21:{sheet:'marker_sheet',H:1.1}, 22:{sheet:'bones_sheet',H:0.5}, 23:{sheet:'wreck_sheet',H:4}, 24:{sheet:'hatch_sheet',H:2.0}, 25:{flat:true},
   27:{flat:true}, 28:{sheet:'stone_sheet',H:0.4}, 29:{sheet:'pile_sheet',H:1.4}, 30:{sheet:'glyphs_hd',H:2.0}, 31:{flat:true}, 32:{sheet:'small_sheet',view:0,H:0.25}, 33:{sheet:'small_sheet',view:1,H:0.4}, 34:{sheet:'turret_sheet',H:1.6},
   250:{sheet:'creature2_sheet',H:1.6}, sleep:{sheet:'creature_sleep_sheet',H:0.6},   // существо стоит / спит
@@ -100,7 +105,7 @@ const AUTONOMY = { 0:'продолжать', 1:'стоп', 2:'к шлюзу' }; 
 const EVENTS = {
   1:'миссионер прибыл в точку',
   2:'взаимодействие: ничего не произошло',
-  3:'усилитель ретранслятора включён',
+  3:'станция: ретранслятор в сети',
   4:'миссионер получил повреждения',
   5:'жизненные функции прекращены',
   6:'новый миссионер готов',
@@ -138,6 +143,8 @@ const EVENTS = {
   38:'турель: патроны кончились',
   39:'турель повреждена',
   40:'турель переключена',
+  41:'станция: ретранслятор вне сети',
+  42:'ретранслятор переключён',
 };
 
 if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, AUTONOMY, EVENTS, STATION, BASE, LEVEL_FORMAT, levelCheck, sitesFor, baseAt, encText, decText };
