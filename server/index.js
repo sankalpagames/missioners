@@ -183,6 +183,10 @@ server.on('upgrade',(req,sock,head)=>{
     ws.on('message',d=>{ let m; try{ m=JSON.parse(d); }catch(e){ return; } if(m&&typeof m.t==='string') r.handle(ws,m); });
     ws.on('close',()=>{ r.leave(ws); log(`${code}: оператор отключился (${r.clients.size})`); }); });
 });
+// необработанное исключение вне тика (обработчик HTTP, таймер) — в консоль сервера и в лог каждой живой комнаты, процесс не ронять: комнаты
+// живут в памяти, а сохранение раз в 10 с; сбои внутри такта и команд ловит сама станция (fault) и отдаёт консолям
+const hostFault=(where,e)=>{ log(`СБОЙ ${where}: ${e&&e.stack||e}`); for(const r of rooms.values()) r.st.fault(where,e); };
+process.on('uncaughtException',e=>hostFault('сервер',e)); process.on('unhandledRejection',e=>hostFault('сервер (promise)',e));
 process.on('SIGTERM',()=>{ for(const r of rooms.values()){ r.save(); r.flushLog(); } process.exit(0); });
 process.on('SIGINT',()=>{ for(const r of rooms.values()){ r.save(); r.flushLog(); } process.exit(0); });
 server.listen(PORT,()=>log(`станция слушает :${PORT}, данные в ${DATA}${DEBUG?', отладка':''}, карта ${LEVEL_FILE?levelPath:'proto/level.js'} (площадок ${MAXN})`));

@@ -56,7 +56,7 @@ let rxN=0;   // номер последнего принятого пакета:
 // Иначе исключение уходит в DevTools, а панель молча показывает «нет данных». Повторы одной и той же ошибки не дублируются.
 // Плашка «⚠ сбой ×N» в шапке и панель со стеками открываются сами при первом сбое — чтобы баг был виден сразу, а не по «нет данных» через час.
 const faults=new Map();   // текст → {n, at, stack}
-function fault(where,e){ const txt=`терминал: сбой ${where} — ${e&&e.message||e}`; const f=faults.get(txt); if(f){ f.n++; renderFaults(); return; }
+function fault(where,e,src='терминал'){ const txt=`${src}: сбой ${where} — ${e&&e.message||e}`; const f=faults.get(txt); if(f){ f.n++; renderFaults(); return; }
   faults.set(txt,{n:1, at:tNow, wall:new Date().toLocaleTimeString('ru'), stack:e&&e.stack||''}); log(txt,'err'); console.error(where,e); renderFaults(); $('#faults').hidden=false; }
 function renderFaults(){ const n=[...faults.values()].reduce((a,f)=>a+f.n,0); const b=$('#fault-badge'); b.hidden=!n; b.textContent=`⚠ сбой${n>1?' ×'+n:''}`;
   $('#fault-list').innerHTML=[...faults].map(([txt,f])=>`<div class="f"><b>${f.wall} · ${fmtT(f.at)}</b> ${txt.replace(/</g,'&lt;')}${f.n>1?` <span class="dim">×${f.n}</span>`:''}<pre>${(f.stack||'').replace(/</g,'&lt;')}</pre></div>`).join(''); }
@@ -71,6 +71,7 @@ function onMessage(m){
   else if(m.t==='level') dbgLevel=m; else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data); else if(m.t==='logText') downloadText(m.text,'ark-041-world.jsonl');
   else if(m.t==='welcome') boot.onWelcome&&boot.onWelcome(m);
   else if(m.t==='ops') showOps(m.ops,m.stations); else if(m.t==='echo') onEcho(m);
+  else if(m.t==='fault') fault(m.where,{message:m.text,stack:m.stack},'хост мира');   // исключение в станции (такт, команда) или воркере — та же панель, другая подпись
 }
 // операторы на станции: терминалы, подключённые к той же комнате (не пакеты — знание своего инструментария)
 let opsNow=null; const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));

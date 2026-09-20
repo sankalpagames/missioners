@@ -32,7 +32,8 @@ function load(text){
     if(r.k==='up'){ events.push({t, cls:'op', text:`ARK-04${1+(r.st||0)}: команда ${r.bytes[0]}${r.bytes[2]?' М'+r.bytes[2]:''} (${r.bytes[1]})`}); continue; }
     if(r.k==='op'){ events.push({t, cls:'op', text:r.join?`оператор ${r.join} вошёл (ARK-04${1+(r.st||0)})`:`оператор ${r.leave} вышел`}); continue; }
     if(r.k==='start'){ const n=r.n||(r.cfg&&r.cfg.n); if(n) nSt=Math.max(1,Math.min(LEVEL.sites.length,n)); events.push({t, cls:'note', text:`начало: ${r.host}${r.code?' '+r.code:''}, платформ ${n||'?'}${r.level&&r.level!=='level.js'?', карта '+r.level:''}${r.wall?', '+r.wall:''}`}); continue; }
-    if(r.k==='speed'){ events.push({t, cls:'note', text:`ускорение ×${r.v}`}); } }
+    if(r.k==='speed'){ events.push({t, cls:'note', text:`ускорение ×${r.v}`}); }
+    if(r.k==='fault'){ events.push({t, cls:'note', text:`СБОЙ ${r.where}: ${r.text}`}); } }
   events.sort((a,b)=>a.t-b.t); cries.sort((a,b)=>a.t-b.t);
   t0=frames.length?frames[0].t:0; t1=frames.length?frames[frames.length-1].t:(events.length?events[events.length-1].t:0); cur=t0;
   $('#seek').min=t0; $('#seek').max=t1; $('#drop').hidden=true; document.title=`спектатор · ${Math.round(t1-t0)} с`;

@@ -12,6 +12,7 @@ const T=t=>{ t=Math.round(t); return `${String(Math.floor(t/60)).padStart(3)}:${
 const MODES={1:'исследование',2:'скрытность (старый формат)',3:'отступление',4:'отдых',5:'бой',6:'бегство'}, STANCES={0:'пассивно',1:'бегство',2:'бой'};
 const ACT={sleep:'спит',idle:'стоит',freeze:'замерла',approach:'подходит',attack:'нападает',back:'отходит',flee:'бежит в логово',home:'идёт домой',rest:'лежит в логове',goto:'идёт по слову'};
 function line(r){ const n=r; switch(r.k){
+  case 'fault': return `— СБОЙ ${r.where}: ${r.text}`;
   case 'start': return `— начало: ${r.host}${r.code?' '+r.code:''}${r.restored?' (восстановлена)':''}, платформ ${r.n||(r.cfg&&r.cfg.n)}, ${r.wall}`;
   case 'restore': return `— мир восстановлен из сохранения`;
   case 'op': return r.join!==undefined?`— оператор ${r.join} вошёл, платформа ${r.st}`:`— оператор ${r.leave} вышел, платформа ${r.st}`;

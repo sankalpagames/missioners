@@ -5,6 +5,9 @@
 const VER=self.location.search.slice(3).replace(/&lab\b/,'')||'0';
 importScripts('link.js?v='+VER,'station.js?v='+VER);
 let st=null, timer=null; const inbox=[];
+// ошибки самого воркера (загрузка мира, лог) — консоли той же панелью, что сбои станции
+self.addEventListener('error',e=>postMessage({t:'fault', where:'воркер станции', text:e.message, stack:e.error&&e.error.stack||''}));
+self.addEventListener('unhandledrejection',e=>postMessage({t:'fault', where:'воркер станции', text:e.reason&&e.reason.message||String(e.reason), stack:e.reason&&e.reason.stack||''}));
 function schedule(){ if(timer) clearInterval(timer); timer=setInterval(()=>st.tick(), 100/st.speed); }
 
 // ---- лог: память + IndexedDB (база missioners-log, хранилище chunks, ключ — по возрастанию) ----

@@ -13,6 +13,11 @@ function makeStation(opts){
 //       log(rec) — лог мира (tech.md §12): команды, доставленные пакеты, потери, заметки мира, раз в секунду — правда о положениях. Хост пишет, куда хочет.
   const DT=0.1; let dbg=null, speed=1, lastLogSec=-1;
   const out=opts.out;
+  // сбой хоста мира (исключение в тике или в обработке команды): в лог мира записью fault и всем консолям {t:'fault'} — они покажут его
+  // в панели «Сбои терминала». Мир при этом не останавливается: следующий такт идёт как обычно. Одна и та же ошибка — не чаще раза в 5 с стенного времени.
+  const faultAt={};
+  function fault(where,e){ const text=e&&e.message||String(e), key=where+text, now=Date.now(); if(faultAt[key]&&now-faultAt[key]<5000) return; faultAt[key]=now;
+    log({k:'fault', where, text, stack:e&&e.stack||''}); out({t:'fault', where, text, stack:e&&e.stack||''}); }
   const b64=a=>{ let s=''; for(let i=0;i<a.length;i+=4096) s+=String.fromCharCode.apply(null,a.subarray(i,i+4096)); return btoa(s); };
   const log=opts.log?(rec)=>opts.log({t:+(links[0]?links[0].link.t:0).toFixed(1), ...rec}):()=>{};
   const shims={ self:{location:{search:opts.search||'?v=0'}}, importScripts(){}, postMessage:m=>fromWorld(m),
@@ -55,30 +60,33 @@ function makeStation(opts){
     links, W, DT, NST:W.NST,
     get speed(){ return speed; },
     // один такт игрового времени: мир, каналы, несущие в мир; раз в секунду — модем каждой станции
-    tick(){
-      W.tick(); const carriers={}, snr={};
-      for(const L of links){ L.link.tick(DT); for(const id in L.link.phys.units){ carriers[id]=L.link.carrier(+id); snr[id]=L.link.snrDb(+id); } }
-      W.handle({t:'link',carriers,snr});
-      for(const L of links){ const sec=Math.floor(L.link.t+1e-6); if(sec!==L.lastSec){ L.lastSec=sec; out(modem(L.k)); } }
-      if(dbg && opts.log){ const sec=Math.floor(links[0].link.t+1e-6); if(sec!==lastLogSec){ lastLogSec=sec; log({k:'phys', units:dbg.units, pack:dbg.pack, turrets:dbg.turrets, ground:dbg.ground, snr:links.map(L=>Object.fromEntries(Object.keys(L.link.phys.units).map(id=>[id,+L.link.snrDb(+id).toFixed(1)]))) }); } }   // правда о мире целиком — по ней спектатор проигрывает сеанс
-    },
+    tick(){ try{ tickOnce(); }catch(e){ fault('такт мира',e); } },
+    fault,
     modem,
     // консоль → станция; st — платформа оператора (в одиночной игре — 0)
-    handle(m){
-      const k=m.st||0, L=links[k]; if(!L) return;
-      if(m.t==='up'){ log({k:'up', st:k, bytes:Array.from(m.bytes)}); L.link.sendUplink(m.bytes); return; }
-      if(m.t==='speed'){ speed=m.v; W.setSpeed(m.v); log({k:'speed', v:m.v}); return; }
-      if(m.t==='save'){ W.handle(m); return; }
-      if(m.t==='load'){ for(const x of links) x.link.reset(); W.handle(m); return; }
-      if(m.t==='intent'||m.t==='agentState'){ W.handle(m); return; }   // от хоста агента (HTTP-API, REPL); консоль этого не шлёт
-      if(!opts.debug) return;   // дальше — только отладка
-      if(m.t==='cfg'){ L.link.cfg[m.k]=m.v; log({k:'cfg', st:k, key:m.k, v:m.v}); return; }
-      if(m.t==='tp'||m.t==='peek') W.handle(m);
-    },
+    handle(m){ try{ handleOnce(m); }catch(e){ fault(`команда ${m&&m.t}`,e); } },
     snapshot(){ return W.snapshot(); },
     // часы каналов — за миром; номера доставленных пакетов продолжаются (n — массив по станциям)
     restore(d,n){ for(const L of links){ L.link.reset(); L.link.t=d.t||0; if(n) L.rxN=Array.isArray(n)?(n[L.k]||0):(L.k?0:n); } W.restore(d); log({k:'restore', n:W.NST}); },
     log,
     rxN(){ return links.map(L=>L.rxN); },
   };
+  function tickOnce(){
+    W.tick(); const carriers={}, snr={};
+    for(const L of links){ L.link.tick(DT); for(const id in L.link.phys.units){ carriers[id]=L.link.carrier(+id); snr[id]=L.link.snrDb(+id); } }
+    W.handle({t:'link',carriers,snr});
+    for(const L of links){ const sec=Math.floor(L.link.t+1e-6); if(sec!==L.lastSec){ L.lastSec=sec; out(modem(L.k)); } }
+    if(dbg && opts.log){ const sec=Math.floor(links[0].link.t+1e-6); if(sec!==lastLogSec){ lastLogSec=sec; log({k:'phys', units:dbg.units, pack:dbg.pack, turrets:dbg.turrets, ground:dbg.ground, snr:links.map(L=>Object.fromEntries(Object.keys(L.link.phys.units).map(id=>[id,+L.link.snrDb(+id).toFixed(1)]))) }); } }   // правда о мире целиком — по ней спектатор проигрывает сеанс
+    }
+  function handleOnce(m){
+    const k=m.st||0, L=links[k]; if(!L) return;
+    if(m.t==='up'){ log({k:'up', st:k, bytes:Array.from(m.bytes)}); L.link.sendUplink(m.bytes); return; }
+    if(m.t==='speed'){ speed=m.v; W.setSpeed(m.v); log({k:'speed', v:m.v}); return; }
+    if(m.t==='save'){ W.handle(m); return; }
+    if(m.t==='load'){ for(const x of links) x.link.reset(); W.handle(m); return; }
+    if(m.t==='intent'||m.t==='agentState'){ W.handle(m); return; }   // от хоста агента (HTTP-API, REPL); консоль этого не шлёт
+    if(!opts.debug) return;   // дальше — только отладка
+    if(m.t==='cfg'){ L.link.cfg[m.k]=m.v; log({k:'cfg', st:k, key:m.k, v:m.v}); return; }
+    if(m.t==='tp'||m.t==='peek') W.handle(m);
+    }
 }
