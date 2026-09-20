@@ -20,8 +20,13 @@
   <label class="small" data-tip="Ускорение симуляции. Мир и канал ускоряются вместе, соотношения сохраняются.">время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
   <span id="save-state" class="dim small" data-tip="Сеанс сохраняется в хранилище браузера каждые 10 с: мир и знание консоли. Управление сеансом (продолжить, новый, импорт, экспорт) — в терминале при подключении. Игровое время идёт только при открытой консоли."></span>
   <input type="file" id="import-file" accept=".json" hidden>
+  <button id="fault-badge" class="badge down" hidden data-tip="Сбои терминала: исключения в коде консоли при приёме. Станция и канал ни при чём — пакет принят, консоль его не разобрала. Клик — список со стеками.">⚠ сбой</button>
   <button id="btn-debug" class="ghost" data-tip="Отладка: физика канала и состояние мира.">⚙ отладка</button>
 </header>
+<div id="faults" hidden>
+  <div class="dh"><b>СБОИ ТЕРМИНАЛА</b><span class="dim small">ошибки в коде консоли — игрок в норме этого не видит; скопировать и отдать разработчику</span><span class="grow"></span><button class="ghost" id="btn-faults-copy">скопировать</button><button class="ghost" id="btn-faults-close">закрыть</button></div>
+  <div id="fault-list"></div>
+</div>
 
 <div id="app">
   <section class="col">
