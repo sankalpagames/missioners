@@ -30,18 +30,21 @@ button{background:#1c2129;color:var(--fg);border:1px solid #2e3642;border-radius
 button:hover{background:#262d38}button.on{background:#3a2f16;border-color:var(--acc)}
 select,input{font:inherit;background:#000;color:var(--fg);border:1px solid var(--line);border-radius:3px;padding:2px 4px}
 #seek{flex:1;min-width:120px;padding:0}
+.when-live{display:none}body.live .when-live{display:inline}body.live .when-file{display:none}body.live #time{flex:1}   /* живьём: без файла, кнопок и ползунка */
+#livest.ok{color:var(--grn)}#livest.bad{color:var(--red)}
 .dim{color:var(--dim)}.grow{flex:1}
 label.cb{cursor:pointer;user-select:none}
 </style>
 </head>
 <body>
 <header id="top">
-  <span class="t">СПЕКТАТОР · лог мира</span>
-  <input type="file" id="file" accept=".log,.jsonl,.txt" title="Файл лога: data/КОД.log с сервера, data/play-*.log с площадки или «лог мира» из шторки">
-  <button id="play" title="Пробел">▶</button>
-  <select id="speed" title="Скорость проигрывания"><option value="1">×1</option><option value="4" selected>×4</option><option value="16">×16</option><option value="64">×64</option></select>
+  <span class="t">СПЕКТАТОР · <span class="when-file">лог мира</span><span class="when-live">живьём</span></span>
+  <input type="file" id="file" class="when-file" accept=".log,.jsonl,.txt" title="Файл лога: data/КОД.log с сервера, data/play-*.log с площадки или «лог мира» из шторки">
+  <button id="play" class="when-file" title="Пробел">▶</button>
+  <select id="speed" class="when-file" title="Скорость проигрывания"><option value="1">×1</option><option value="4" selected>×4</option><option value="16">×16</option><option value="64">×64</option></select>
+  <span id="livest" class="when-live dim" title="Мир идёт, пока в комнате есть операторы; зритель его не запускает"></span>
   <span id="time" class="dim">—</span>
-  <input type="range" id="seek" min="0" max="0" step="0.1" value="0" title="← → 5 с, с Shift — 60 с">
+  <input type="range" id="seek" class="when-file" min="0" max="0" step="0.1" value="0" title="← → 5 с, с Shift — 60 с">
   <span class="dim">слои</span>
   <button class="on" data-layer="hm">высоты</button>
   <button class="on" data-layer="iso">изогипсы</button>
@@ -54,7 +57,7 @@ label.cb{cursor:pointer;user-select:none}
 </header>
 <div id="app">
   <div id="mapwrap"><canvas id="map"></canvas>
-    <div id="drop">Перетащи сюда лог мира или выбери файл.<br><b>data/КОД.log</b> — сервер, <b>data/play-*.log</b> — площадка агента, «лог мира» из шторки — одиночная игра.<br><span class="dim">Колесо — масштаб, перетаскивание — сдвиг, наведение — характеристики, клик — закрепить.</span></div>
+    <div id="drop">Перетащи сюда лог мира или выбери файл.<br><b>data/КОД.log</b> — сервер, <b>data/play-*.log</b> — площадка агента, «лог мира» из шторки — одиночная игра. На сервере: <b>spectate.html?room=КОД</b> — живьём.<br><span class="dim">Колесо — масштаб, перетаскивание — сдвиг, наведение — характеристики, клик — закрепить.</span></div>
   </div>
   <aside id="side">
     <div id="info"><span class="dim">Наведи на тело, особь, турель или свёрток.</span></div>

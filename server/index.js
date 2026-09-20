@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // СЕРВЕРНЫЙ ХОСТ СТАНЦИИ. Комната = один мир с NST посадочными платформами (proto/station.js): у каждой платформы свои
 // миссионеры, запасы и канал 512 бит/с; оператор при входе выбирает платформу (несколько операторов на одной — кооператив,
-// канал делят). Раздаёт proto/ статикой, держит WebSocket /ws?room=КОД. Мир идёт, только пока в комнате есть операторы.
+// канал делят). Раздаёт proto/ статикой, держит WebSocket /ws?room=КОД (операторы) и /ws?room=КОД&spectate=1 (зрители: лог мира живьём для
+// spectate.html?room=КОД, мир не запускают). Мир идёт, только пока в комнате есть операторы.
 // Сохранение — JSON-файл на комнату в DATA_DIR (по умолчанию /home/data на App Service, иначе ./data): снимок мира,
 // номера последних пакетов и хвосты доставленных пакетов по платформам — ими досылаются пропуски при повторном подключении.
 // Запуск: node server/index.js [порт] [debug] [level=ФАЙЛ]   (или PORT, DATA_DIR, DEBUG=1, LEVEL_FILE; debug — отдавать правду о мире в шторку
@@ -14,7 +15,7 @@ const PORT=+process.argv[2]||+process.env.PORT||8765, DEBUG=!!process.env.DEBUG|
 const LEVEL_FILE=(process.argv.find(a=>a.startsWith('level='))||'').slice(6)||process.env.LEVEL_FILE||'';   // своя карта: путь к файлу уровня
 const DATA=process.env.DATA_DIR||(process.env.WEBSITE_SITE_NAME?'/home/data':path.join(ROOT,'data'));   // WEBSITE_SITE_NAME — признак App Service
 fs.mkdirSync(DATA,{recursive:true});
-const RING=20000, SAVE_EVERY=10000, TAIL=5000;
+const RING=20000, SAVE_EVERY=10000, TAIL=5000, SPECT_TAIL=2<<20;   // SPECT_TAIL — сколько байт лога мира зритель получает при входе (~2 ч игры)
 const PACK_RING=2000, PACK_WAIT_MAX=30, PACK_MIN_MS=200;   // сторона стаи: буфер ленты, потолок долгого опроса (App Service рвёт запросы дольше ~230 с), мягкий лимит частоты на токен
 
 // станция и мир — теми же исходниками, что в браузере
@@ -33,12 +34,12 @@ const roomCfg=q=>({ n:Math.max(2,Math.min(MAXN,+q.n||2)), cap:CAPS.includes(+q.c
   pack:/^[0-9a-f]{12,32}$/.test(q.pack||'')?q.pack:crypto.randomBytes(8).toString('hex') });   // pack — токен стаи: выдаётся создателю планеты, по нему агент входит (docs/agent-api.md)
 const pubCfg=c=>{ const {pack,...o}=c; return o; };   // наружу (список планет) токен не отдаётся
 class Room {
-  constructor(code,cfg){ this.code=code; this.file=path.join(DATA,code+'.json'); this.logFile=path.join(DATA,code+'.log'); this.logBuf=[]; this.clients=new Set(); this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → {name, st}, все операторы, что были в комнате
+  constructor(code,cfg){ this.code=code; this.file=path.join(DATA,code+'.json'); this.logFile=path.join(DATA,code+'.log'); this.logBuf=[]; this.clients=new Set(); this.watchers=new Set(); this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → {name, st}, все операторы, что были в комнате
     let d=null; try{ d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==3){ log(`${code}: старый формат сохранения v${d.v}, новая планета`); d=null; } }
     catch(e){ if(e.code!=='ENOENT') log(`${code}: сохранение не прочитано (${e.message}), новая планета`); }
     this.cfg=roomCfg(d?(d.cfg||{}):(cfg||{}));   // число платформ — из сохранения, если оно есть: мир уже с ним
     this.pack={ lines:[], waiters:[], last:0, capture:null };   // сторона стаи: лента восприятия с курсором n, ожидающие долгого опроса, время последнего запроса, перехват ответов мира
-    this.st=makeStation({ worldSrc, search:'?v=0&st='+this.cfg.n, debug:DEBUG, out:m=>this.out(m), agent:m=>this.onAgent(m), log:r=>this.logBuf.push(JSON.stringify(r)) }); this.rings=this.st.links.map(()=>[]);
+    this.st=makeStation({ worldSrc, search:'?v=0&st='+this.cfg.n, debug:DEBUG, out:m=>this.out(m), agent:m=>this.onAgent(m), log:r=>{ const s=JSON.stringify(r); this.logBuf.push(s); for(const w of this.watchers) if(w.readyState===1) w.send(s); } }); this.rings=this.st.links.map(()=>[]);
     // атлас — после того, как отвергнутый fetch в CAM.load отработает (иначе он обнулит атлас)
     setImmediate(()=>this.st.W.CAM.build(atlas.json,atlas.px));
     if(d){ this.st.restore(d.world,d.n); (d.rings||[]).forEach((r,k)=>{ if(this.rings[k]) this.rings[k]=r; }); this.seen=d.seen||{}; log(`${code}: восстановлена, t=${d.world.t|0} с, платформ ${this.cfg.n}, пакетов ${[].concat(d.n).join('/')}`); }
@@ -69,6 +70,12 @@ class Room {
   join(ws){ this.clients.add(ws); if(!this.timer){ this.schedule(); this.saveTimer=setInterval(()=>{ this.save(); this.flushLog(); },SAVE_EVERY); log(`${this.code}: мир идёт`); } }
   // лог мира (tech.md §12): JSONL, строка на запись, дописывается раз в SAVE_EVERY и при остановке; читать — tools/log-*.js
   flushLog(){ if(!this.logBuf.length) return; const s=this.logBuf.join('\n')+'\n'; this.logBuf=[]; try{ fs.appendFileSync(this.logFile,s); }catch(e){ log(`${this.code}: лог не записан: ${e.message}`); } }
+  // зрители (spectate.html?room=КОД): не операторы — мир от них не идёт. При входе — хвост лога мира (файл до SPECT_TAIL байт + несброшенный буфер),
+  // дальше каждая запись лога по мере появления; спектатор читает те же строки JSONL, что и из файла. Первая запись — live: число платформ, ускорение, идёт ли мир
+  watch(ws){ this.watchers.add(ws); const head=JSON.stringify({t:+this.st.links[0].link.t.toFixed(1), k:'live', code:this.code, n:this.cfg.n, speed:this.st.speed, running:!!this.timer, level:path.basename(levelPath)});
+    let tail=''; try{ const fd=fs.openSync(this.logFile,'r'); try{ const size=fs.fstatSync(fd).size, len=Math.min(size,SPECT_TAIL), b=Buffer.alloc(len); fs.readSync(fd,b,0,len,size-len); tail=b.toString('utf8'); if(len<size){ const i=tail.indexOf('\n'); tail=i<0?'':tail.slice(i+1); } } finally{ fs.closeSync(fd); } }catch(e){}
+    ws.send([head, tail.trimEnd(), ...this.logBuf].filter(Boolean).join('\n')); }
+  unwatch(ws){ this.watchers.delete(ws); }
   leave(ws){ this.clients.delete(ws); if(ws.live) this.st.log({k:'op', leave:ws.op.name, st:ws.st, wall:new Date().toISOString()}); this.sendOps(); if(!this.clients.size){ clearInterval(this.timer); clearInterval(this.saveTimer); this.timer=this.saveTimer=null; this.save(); this.flushLog(); log(`${this.code}: операторов нет, мир стоит`); } }
   schedule(){ if(this.timer) clearInterval(this.timer); this.timer=setInterval(()=>this.st.tick(), 100/this.st.speed); }
   hello(ws,since,op,st){   // выбор платформы, досылка пропущенного, потом — живой поток
@@ -179,6 +186,8 @@ const wss=new WebSocketServer({noServer:true});
 server.on('upgrade',(req,sock,head)=>{
   const u=new URL(req.url,'http://x'); const code=(u.searchParams.get('room')||'').trim();
   if(u.pathname!=='/ws'||!/^[\w-]{1,32}$/.test(code)){ sock.destroy(); return; }
+  if(u.searchParams.get('spectate')){ if(!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ sock.destroy(); return; }   // смотреть — только существующую планету, новую зритель не создаёт
+    wss.handleUpgrade(req,sock,head,ws=>{ const r=room(code); r.watch(ws); log(`${code}: зритель подключился (${r.watchers.size})`); ws.on('close',()=>{ r.unwatch(ws); log(`${code}: зритель отключился (${r.watchers.size})`); }); }); return; }   // зритель: только лог мира, мир не запускает
   wss.handleUpgrade(req,sock,head,ws=>{ const r=room(code); ws.live=false; r.join(ws); log(`${code}: оператор подключился (${r.clients.size})`);
     ws.on('message',d=>{ let m; try{ m=JSON.parse(d); }catch(e){ return; } if(m&&typeof m.t==='string') r.handle(ws,m); });
     ws.on('close',()=>{ r.leave(ws); log(`${code}: оператор отключился (${r.clients.size})`); }); });
