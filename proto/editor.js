@@ -1,6 +1,8 @@
 // РЕДАКТОР УРОВНЯ (editor.html, только localhost). Инструмент, а не игра: читает мир напрямую — уровень, рельеф, камеру, физику линии;
 // канала и воркера мира нет, правило «консоль не читает мир» на него не распространяется. Правит LEVEL в памяти,
-// кадр свободной камеры рендерит воркер тем же CAM.renderRaw, сохраняет level.js через POST в serve.py (или текстом для копирования).
+// кадр свободной камеры рендерит воркер тем же CAM.renderRaw, сохраняет карту в proto/maps/ID.js через POST в serve.py (или текстом для копирования).
+// Карта — editor.html?map=ID (нет — act1); список карт — GET /maps у serve.py. «сохранить» пишет в открытую карту и поднимает meta.v;
+// «сохранить как…» — новый id → новый файл; импорт файлом лишь подменяет уровень в памяти, на диск — теми же двумя кнопками.
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const MAX_SLOPE=0.84;   // как в world.js: круче тело не идёт
 const RETURN_R=500;     // как в world.js: радиус возврата ПС-2
@@ -20,10 +22,13 @@ function undo(){ if(!hist.length) return; replaceLevel(JSON.parse(hist.pop())); 
 const num=v=>String(Math.round(v*100)/100);
 const nameOf=t=>(CODEBOOK[t]||{}).name||('тип '+t);
 function levelText(){ const L=LEVEL; const o=[];
-  o.push(`// УРОВЕНЬ. Данные первого акта: где что стоит. Ориентиры с подобъектами, расщелина, корпуса, одичалые, сюжетные декорации.
+  o.push(`// УРОВЕНЬ. Карта: где что стоит. Ориентиры с подобъектами, расщелина, корпуса, одичалые, сюжетные декорации.
+// Карты лежат в proto/maps/ID.js, хост выбирает карту по id (одиночная игра — ?map=ID, комната — cfg.map, редактор — ?map=ID).
 // Подключается в мир (world.js, terrain.js), в редактор (editor.html, только localhost) и в headless-проверки; консоль этого файла не видит.
 // Файл пишет редактор — комментарии-имена он восстанавливает из кодовой книги, прочие комментарии при сохранении не сохраняются.
 // Типы и их свойства (имя, состояния, действия, спрайт, высота отражателя) — в codebook.js и world.js; здесь только положение и начальное состояние.
+//   meta     — id (имя файла без .js), name — название, v — ревизия карты (редактор поднимает при каждом сохранении; сохранение комнаты
+//              и лог мира её помнят), format — версия формата уровня: должна равняться LEVEL_FORMAT из codebook.js, иначе хост карту не поднимет.
 //   sites    — площадки под базы: центр и курс ang в градусах. Самой базы в уровне нет — она разворачивается по штатному составу
 //              (BASE в кодовой книге: корпус, шлюз, старт, люк, прожектор, ящики, турель), когда хост поднимает платформу.
 //              subs — сюжетные подобъекты у шлюза сверх штатных (смещения от шлюза в осях площадки; всего не больше 10, id 160+k·10+i);
@@ -41,6 +46,7 @@ function levelText(){ const L=LEVEL; const o=[];
 //              courage (храбрость: пугливый → агрессивный), attention (внимательность: радиус чувств, кто кричит первым). Не больше 10.
 //   decor    — сюжетные декорации: type — лист из SPRITES, f — курс в градусах, Hs — высота, м. Процедурные декорации — в terrain.js.
 const LEVEL = {`);
+  const M=L.meta||{}; o.push(`  meta: { id:'${M.id}', name:'${String(M.name||'').replace(/['\\\n]/g,' ')}', v:${M.v|0}, format:${LEVEL_FORMAT} },`);
   o.push(`  sites: [`);
   L.sites.forEach((S,i)=>{ const T=S.turret; const tur=T?`, turret:{dx:${num(T.dx)}, dy:${num(T.dy)}, f:${num(T.f||0)}${T.fov!==undefined?', fov:'+num(T.fov):''}${T.range!==undefined?', range:'+num(T.range):''}${T.aim!==undefined?', aim:'+num(T.aim):''}${T.reload!==undefined?', reload:'+num(T.reload):''}}`:'';
     if(!S.subs||!S.subs.length){ o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}${tur} },   // площадка ${1+i}`); return; }
@@ -63,24 +69,35 @@ const LEVEL = {`);
   o.push(`  decor: [`); for(const d of L.decor) o.push(`    {id:${d.id}, type:'${d.type}', x:${num(d.x)}, y:${num(d.y)}, f:${num(d.f)}, Hs:${num(d.Hs)}},`); o.push(`  ],`);
   o.push(`};`); o.push(`if (typeof module !== 'undefined') module.exports = { LEVEL };`); return o.join('\n')+'\n'; }
 function setStatus(t,cls=''){ $('#status').textContent=t; $('#status').className=cls; }
-async function save(){ const text=levelText(); setStatus('сохранение…');
-  try{ const r=await fetch('level.js',{method:'POST',body:text}); if(!r.ok) throw new Error(r.status+' '+r.statusText); dirty=false; setStatus('сохранено '+new Date().toLocaleTimeString('ru'),'ok'); }
-  catch(e){ setStatus('сервер не принял ('+e.message+') — текст ниже, скопировать в proto/level.js','err'); showText(); } }
+// сохранение: в открытую карту (id из URL), meta.id — по ней, meta.v — на единицу больше, чем на диске. «сохранить как» — тот же текст под новым id
+const MAP_ID=window.__map;
+async function save(id){ id=id||MAP_ID; const L=LEVEL; L.meta={ id, name:$('#map-name').value.trim()||id, v:(id===MAP_ID?(L.meta&&L.meta.v|0):0)+1, format:LEVEL_FORMAT }; const text=levelText(); setStatus('сохранение…');
+  try{ const r=await fetch('maps/'+id+'.js',{method:'POST',body:text}); if(!r.ok) throw new Error(r.status+' '+r.statusText); dirty=false; showMeta(); setStatus(`сохранено maps/${id}.js v${L.meta.v} · ${new Date().toLocaleTimeString('ru')}`,'ok'); if(id!==MAP_ID) location.href='editor.html?map='+id; else loadMapList(); }
+  catch(e){ L.meta.v--; setStatus('сервер не принял ('+e.message+') — текст ниже, скопировать в proto/maps/'+id+'.js','err'); showText(); } }
+function saveAs(){ const id=prompt('id новой карты (имя файла proto/maps/ID.js, [a-z0-9_-]):',MAP_ID+'-2'); if(id===null) return; if(!/^[a-z0-9_-]{1,32}$/.test(id)||id===MAP_ID){ setStatus('id: латиница, цифры, - и _; не совпадает с открытой','err'); return; }
+  if(maps.some(m=>m.id===id)&&!confirm(`Карта ${id} уже есть. Перезаписать?`)) return; save(id); }
+function showMeta(){ const M=LEVEL.meta||{}; $('#map-name').value=M.name||''; $('#map-v').textContent=`v${M.v|0}`; document.title=`редактор · ${MAP_ID} v${M.v|0}`; }
+let maps=[];
+async function loadMapList(){ try{ maps=await fetch('maps').then(r=>r.json()); }catch(e){ maps=[]; }
+  if(!maps.some(m=>m.id===MAP_ID)) maps.push({id:MAP_ID,name:'',v:0});
+  $('#map-select').innerHTML=maps.map(m=>`<option value="${m.id}"${m.id===MAP_ID?' selected':''}>${m.id}${m.name?' · '+m.name:''} v${m.v|0}</option>`).join(''); }
+$('#map-select').onchange=e=>{ const id=e.target.value; if(id===MAP_ID) return; if(dirty&&!confirm('Есть несохранённые правки. Открыть другую карту?')){ e.target.value=MAP_ID; return; } location.href='editor.html?map='+id; };
+$('#map-name').oninput=()=>{ dirty=true; };
+$('#btn-save-as').onclick=saveAs;
 function showText(){ $('#text').value=levelText(); $('#textwrap').hidden=false; }
-$('#btn-save').onclick=save; $('#btn-text').onclick=showText; $('#btn-text-close').onclick=()=>$('#textwrap').hidden=true;
+$('#btn-save').onclick=()=>save(); $('#btn-text').onclick=showText; $('#btn-text-close').onclick=()=>$('#textwrap').hidden=true;
 $('#btn-copy').onclick=()=>{ navigator.clipboard.writeText($('#text').value); setStatus('скопировано','ok'); };
-// импорт и экспорт карт: тот же формат, что level.js (его принимает сервер: node server/index.js … level=ФАЙЛ); импорт — файл или перетаскивание на карту
-let mapName='level.js';
-function exportLevel(){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([levelText()],{type:'text/javascript'})); a.download=mapName; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); setStatus('экспорт: '+mapName,'ok'); }
-function importLevel(text,name){ let obj; try{ if(!/^\/\/ УРОВЕНЬ/.test(text)||!/\nconst LEVEL = \{/.test(text)) throw new Error('не файл уровня'); obj=new Function(text+'\nreturn LEVEL;')(); if(!Array.isArray(obj.sites)||!Array.isArray(obj.pois)||!obj.canyon) throw new Error('нет площадок, ориентиров или расщелины'); }
+// импорт и экспорт карт: тот же формат, что proto/maps/ID.js (файл принимает и сервер: node server/index.js … level=ФАЙЛ); импорт — файл или перетаскивание на карту
+function exportLevel(){ const name=(LEVEL.meta&&LEVEL.meta.id||MAP_ID)+'.js'; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([levelText()],{type:'text/javascript'})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); setStatus('экспорт: '+name,'ok'); }
+function importLevel(text,name){ let obj; try{ if(!/^\/\/ УРОВЕНЬ/.test(text)||!/\nconst LEVEL = \{/.test(text)) throw new Error('не файл уровня'); obj=new Function(text+'\nreturn LEVEL;')(); const e=levelCheck(obj); if(e) throw new Error(e); }
   catch(e){ setStatus('импорт не удался: '+e.message,'err'); return; }
   if(dirty&&!confirm('Есть несохранённые правки. Заменить уровень импортом?')) return;
-  pushHist(); replaceLevel(obj); sel=null; mapName=name||mapName; fillAddSelects(); renderProps(); draw(); camShot(true); setStatus(`импорт: ${mapName} — не сохранено (сохранить → proto/level.js)`,'ok'); }
+  pushHist(); replaceLevel(obj); sel=null; fillAddSelects(); renderProps(); draw(); camShot(true); showMeta(); setStatus(`импорт: ${name||'файл'} (${obj.meta.id} v${obj.meta.v}) — не сохранено: «сохранить» → maps/${MAP_ID}.js или «сохранить как…»`,'ok'); }
 $('#btn-export').onclick=exportLevel;
 $('#btn-import').onclick=()=>$('#file-import').click();
 $('#file-import').onchange=e=>{ const f=e.target.files[0]; if(f) f.text().then(t=>importLevel(t,f.name)); e.target.value=''; };
 window.addEventListener('dragover',e=>e.preventDefault()); window.addEventListener('drop',e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) f.text().then(t=>importLevel(t,f.name)); });
-$('#btn-reload').onclick=()=>{ if(!dirty||confirm('Есть несохранённые правки. Перечитать level.js?')) location.reload(); };
+$('#btn-reload').onclick=()=>{ if(!dirty||confirm('Есть несохранённые правки. Перечитать карту с диска?')) location.reload(); };
 $('#btn-undo').onclick=undo;
 window.addEventListener('beforeunload',e=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
 
@@ -256,7 +273,7 @@ function renderProps(){ const P=$('#props'); if(!sel){ $('#sel-title').textConte
   if(k==='decor'){ title=`декорация ${r.id}`; rows.push({label:'тип',html:`<select>${decorTypes().map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select>`,on:v=>r.type=v}); XY(r); F('курс',()=>r.f,v=>r.f=v,'step="5"'); F('высота Hs',()=>r.Hs,v=>r.Hs=v); }
   if(k==='hull'){ title='корпус'; XY(r); F('радиус',()=>r.r,v=>r.r=v); F('высота',()=>r.h,v=>r.h=v); }
   if(k==='wild'){ title=`особь ${LEVEL.pack.members.indexOf(r)} (id ${250+LEVEL.pack.members.indexOf(r)})`; XY(r); F('размер',()=>r.size,v=>r.size=v,'step="0.1" min="0.5" max="1.5"'); F('храбрость',()=>r.courage,v=>r.courage=v,'step="0.05" min="0" max="1"'); F('внимательность',()=>r.attention,v=>r.attention=v,'step="0.05" min="0" max="1"'); } if(k==='lair'){ title='логово стаи'; XY(r); }
-  if(k==='station'){ const i=LEVEL.sites.indexOf(r); title=`площадка ${1+i}`; XY(r); F('курс',()=>r.ang||0,v=>r.ang=v,'step="5"'); rows.push({label:'платформы',html:`<span>${layoutsOf(i)}</span>`}); rows.push({label:'раскладки',html:`<span class="dim">layouts в level.js: n → площадки; правится в тексте</span>`}); }
+  if(k==='station'){ const i=LEVEL.sites.indexOf(r); title=`площадка ${1+i}`; XY(r); F('курс',()=>r.ang||0,v=>r.ang=v,'step="5"'); rows.push({label:'платформы',html:`<span>${layoutsOf(i)}</span>`}); rows.push({label:'раскладки',html:`<span class="dim">layouts в файле карты: n → площадки; правится в тексте</span>`}); }
   if(k==='cam'||k==='camtg'){ title=k==='cam'?'камера':'цель камеры'; const o=k==='cam'?{get x(){return cam.x},set x(v){cam.x=v},get y(){return cam.y},set y(v){cam.y=v}}:{get x(){return cam.tx},set x(v){cam.tx=v},get y(){return cam.ty},set y(v){cam.ty=v}}; XY(o); }
   if(!['cam','camtg','station','lair','turret','ksub'].includes(k)) rows.push({label:'',html:`<button data-act="del" class="ghost">удалить</button> <button data-act="cam-here" class="ghost">кадр сюда</button>`});
   if(['station','turret','ksub'].includes(k)) rows.push({label:'',html:`<button data-act="cam-here" class="ghost">кадр сюда</button>`});
@@ -270,7 +287,7 @@ function fillAddSelects(){ $('#add-sub-type').innerHTML=Object.keys(CODEBOOK).fi
 
 // ---------- свободная камера: кадр рендерит воркер (level + codebook + terrain + camera, без world.js), сцена — весь уровень без правил видимости ----------
 const camW=(()=>{ const base=new URL('.',location.href).href, v=window.__v;
-  const src=`importScripts(${['level.js','codebook.js','terrain.js','camera.js'].map(f=>JSON.stringify(base+f+'?v='+v)).join(',')});
+  const src=`importScripts(${['maps/'+MAP_ID+'.js','codebook.js','terrain.js','camera.js'].map(f=>JSON.stringify(base+f+'?v='+v)).join(',')});
     const ready=CAM.load(${JSON.stringify(String(v))},${JSON.stringify(base)});
     function scene(u){ const out=[]; for(const p of LEVEL.pois){ if(SPRITES[p.id]) out.push({id:p.id,type:p.id,x:p.x,y:p.y}); p.subs.forEach((s,i)=>{ if(SPRITES[s.type]) out.push({id:p.id*10+i,type:s.type,x:p.x+s.dx,y:p.y+s.dy,facing:s.f===undefined?undefined:s.f*Math.PI/180}); }); }
       LEVEL.pack.members.forEach((m,i)=>out.push({id:250+i,type:'sleep',x:m.x,y:m.y,facing:Math.atan2(u.y-m.y,u.x-m.x),Hs:0.6*m.size}));
@@ -297,4 +314,4 @@ $('#cam-shot').onclick=()=>camShot(true); $('#cam-auto').onclick=e=>{ e.target.c
 $$('[data-layer]').forEach(b=>b.onclick=()=>{ layers[b.dataset.layer]=!layers[b.dataset.layer]; b.classList.toggle('on',layers[b.dataset.layer]); if(['hm','iso','steep'].includes(b.dataset.layer)) hmCompute(); else draw(); });
 function fit(){ const r=$('#mapwrap').getBoundingClientRect(); W=cv.width=Math.max(1,Math.floor(r.width)); H=cv.height=Math.max(1,Math.floor(r.height)); draw(); hmDirty(); }
 new ResizeObserver(fit).observe($('#mapwrap'));
-fillAddSelects(); fit(); camShot(true);
+fillAddSelects(); fit(); camShot(true); showMeta(); loadMapList();

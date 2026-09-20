@@ -61,6 +61,11 @@ const STATION = { x:6, y:0, rx:8, ry:4.5, ang:0, h:7, powerR:40 };   // powerR �
 const BASE = { airlock:{dx:10,dy:0}, spawn:{dx:10,dy:0},
   subs:[ {type:10,dx:3,dy:2}, {type:11,dx:-2,dy:5}, {type:13,dx:2,dy:-4,items:[40,40,40]}, {type:13,dx:4.5,dy:-5,items:[43,43]} ],   // люк, прожектор, ящик с брикетами, ящик с патронами
   turret:{dx:16,dy:0,f:0,fov:140,range:120,aim:3,reload:10} };
+// Версия формата уровня (LEVEL.meta.format): поднимать, когда world.js/terrain.js начинают ждать от карты другое; хост карту с чужим форматом не поднимает.
+// levelCheck — та же проверка везде, где карта попадает в руки (сервер, воркер, редактор, спектатор): текст ли это уровня и того ли формата.
+const LEVEL_FORMAT=1;
+function levelCheck(L){ if(!L||typeof L!=='object') return 'не уровень'; const m=L.meta||{}; if(!/^[a-z0-9_-]{1,32}$/.test(m.id||'')) return 'meta.id: нужен [a-z0-9_-]{1,32}';
+  if(m.format!==LEVEL_FORMAT) return `формат уровня ${m.format}, нужен ${LEVEL_FORMAT}`; if(!Array.isArray(L.sites)||!L.sites.length||!Array.isArray(L.pois)||!L.canyon||!L.pack) return 'нет площадок, ориентиров, расщелины или стаи'; return ''; }
 // Какие площадки заняты при n платформах: LEVEL.layouts[n] — список индексов площадок в порядке платформ (ARK-041, 042, …); нет записи — первые n
 function sitesFor(L,n){ const a=(L.layouts&&L.layouts[n])||L.sites.map((_,i)=>i); return a.slice(0,n).filter(i=>L.sites[i]); }
 // База на площадке: всё в мировых координатах (углы — градусы), подобъекты — смещения от шлюза, турель — из уровня или штатная
@@ -135,4 +140,4 @@ const EVENTS = {
   40:'турель переключена',
 };
 
-if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, AUTONOMY, EVENTS, STATION, BASE, sitesFor, baseAt, encText, decText };
+if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, AUTONOMY, EVENTS, STATION, BASE, LEVEL_FORMAT, levelCheck, sitesFor, baseAt, encText, decText };

@@ -1,7 +1,8 @@
 // МИР. Web Worker. Ничего не знает о консоли.
 // Наружу: (а) байтовые сообщения для канала, (б) физика линии по каждому миссионеру.
 const LAB=/&lab\b/.test(self.location.search);   // лаборатория лидара: одичалые спят, тело не умирает; остальное — как в игре
-const VER=self.location.search.replace(/^\?v=/,'').replace(/&.*$/,'')||'0'; importScripts('level.js?v='+VER,'codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);
+const VER=self.location.search.replace(/^\?v=/,'').replace(/&.*$/,'')||'0'; importScripts('codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);   // уровень (proto/maps/ID.js) подаёт хост текстом перед миром
+{ const e=levelCheck(LEVEL); if(e) throw new Error('уровень '+((LEVEL||{}).meta||{}).id+': '+e); }   // карта чужого формата — мир не поднимается, хост получит ошибку
 const NST=Math.max(1,Math.min(LEVEL.sites.length,+(/&st=(\d+)/.exec(self.location.search)||[])[1]||1));   // сколько платформ поднято: решает хост (одиночная игра — одна)
 const TEAMS=((/&teams=([\d,]+)/.exec(self.location.search)||[])[1]||'').split(',').filter(x=>x!=='').map(Number);   // команда каждой платформы (кто с кем): нет — каждая сама за себя; одичалые всегда чужие всем
 const teamOf=k=>TEAMS.length>k?TEAMS[k]:k;

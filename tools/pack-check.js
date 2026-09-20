@@ -4,7 +4,7 @@
 //   node tools/pack-check.js            — идёт с фонарём, стойка «пассивно»: при нападении стоит
 //   node tools/pack-check.js 2 2        — первый аргумент: 1 обычный шаг, 2 скрытность, 3 бег; второй — стойка при контакте: 0 пассивно, 1 бегство, 2 бой
 const fs=require('fs'), path=require('path'); const P=path.join(__dirname,'..','proto')+'/';
-const src=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+'\nreturn {tick, pack, units, cries, T:()=>t};';
+const src=[require('./map.js').mapSrc(), ...['codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8'))].join('\n')+'\nreturn {tick, pack, units, cries, T:()=>t};';
 const log=[]; let W=null;
 const shims={ self:{location:{search:'?v=0'}}, importScripts(){}, postMessage(m){ if(m.t==='msg'&&m.kind==='EVT') log.push(`${W.T().toFixed(0)}s событие ${m.payload[0]} М${m.unit}`); }, setInterval(){return 1}, clearInterval(){}, setTimeout(){return 1}, onmessage:null, fetch(){ return Promise.reject(new Error('no fetch')); } };
 W=new Function(...Object.keys(shims), src)(...Object.values(shims));

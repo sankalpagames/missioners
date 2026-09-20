@@ -2,7 +2,8 @@
 // (положения между ними — интерполяция), крики, заметки, лента агента стаи и его намерения, события операторам. Инструмент, не
 // игра: читает уровень и рельеф напрямую (как редактор), сервера не требует — файл лога открывается локально;
 // на сервере ?room=КОД — тот же лог живьём по WebSocket, без перемотки (tech.md §12). Мир в логе
-// записан по уровню на момент сеанса; если level.js с тех пор менялся, подложка может разойтись с записью.
+// записан по карте на момент сеанса: запись start (и live с сервера) несёт map {id, v}; страница стартует с maps/act1.js и, если карта
+// другая, подгружает maps/ID.js и подменяет LEVEL; если ревизия v с тех пор выросла, подложка может разойтись с записью — в ленте есть заметка.
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const MAX_SLOPE=0.84;
 const cv=$('#map'), ctx=cv.getContext('2d');
@@ -25,8 +26,9 @@ const bases=()=>sitesFor(LEVEL,nSt).map((si,k)=>({k, ...baseAt(LEVEL.sites[si])}
 const ACT_RU={sleep:'спит',idle:'стоит',freeze:'замерла',approach:'подходит',attack:'нападает',back:'отходит',flee:'бежит',home:'домой',rest:'передышка',goto:'идёт',stay:'ждёт',dead:'мертва'};
 function b64(s){ const b=atob(s); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
 function reset(){ frames=[]; events=[]; cries=[]; pinned=hover=null; feedIdx=-1; }
-// одна запись лога → кадр phys, крик, строка ленты. Лента копится в порядке прихода; сортировка по времени — в load (файл) или вставкой с конца (живьём)
-function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line); }catch(e){ return; } const t=+r.t||0; const ev=e=>{ if(live.on){ let i=events.length; while(i>0&&events[i-1].t>e.t) i--; events.splice(i,0,e); if(events.length>5000) events.splice(0,events.length-5000); } else events.push(e); };
+// одна запись лога → кадр phys, крик, строка ленты. Лента держится по времени: вставка с конца (записи идут почти по порядку)
+function ev(e){ let i=events.length; while(i>0&&events[i-1].t>e.t) i--; events.splice(i,0,e); if(live.on&&events.length>5000) events.splice(0,events.length-5000); }   // вставка по времени с конца: записи идут почти по порядку
+function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line); }catch(e){ return; } const t=+r.t||0;
   if(r.k==='phys'){ frames.push({t, units:r.units||[], pack:r.pack||[], turrets:r.turrets||[], ground:r.ground||[]}); if(live.on){ live.lastPhys=performance.now(); if(frames.length>LIVE_KEEP) frames.splice(0,frames.length-LIVE_KEEP); } return; }
   if(r.k==='agent'){ ev({t:r.at??t, cls:'pack', text:`О${r.who}: ${r.text}`}); return; }
   if(r.k==='agentAck'){ ev({t, cls:'ack', text:`→ «${r.line}» — ${r.ok?'принято':'отказано'}${r.why?': '+r.why:''}`}); return; }
@@ -37,10 +39,18 @@ function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line
   if(r.k==='pkt'&&r.kind==='EVT'){ const b=b64(r.b); ev({t:r.at??t, cls:'op', text:`ARK-04${1+(r.st||0)}: событие ${b[0]}${r.unit?' М'+r.unit:''} — ${EVENTS[b[0]]||'?'}${b[1]?' ('+b[1]+')':''}`}); return; }
   if(r.k==='up'){ ev({t, cls:'op', text:`ARK-04${1+(r.st||0)}: команда ${r.bytes[0]}${r.bytes[2]?' М'+r.bytes[2]:''} (${r.bytes[1]})`}); return; }
   if(r.k==='op'){ ev({t, cls:'op', text:r.join?`оператор ${r.join} вошёл (ARK-04${1+(r.st||0)})`:`оператор ${r.leave} вышел`}); return; }
-  if(r.k==='start'){ const n=r.n||(r.cfg&&r.cfg.n); if(n) nSt=Math.max(1,Math.min(LEVEL.sites.length,n)); if(live.on&&r.cfg&&r.cfg.speed) speed=r.cfg.speed; ev({t, cls:'note', text:`начало: ${r.host}${r.code?' '+r.code:''}, платформ ${n||'?'}${r.level&&r.level!=='level.js'?', карта '+r.level:''}${r.wall?', '+r.wall:''}`}); return; }
-  if(r.k==='live'){ if(r.n) nSt=Math.max(1,Math.min(LEVEL.sites.length,r.n)); if(r.speed) speed=r.speed; if(r.running) live.lastPhys=performance.now(); return; }   // первая запись от сервера зрителю
+  if(r.k==='start'){ const n=r.n||(r.cfg&&r.cfg.n); if(r.map) useMap(r.map,t); if(n) nSt=Math.max(1,Math.min(LEVEL.sites.length,n)); if(live.on&&r.cfg&&r.cfg.speed) speed=r.cfg.speed; ev({t, cls:'note', text:`начало: ${r.host}${r.code?' '+r.code:''}, платформ ${n||'?'}${r.map?`, карта ${r.map.id} v${r.map.v}`:''}${r.wall?', '+r.wall:''}`}); return; }
+  if(r.k==='live'){ if(r.map) useMap(r.map,t); if(r.n) nSt=Math.max(1,Math.min(LEVEL.sites.length,r.n)); if(r.speed) speed=r.speed; if(r.running) live.lastPhys=performance.now(); return; }   // первая запись от сервера зрителю
   if(r.k==='speed'){ if(live.on) speed=r.v; ev({t, cls:'note', text:`ускорение ×${r.v}`}); }
   if(r.k==='fault'){ ev({t, cls:'note', text:`СБОЙ ${r.where}: ${r.text}`}); } }
+// карта записи: другая, чем на странице, — подгрузить maps/ID.js и подменить LEVEL (рельеф пересчитать); та же, но другой ревизии — заметка в ленте
+let mapWanted=null;
+function useMap(m,t){ if(!m||!m.id||!/^[a-z0-9_-]{1,32}$/.test(m.id)) return; const cur=LEVEL.meta||{};
+  if(m.id===cur.id){ if(m.v!==undefined&&m.v!==cur.v) ev({t, cls:'note', text:`карта ${m.id}: запись v${m.v}, на странице v${cur.v} — подложка может расходиться`}); return; }
+  if(mapWanted===m.id) return; mapWanted=m.id;
+  fetch('maps/'+m.id+'.js').then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); }).then(text=>{ if(!/^\/\/ УРОВЕНЬ/.test(text)) throw new Error('не файл уровня'); const L=new Function(text+'\nreturn LEVEL;')(); const e=levelCheck(L); if(e) throw new Error(e);
+      for(const k in LEVEL) delete LEVEL[k]; Object.assign(LEVEL,L); TER.reload(); nSt=Math.min(nSt,LEVEL.sites.length); ev({t, cls:'note', text:`карта ${L.meta.id} v${L.meta.v} загружена`+(m.v!==undefined&&m.v!==L.meta.v?` (запись v${m.v})`:'')}); hmDirty(0); draw(); })
+    .catch(e=>{ ev({t, cls:'note', text:`карта ${m.id} не загружена (${e.message}) — подложка от ${cur.id}`}); draw(); }); }
 function span(){ t0=frames.length?frames[0].t:0; t1=frames.length?frames[frames.length-1].t:(events.length?events[events.length-1].t:0); }
 function center(){ if(frames.length){ const f=frames[0]; const pts=[...f.units,...f.pack]; if(pts.length){ cx=pts.reduce((a,p)=>a+p.x,0)/pts.length; cy=pts.reduce((a,p)=>a+p.y,0)/pts.length; } } }
 function load(text){

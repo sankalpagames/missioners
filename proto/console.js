@@ -6,9 +6,10 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LAB=/[?&]lab\b/.test(location.search) && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);   // только локально: на опубликованном сайте флаг не действует
 // Станция: в одиночной игре — воркер (мир + канал в браузере), в сети — WebSocket на сервер (index.html?room=КОД). Консоль разницы не видит.
 const ROOM=new URLSearchParams(location.search).get('room')||'', ST=+(new URLSearchParams(location.search).get('st')||0);   // комната и платформа оператора в ней
+const MAP=(q=>/^[a-z0-9_-]{1,32}$/.test(q)?q:'act1')(new URLSearchParams(location.search).get('map')||'');   // одиночная игра: карта из proto/maps/ (в сети карту знает комната)
 const OP=(()=>{ try{ return JSON.parse(localStorage.getItem('missioners.op'))||{}; }catch(e){ return {}; } })();   // имя и токен оператора — задаются в лобби
 const transport=ROOM?wsTransport(ROOM):workerTransport();
-function workerTransport(){ const w=new Worker('station-worker.js?v='+window.__v+(LAB?'&lab':'')); let ready=false; const q=[]; const tr={ mp:false, onmessage:null, send(m){ if(ready) w.postMessage(m); else q.push(m); } };
+function workerTransport(){ const w=new Worker('station-worker.js?v='+window.__v+(LAB?'&lab':'')+(MAP!=='act1'?'&map='+MAP:'')); let ready=false; const q=[]; const tr={ mp:false, onmessage:null, send(m){ if(ready) w.postMessage(m); else q.push(m); } };
   w.onmessage=e=>{ const m=e.data; if(m.t==='ready'){ ready=true; for(const x of q) w.postMessage(x); q.length=0; return; } tr.onmessage&&tr.onmessage(m); }; return tr; }
 function wsTransport(room){ const q=[]; const tr={ mp:true, onmessage:null, onopen:null, send(m){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(m)); else q.push(m); } }; let ws=null;   // до соединения — очередь; после обрыва — переподключение
   const open=()=>{ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?room='+encodeURIComponent(room)); ws.onopen=()=>{ tr.onopen&&tr.onopen(); for(const m of q) ws.send(JSON.stringify(m)); q.length=0; }; ws.onclose=()=>{ setTimeout(open,2000); };
@@ -492,7 +493,7 @@ setInterval(()=>{
 },100);
 
 // ---------- сохранение: мир + знание консоли, хранилище браузера ----------
-const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:''), SAVE_VERSION=9;   // в сети — своё знание на каждую комнату и платформу   // поднимать при несовместимых изменениях формата мира или консоли
+const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:'')+(!ROOM&&MAP!=='act1'?':map:'+MAP:''), SAVE_VERSION=9;   // в сети — своё знание на каждую комнату и платформу; одиночная игра — свой сеанс на каждую карту (снимок мира годен только для своей карты)   // поднимать при несовместимых изменениях формата мира или консоли
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));

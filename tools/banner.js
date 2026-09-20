@@ -4,7 +4,7 @@
 //   node tools/banner.js <вариант> [W] [H] [×] — один вариант в полный размер, × — увеличение пикселя (по умолчанию 1)
 const fs=require('fs'), path=require('path'), zlib=require('zlib'); const {decodePNG}=require('./png.js');
 const P=path.join(__dirname,'..','proto')+'/';
-const src=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8')).join('\n')+'\nreturn {sceneObjects, CAM, TER};';
+const src=[require('./map.js').mapSrc(), ...['codebook.js','terrain.js','camera.js','world.js'].map(f=>fs.readFileSync(P+f,'utf8'))].join('\n')+'\nreturn {sceneObjects, CAM, TER};';
 const shims={ self:{location:{search:'?v=0'}}, importScripts(){}, postMessage(){}, setInterval(){return 1}, clearInterval(){}, setTimeout(){return 1}, onmessage:null, fetch(){ return Promise.reject(new Error('no fetch')); } };
 const W_=new Function(...Object.keys(shims), src)(...Object.values(shims));
 const atl=decodePNG(fs.readFileSync(P+'sprites.png')); const json=JSON.parse(fs.readFileSync(P+'sprites.json','utf8'));

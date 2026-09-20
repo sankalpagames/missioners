@@ -41,13 +41,17 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
 <body>
 <div id="gate" hidden>Редактор уровня работает только с localhost.<br>Запуск: <b>python3 proto/serve.py</b> → <b>http://localhost:8765/editor.html</b></div>
 <header id="top" hidden>
-  <span class="t">РЕДАКТОР УРОВНЯ · level.js</span>
-  <button id="btn-save" title="POST в serve.py → proto/level.js">сохранить</button>
+  <span class="t">РЕДАКТОР УРОВНЯ</span>
+  <select id="map-select" title="Карты proto/maps/*.js — открыть другую (editor.html?map=ID)"></select>
+  <input id="map-name" size="16" title="Название карты (meta.name)" placeholder="название">
+  <span id="map-v" class="dim small" title="Ревизия карты (meta.v): растёт при каждом сохранении; сохранение комнаты и лог мира её помнят"></span>
+  <button id="btn-save" title="POST в serve.py → proto/maps/ID.js, ревизия +1">сохранить</button>
+  <button id="btn-save-as" class="ghost" title="Записать как новую карту proto/maps/НОВЫЙ-ID.js и открыть её">сохранить как…</button>
   <button id="btn-text" class="ghost" title="Текст файла — скопировать, если сервер не принимает">текст</button>
-  <button id="btn-reload" class="ghost" title="Перечитать level.js с диска">перечитать</button>
+  <button id="btn-reload" class="ghost" title="Перечитать карту с диска">перечитать</button>
   <button id="btn-undo" class="ghost" title="⌘Z / Ctrl+Z">отменить</button>
-  <button id="btn-import" class="ghost" title="Открыть карту из файла в формате level.js (или перетащить файл на карту); в proto/level.js попадёт только после «сохранить»">импорт</button>
-  <button id="btn-export" class="ghost" title="Скачать карту файлом в формате level.js — сервер поднимет её: node server/index.js … level=ФАЙЛ">экспорт</button>
+  <button id="btn-import" class="ghost" title="Открыть карту из файла в формате уровня (или перетащить файл на карту); на диск попадёт только после «сохранить» — в текущую карту, или «сохранить как…»">импорт</button>
+  <button id="btn-export" class="ghost" title="Скачать карту файлом ID.js — положить в proto/maps/ или поднять на сервере: node server/index.js … level=ФАЙЛ">экспорт</button>
   <input type="file" id="file-import" accept=".js,text/javascript" hidden>
   <span id="status"></span>
   <span class="grow"></span>
@@ -101,7 +105,8 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
 // только localhost: на опубликованном сайте страница показывает подсказку и ничего не грузит
 (function(){ if(!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)){ document.getElementById('gate').hidden=false; return; }
   document.getElementById('top').hidden=false; document.getElementById('app').hidden=false;
-  const v=Date.now(); window.__v=v; for(const f of ['level.js','codebook.js','terrain.js','camera.js','link.js','mapdraw.js','editor.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
+  const q=new URLSearchParams(location.search).get('map')||'act1'; window.__map=/^[a-z0-9_-]{1,32}$/.test(q)?q:'act1';   // карта: editor.html?map=ID → proto/maps/ID.js
+  const v=Date.now(); window.__v=v; for(const f of ['maps/'+window.__map+'.js','codebook.js','terrain.js','camera.js','link.js','mapdraw.js','editor.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
 </script>
 </body>
 </html>

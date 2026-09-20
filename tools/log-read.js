@@ -13,7 +13,7 @@ const MODES={1:'исследование',2:'скрытность (старый 
 const ACT={sleep:'спит',idle:'стоит',freeze:'замерла',approach:'подходит',attack:'нападает',back:'отходит',flee:'бежит в логово',home:'идёт домой',rest:'лежит в логове',goto:'идёт по слову'};
 function line(r){ const n=r; switch(r.k){
   case 'fault': return `— СБОЙ ${r.where}: ${r.text}`;
-  case 'start': return `— начало: ${r.host}${r.code?' '+r.code:''}${r.restored?' (восстановлена)':''}, платформ ${r.n||(r.cfg&&r.cfg.n)}, ${r.wall}`;
+  case 'start': return `— начало: ${r.host}${r.code?' '+r.code:''}${r.restored?' (восстановлена)':''}, платформ ${r.n||(r.cfg&&r.cfg.n)}${r.map?`, карта ${r.map.id} v${r.map.v}`:''}, ${r.wall}`;
   case 'restore': return `— мир восстановлен из сохранения`;
   case 'op': return r.join!==undefined?`— оператор ${r.join} вошёл, платформа ${r.st}`:`— оператор ${r.leave} вышел, платформа ${r.st}`;
   case 'speed': return `— ускорение ×${r.v}`;
