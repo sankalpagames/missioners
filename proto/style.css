@@ -16,7 +16,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.35 ui-monospace,M
 .bb{padding:8px;display:flex;flex-direction:column;gap:6px;overflow:auto}
 select.sub,.mini{font:10px ui-monospace,Menlo,monospace;background:#000;color:var(--fg);border:1px solid var(--line);border-radius:3px;padding:2px 4px}
 .mini{cursor:pointer}.mini.on{background:#3a2f16;border-color:var(--acc)}
-.modes button.req,button.tur.req{border-color:var(--acc);border-style:dashed}.modes label.req{color:var(--acc)}   /* запрошено, телеметрия ещё не подтвердила */
+.modes button.req,button.tur.req,button.rel.req{border-color:var(--acc);border-style:dashed}.modes label.req{color:var(--acc)}   /* запрошено, телеметрия/пульс ещё не подтвердили */
 h3{font-size:11px;letter-spacing:.1em;color:var(--dim);margin:8px 0 2px}
 .dim{color:var(--dim);font-weight:normal}.small{font-size:11px}.big{font-size:26px;font-weight:bold}
 .pulse-row{display:flex;gap:8px;align-items:center}
@@ -44,6 +44,14 @@ h3{font-size:11px;letter-spacing:.1em;color:var(--dim);margin:8px 0 2px}
 .tabs button.on{background:var(--panel);color:var(--acc)}
 .tab{display:none;flex:1;min-height:0;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-top:none;padding:8px;overflow:auto}
 .tab.on{display:flex}
+/* вкладка «Станция»: сверху — запасы, пульс и состав; ниже — модули станции одинаковыми секциями */
+#tab-station{gap:0}
+#tab-station .st-main{display:flex;flex-direction:column;gap:8px;padding:0 0 10px}
+#tab-station .st-main .kv{align-content:center}
+#tab-station .mod{border-top:1px solid var(--line);padding:6px 0 10px;display:flex;flex-direction:column;gap:6px}
+#tab-station .mod h3{margin:0}
+#tab-station .mod:last-child{padding-bottom:0}
+#tab-station table td{height:22px}
 #splitter{height:8px;margin:2px 0;cursor:row-resize;border-radius:4px;background:transparent;position:relative}
 #splitter::after{content:'';position:absolute;left:50%;top:3px;width:48px;height:2px;margin-left:-24px;background:#2e3642;border-radius:1px}
 #splitter:hover::after,#splitter.on::after{background:var(--acc)}

@@ -84,38 +84,51 @@
       <div id="journal" class="small"></div>
     </div>
     <div class="tab" id="tab-station">
-      <div class="row"><span class="grow"></span><button class="ghost" id="btn-st" data-tip="Запросить статус станции вне очереди пульса.">статус ●</button></div>
-      <div class="kv two">
-        <div data-tip="Единиц биоматериала. Один миссионер — одна единица. Пополнения нет."><label>биоматериал</label><b id="st-bio">—</b></div>
-        <div data-tip="Камер на складе. Камера не производится; возврат — снять с тела и доставить к шлюзу."><label>камеры на складе</label><b id="st-cam">—</b></div>
-        <div data-tip="Выращивание: секунд до готовности."><label>выращивание</label><b id="st-grow">—</b></div>
+      <div class="st-main">
+        <div class="row">
+          <div class="kv two" style="flex:1 1 260px">
+            <div data-tip="Единиц биоматериала. Один миссионер — одна единица. Пополнения нет."><label>биоматериал</label><b id="st-bio">—</b></div>
+            <div data-tip="Камер на складе. Камера не производится; возврат — снять с тела и доставить к шлюзу."><label>камеры на складе</label><b id="st-cam">—</b></div>
+            <div data-tip="Выращивание: секунд до готовности."><label>выращивание</label><b id="st-grow">—</b></div>
+          </div>
+          <span class="row nowrap" style="margin-left:auto"><label class="small cg" data-tip="Пульс станции — фоновый пакет: запасы, турели, ретрансляторы, список миссионеров с флагами.">пульс <select id="sub-hb"><option value="2">каждые 2 с</option><option value="10">каждые 10 с</option><option value="0">выкл</option></select></label><span class="bw" id="bw-hb"></span>
+          <button class="ghost" id="btn-st" data-tip="Запросить статус станции вне очереди пульса.">статус ●</button></span>
+        </div>
+        <table id="roster"><thead><tr><th>№</th><th>состояние</th><th>несущая</th><th>датчики</th><th>заряд</th><th>предметы</th><th>автосъёмка</th></tr></thead><tbody></tbody></table>
       </div>
-      <h3>у шлюза <span class="dim">— обмен со складом</span></h3>
-      <div id="airlock" class="small"></div>
-      <h3>турели <span class="dim">— из пульса станции</span></h3>
-      <table id="turrets" data-tip="Свои турели: состояние и патроны — из пульса станции. Кнопка — команда 28; контур до подтверждения пульсом. Без питания турель слепа, данных о ней нет. Патроны кончились — наводится и светит, не стреляет; пополняет миссионер (положить патроны в турель)."><thead><tr><th>№</th><th>состояние</th><th>патроны</th><th></th></tr></thead><tbody></tbody></table>
-      <h3>ретрансляторы <span class="dim">— в сети станции</span></h3>
-      <table id="relays" data-tip="Ретрансляторы, чей маяк станция слышит на своём канале: питание есть, канал станции, в пределах дальности линии. К базе не привязаны — появляются в пульсе, когда есть связь. Включённый — узел: линия тел и радиус возврата считаются от ближайшего узла. Кнопка — команда 29; контур до подтверждения пульсом. Настроить на канал станции и включить может миссионер вплотную (взаимодействовать)."><thead><tr><th>№</th><th>вид</th><th>где</th><th>состояние</th><th></th></tr></thead><tbody></tbody></table>
-      <h3>миссионеры</h3>
-      <table id="roster"><thead><tr><th>№</th><th>состояние</th><th>несущая</th><th>датчики</th><th>заряд</th><th>предметы</th><th>автосъёмка</th></tr></thead><tbody></tbody></table>
-      <h3>подготовка миссионера</h3>
-      <div class="row">
-        <label class="small" id="g-cam-l"><input type="checkbox" id="g-cam"> камера</label>
-        <label class="small"><input type="checkbox" id="g-sonar" checked> лидар</label>
-        <button id="btn-grow" data-tip="Вырастить миссионера с выбранными датчиками. 3 минуты, одна единица биоматериала. Пока идёт выращивание, следующее не начать.">Подготовить ●</button>
-      </div>
-      <div id="grow-state" class="small dim"></div>
-      <div class="pbar" style="width:100%"><i id="grow-prog"></i></div>
-      <h3>камера шлюза</h3>
-      <div class="row small">
-        <select class="sub" id="st-sub-img" data-tip="Автосъёмка камеры шлюза."><option value="0">по запросу</option><option value="30">каждые 30 с</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
-        <select class="sub" id="st-img-level"><option value="0">8×8</option><option value="1">16×16</option><option value="2" selected>32×32</option><option value="3">64×64</option></select>
-        <label><input type="checkbox" id="st-img-delta" checked> дельта</label>
-        <button class="mini" id="st-btn-img">снять ●</button>
-        <span class="bw" id="bw-stimg"></span>
-      </div>
-      <div class="row" style="align-items:flex-start"><canvas id="st-img" width="64" height="64" style="width:192px;height:192px;image-rendering:pixelated;background:#000;border:1px solid var(--line)"></canvas><div><div id="st-img-state" class="dim small"></div><div class="pbar" style="width:120px"><i id="st-img-prog"></i></div></div></div>
-      <div class="row"><label class="small cg" data-tip="Пульс станции — фоновый пакет: запасы, список миссионеров с флагами.">пульс станции <select id="sub-hb"><option value="2">каждые 2 с</option><option value="10">каждые 10 с</option><option value="0">выкл</option></select></label><span class="bw" id="bw-hb"></span></div>
+      <section class="mod">
+        <h3>подготовка миссионера</h3>
+        <div class="row">
+          <label class="small" id="g-cam-l"><input type="checkbox" id="g-cam"> камера</label>
+          <label class="small"><input type="checkbox" id="g-sonar" checked> лидар</label>
+          <button id="btn-grow" data-tip="Вырастить миссионера с выбранными датчиками. 3 минуты, одна единица биоматериала. Пока идёт выращивание, следующее не начать.">Подготовить ●</button>
+          <span id="grow-state" class="small dim"></span>
+        </div>
+        <div class="pbar" style="width:100%"><i id="grow-prog"></i></div>
+      </section>
+      <section class="mod">
+        <h3>у шлюза <span class="dim">— обмен со складом</span></h3>
+        <div id="airlock" class="small"></div>
+      </section>
+      <section class="mod">
+        <h3>турели</h3>
+        <table id="turrets" data-tip="Свои турели: состояние и патроны — из пульса станции. Кнопка — команда 28; контур до подтверждения пульсом. Без питания турель слепа, данных о ней нет. Патроны кончились — наводится и светит, не стреляет; пополняет миссионер (положить патроны в турель)."><thead><tr><th>№</th><th>состояние</th><th>патроны</th><th></th></tr></thead><tbody></tbody></table>
+      </section>
+      <section class="mod">
+        <h3>ретрансляторы <span class="dim">— в сети станции</span></h3>
+        <table id="relays" data-tip="Ретрансляторы, чей маяк станция слышит на своём канале: питание есть, канал станции, в пределах дальности линии. К базе не привязаны — появляются в пульсе, когда есть связь. Включённый — узел: линия тел и радиус возврата считаются от ближайшего узла. Кнопка — команда 29; контур до подтверждения пульсом. Настроить на канал станции и включить может миссионер вплотную (взаимодействовать)."><thead><tr><th>№</th><th>вид</th><th>где</th><th>состояние</th><th></th></tr></thead><tbody></tbody></table>
+      </section>
+      <section class="mod">
+        <h3>камера шлюза</h3>
+        <div class="row small">
+          <select class="sub" id="st-sub-img" data-tip="Автосъёмка камеры шлюза."><option value="0">по запросу</option><option value="30">каждые 30 с</option><option value="10">каждые 10 с</option><option value="3">каждые 3 с</option></select>
+          <select class="sub" id="st-img-level"><option value="0">8×8</option><option value="1">16×16</option><option value="2" selected>32×32</option><option value="3">64×64</option></select>
+          <label><input type="checkbox" id="st-img-delta" checked> дельта</label>
+          <button class="mini" id="st-btn-img">снять ●</button>
+          <span class="bw" id="bw-stimg"></span>
+        </div>
+        <div class="row" style="align-items:flex-start"><canvas id="st-img" width="64" height="64" style="width:192px;height:192px;image-rendering:pixelated;background:#000;border:1px solid var(--line)"></canvas><div><div id="st-img-state" class="dim small"></div><div class="pbar" style="width:120px"><i id="st-img-prog"></i></div></div></div>
+      </section>
     </div>
     <div class="tab" id="tab-channel">
       <canvas id="chart-ch" width="720" height="220"></canvas>

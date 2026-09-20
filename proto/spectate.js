@@ -78,6 +78,8 @@ function frameAt(t){ if(!frames.length) return null; let lo=0, hi=frames.length-
   return { t, units:a.units.map(u=>{ const v=b.units.find(v=>v.id===u.id); return v&&u.alive?mix(u,v):u; }), pack:a.pack.map(p=>{ const q=b.pack[p.i]; return q&&p.act!=='dead'?mix(p,q):p; }), turrets:a.turrets, relays:a.relays, ground:a.ground }; }
 
 // ---------- рисование ----------
+// крест на месте гибели — размер не зависит от масштаба, чтобы труп не терялся при отдалении
+function cross(X,Y,col){ ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(X-4,Y-4); ctx.lineTo(X+4,Y+4); ctx.moveTo(X-4,Y+4); ctx.lineTo(X+4,Y-4); ctx.stroke(); ctx.lineWidth=1; }
 const UCOL=['#7fe07f','#5fd0ff','#e0a94a','#d98cff','#ff9f5f'];
 function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   if(hm.box){ const b=hm.box; ctx.drawImage(hm.cv,S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); }
@@ -115,15 +117,16 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   for(const u of f.units){ const X=S(u.x),Y=Sy(u.y), col=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666';
     if(layers.senses&&u.alive&&u.light){ ctx.fillStyle='rgba(255,255,200,0.05)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,25*sc,u.h-0.45,u.h+0.45); ctx.closePath(); ctx.fill(); }
     if(layers.targets&&u.tg){ ctx.setLineDash([3,4]); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(u.tg[0]),Sy(u.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
-    ctx.fillStyle=col; ctx.fillRect(X-3,Y-3,7,7); if(u.alive){ ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(u.h)*9,Y+Math.sin(u.h)*9); ctx.stroke(); }
+    if(u.alive){ ctx.fillStyle=col; ctx.fillRect(X-3,Y-3,7,7); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(u.h)*9,Y+Math.sin(u.h)*9); ctx.stroke(); } else cross(X,Y,'#b8bfc7');   // тело лежит, где упало: крест
     if(layers.labels){ ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?(u.reflex===5?' бой':u.reflex===6?' бегство':u.stealth?' тихо':''):' †'}`,X+7,Y-8); } }
   // особи
-  for(const p of f.pack){ const X=S(p.x),Y=Sy(p.y); const dead=p.act==='dead', col=dead?'#7a2a2a':'#ff5c5c', r=Math.max(3,0.8*p.size*sc);
+  for(const p of f.pack){ const X=S(p.x),Y=Sy(p.y); const dead=p.act==='dead', col=dead?'#c06060':'#ff5c5c', r=Math.max(3,0.8*p.size*sc);
     if(layers.targets&&p.tg&&!dead){ ctx.setLineDash([3,4]); ctx.strokeStyle='rgba(255,92,92,0.6)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(p.tg[0]),Sy(p.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
     if(layers.senses&&p.foe&&!dead){ ctx.strokeStyle='rgba(255,180,80,0.5)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(p.foe[0]),Sy(p.foe[1])); ctx.stroke(); }
     if(p.lit){ ctx.strokeStyle='#ffdc78'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(X,Y,r+4,0,7); ctx.stroke(); ctx.lineWidth=1; }
-    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(X,Y,r,0,7); ctx.fill(); if(dead){ ctx.strokeStyle='#000'; ctx.beginPath(); ctx.moveTo(X-3,Y-3); ctx.lineTo(X+3,Y+3); ctx.moveTo(X-3,Y+3); ctx.lineTo(X+3,Y-3); ctx.stroke(); }
-    else if(p.act!=='sleep'&&p.act!=='rest'){ ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(p.h)*(r+5),Y+Math.sin(p.h)*(r+5)); ctx.stroke(); }
+    if(dead) cross(X,Y,'#e07070');   // труп лежит, где упал: крест
+    else { ctx.fillStyle=col; ctx.beginPath(); ctx.arc(X,Y,r,0,7); ctx.fill(); }
+    if(!dead&&p.act!=='sleep'&&p.act!=='rest'){ ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(p.h)*(r+5),Y+Math.sin(p.h)*(r+5)); ctx.stroke(); }
     if(p.item){ ctx.fillStyle='#cfd6de'; ctx.beginPath(); ctx.moveTo(X,Y-r-7); ctx.lineTo(X+3,Y-r-4); ctx.lineTo(X,Y-r-1); ctx.lineTo(X-3,Y-r-4); ctx.closePath(); ctx.fill(); if(sc>=2){ ctx.fillText(ITEMS[p.item],X+5,Y-r-6); } }   // ноша
     if(layers.labels){ ctx.fillStyle=col; ctx.fillText(`О${p.i+1} ${ACT_RU[p.act]||p.act}${p.told&&!dead?' ●':''}`,X+r+4,Y+8); } }
   const sel=pinned||hover; if(sel){ const o=findSel(f,sel); if(o){ ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),11,0,7); ctx.stroke(); } }

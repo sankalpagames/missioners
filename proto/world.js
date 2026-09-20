@@ -682,13 +682,15 @@ function tick(){
       u.cons=0.6+0.8*u.exertion+Math.pow(10,u.txDbm/10)*0.4+(u.lightOn?0.2:0)+(u.sub.img.interval?0.3:0)-(rest?0.4:0); u.gen=0.8-0.3*u.fear;
       u.charge=Math.max(0,Math.min(100,u.charge+(u.gen-u.cons)*dt*0.01));   // ходьба с фонарём: ~3 ч; стоя — почти ровно; отдых восстанавливает
       if(LAB){ u.glucose=u.electro=u.charge=100; }
-      if(u.skin<=0||u.bone<=0||u.glucose<=0||u.charge<=0){ u.alive=false; u.target=null; evt(5,u.id); note('unit',{unit:u.id,dead:u.skin<=0?'skin':u.bone<=0?'bone':u.glucose<=0?'glucose':'charge',skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),glucose:+u.glucose.toFixed(0),charge:+u.charge.toFixed(0),psyche:+u.psyche.toFixed(0),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); }
-      if(u.sub.tlm){ u.tlmTimer+=dt; if(u.tlmTimer>=u.sub.tlm){ u.tlmTimer=0; emit('bg','TLM',u.id,telemetry(u)); } }
+      if(u.skin<=0||u.bone<=0||u.glucose<=0||u.charge<=0){ u.alive=false; u.target=null; u.diedAt=t; evt(5,u.id); note('unit',{unit:u.id,dead:u.skin<=0?'skin':u.bone<=0?'bone':u.glucose<=0?'glucose':'charge',skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),glucose:+u.glucose.toFixed(0),charge:+u.charge.toFixed(0),psyche:+u.psyche.toFixed(0),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); }
       if(u.sub.desc){ u.subT.desc+=dt; if(u.subT.desc>=u.sub.desc){ u.subT.desc=0; describe(u,'bg'); } }
     } else {
+      // сердце после смерти: всплеск до ~200 за секунды (боль, кровопотеря), затем остановка за ~20 с — телеметрия это показывает, датчики на теле живут на остатке заряда
+      const since=u.diedAt===undefined?1e9:t-u.diedAt; const pt=since<5?200:0; u.pulse+=(pt-u.pulse)*dt/(since<5?1:5); if(u.pulse<3) u.pulse=0; u.pain=Math.max(0,u.pain-dt/8);
       u.cons=u.charge>0?(u.sub.img.interval?0.3:0.04):0; u.gen=0;
       u.charge=Math.max(0,u.charge-dt*(u.sub.img.interval?0.03:0.004));   // приборы на теле сидят на остатке заряда
     }
+    if(u.sub.tlm && u.charge>0){ u.tlmTimer+=dt; if(u.tlmTimer>=u.sub.tlm){ u.tlmTimer=0; emit('bg','TLM',u.id,telemetry(u)); } }   // телеметрия — датчик, как лидар и камера: идёт и с мёртвого тела, пока есть заряд
     if(u.sub.sonar && u.sensors.sonar && u.charge>0){ u.subT.sonar+=dt; if(u.subT.sonar>=u.sub.sonar){ u.subT.sonar=0; sonar(u,'bg'); } }
     if(u.sub.img.interval && u.sensors.camera && u.charge>0){ u.subT.img+=dt; if(u.subT.img>=u.sub.img.interval){ u.subT.img=0; if(u.sub.img.delta) imageDelta(u,u.sub.img.level); else imagePyramid(u,u.sub.img.level,'bg'); } }
   }

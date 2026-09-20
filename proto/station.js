@@ -83,7 +83,7 @@ function makeStation(opts){
     if(m.t==='up'){ log({k:'up', st:k, bytes:Array.from(m.bytes)}); L.link.sendUplink(m.bytes); return; }
     if(m.t==='speed'){ speed=m.v; W.setSpeed(m.v); log({k:'speed', v:m.v}); return; }
     if(m.t==='save'){ W.handle(m); return; }
-    if(m.t==='load'){ for(const x of links) x.link.reset(); W.handle(m); return; }
+    if(m.t==='load'){ for(const x of links){ x.link.reset(); x.link.t=(m.data&&m.data.t)||0; } W.handle(m); return; }   // часы канала — как у мира, иначе консоль после восстановления живёт в прошлом (возрасты отрицательные)
     if(m.t==='intent'||m.t==='agentState'){ W.handle(m); return; }   // от хоста агента (HTTP-API, REPL); консоль этого не шлёт
     if(!opts.debug) return;   // дальше — только отладка
     if(m.t==='cfg'){ L.link.cfg[m.k]=m.v; log({k:'cfg', st:k, key:m.k, v:m.v}); return; }
