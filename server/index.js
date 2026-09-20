@@ -4,11 +4,14 @@
 // канал делят). Раздаёт proto/ статикой, держит WebSocket /ws?room=КОД. Мир идёт, только пока в комнате есть операторы.
 // Сохранение — JSON-файл на комнату в DATA_DIR (по умолчанию /home/data на App Service, иначе ./data): снимок мира,
 // номера последних пакетов и хвосты доставленных пакетов по платформам — ими досылаются пропуски при повторном подключении.
-// Запуск: node server/index.js [порт] [debug]   (или PORT, DATA_DIR, DEBUG=1; debug — отдавать правду о мире в шторку и принимать телепорт)
+// Запуск: node server/index.js [порт] [debug] [level=ФАЙЛ]   (или PORT, DATA_DIR, DEBUG=1, LEVEL_FILE; debug — отдавать правду о мире в шторку
+// и принимать телепорт; level — уровень вместо proto/level.js: файл в формате level.js, например экспорт из редактора. Одна карта на сервер,
+// все комнаты на ней; комнаты, сохранённые на другой карте, восстанавливаются на этой — сохранение карту не помнит)
 const fs=require('fs'), path=require('path'), http=require('http'), zlib=require('zlib'), crypto=require('crypto');
 const {WebSocketServer}=require('ws'); const {decodePNG}=require('../tools/png.js'); const {OpConsole}=require('./opconsole.js');
 const ROOT=path.join(__dirname,'..'), P=path.join(ROOT,'proto')+'/';
 const PORT=+process.argv[2]||+process.env.PORT||8765, DEBUG=!!process.env.DEBUG||process.argv.includes('debug');
+const LEVEL_FILE=(process.argv.find(a=>a.startsWith('level='))||'').slice(6)||process.env.LEVEL_FILE||'';   // своя карта: путь к файлу уровня
 const DATA=process.env.DATA_DIR||(process.env.WEBSITE_SITE_NAME?'/home/data':path.join(ROOT,'data'));   // WEBSITE_SITE_NAME — признак App Service
 fs.mkdirSync(DATA,{recursive:true});
 const RING=20000, SAVE_EVERY=10000, TAIL=5000;
@@ -16,20 +19,22 @@ const PACK_RING=2000, PACK_WAIT_MAX=30, PACK_MIN_MS=200;   // сторона с�
 
 // станция и мир — теми же исходниками, что в браузере
 const read=f=>fs.readFileSync(P+f,'utf8');
+const levelPath=LEVEL_FILE?path.resolve(LEVEL_FILE):P+'level.js', levelSrc=fs.readFileSync(levelPath,'utf8');
+if(!/^\/\/ УРОВЕНЬ/.test(levelSrc)||!/\nconst LEVEL = \{/.test(levelSrc)){ console.error(`${levelPath}: не файл уровня (ожидается формат proto/level.js)`); process.exit(1); }
 const makeStation=new Function(read('link.js')+'\n'+read('station.js')+'\nreturn makeStation;')();
-const worldSrc=['level.js','codebook.js','terrain.js','camera.js','world.js'].map(read).join('\n');
+const worldSrc=[levelSrc, ...['codebook.js','terrain.js','camera.js','world.js'].map(read)].join('\n');
 const atlas=(()=>{ const a=decodePNG(fs.readFileSync(P+'sprites.png')); const json=JSON.parse(read('sprites.json')); const px=new Uint8Array(a.w*a.h*4); for(let i=0;i<a.w*a.h;i++){ px[i*4]=a.gray[i]; px[i*4+3]=a.alpha[i]; } return {json,px}; })();
 const replacer=(k,v)=>v instanceof Uint8Array?Array.from(v):v;
 const enc=m=>JSON.stringify(m,replacer);
 
 // настройки комнаты задаёт создатель в лобби, одинаковы для всех платформ: число платформ, ёмкость дальней линии, ускорение времени
-const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4], MAXN=new Function(read('level.js')+'\nreturn LEVEL;')().stations.length;   // не больше слотов платформ в уровне
+const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4], MAXN=new Function(levelSrc+'\nreturn LEVEL;')().sites.length;   // не больше площадок в уровне
 const roomCfg=q=>({ n:Math.max(2,Math.min(MAXN,+q.n||2)), cap:CAPS.includes(+q.cap)?+q.cap:512, speed:SPEEDS.includes(+q.speed)?+q.speed:1,
   pack:/^[0-9a-f]{12,32}$/.test(q.pack||'')?q.pack:crypto.randomBytes(8).toString('hex') });   // pack — токен стаи: выдаётся создателю планеты, по нему агент входит (docs/agent-api.md)
 const pubCfg=c=>{ const {pack,...o}=c; return o; };   // наружу (список планет) токен не отдаётся
 class Room {
   constructor(code,cfg){ this.code=code; this.file=path.join(DATA,code+'.json'); this.logFile=path.join(DATA,code+'.log'); this.logBuf=[]; this.clients=new Set(); this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → {name, st}, все операторы, что были в комнате
-    let d=null; try{ d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==2){ log(`${code}: старый формат сохранения v${d.v}, новая планета`); d=null; } }
+    let d=null; try{ d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==3){ log(`${code}: старый формат сохранения v${d.v}, новая планета`); d=null; } }
     catch(e){ if(e.code!=='ENOENT') log(`${code}: сохранение не прочитано (${e.message}), новая планета`); }
     this.cfg=roomCfg(d?(d.cfg||{}):(cfg||{}));   // число платформ — из сохранения, если оно есть: мир уже с ним
     this.pack={ lines:[], waiters:[], last:0, capture:null };   // сторона стаи: лента восприятия с курсором n, ожидающие долгого опроса, время последнего запроса, перехват ответов мира
@@ -38,7 +43,7 @@ class Room {
     setImmediate(()=>this.st.W.CAM.build(atlas.json,atlas.px));
     if(d){ this.st.restore(d.world,d.n); (d.rings||[]).forEach((r,k)=>{ if(this.rings[k]) this.rings[k]=r; }); this.seen=d.seen||{}; log(`${code}: восстановлена, t=${d.world.t|0} с, платформ ${this.cfg.n}, пакетов ${[].concat(d.n).join('/')}`); }
     else log(`${code}: новая планета, платформ ${this.cfg.n}`);
-    this.st.log({k:'start', host:'server', code, cfg:this.cfg, restored:!!d, wall:new Date().toISOString()});
+    this.st.log({k:'start', host:'server', code, cfg:this.cfg, level:path.basename(levelPath), restored:!!d, wall:new Date().toISOString()});
     for(const L of this.st.links) L.link.cfg.deepCapBps=this.cfg.cap; this.st.handle({t:'speed',v:this.cfg.speed});
   }
   out(m){
@@ -85,7 +90,7 @@ class Room {
       return; }
     if(DEBUG&&(m.t==='cfg'||m.t==='tp'||m.t==='peek')) this.st.handle(m);   // speed/load/save от клиентов не принимаются: ускорение — настройка комнаты, мир — у сервера
   }
-  save(){ const d={v:2, savedAt:Date.now(), world:this.st.snapshot(), n:this.st.rxN(), cfg:this.cfg, seen:this.seen, rings:this.rings.map(r=>r.slice(-TAIL))};
+  save(){ const d={v:3, savedAt:Date.now(), world:this.st.snapshot(), n:this.st.rxN(), cfg:this.cfg, seen:this.seen, rings:this.rings.map(r=>r.slice(-TAIL))};
     try{ fs.writeFileSync(this.file+'.tmp',enc(d)); fs.renameSync(this.file+'.tmp',this.file); }catch(e){ log(`${this.code}: сохранение не удалось: ${e.message}`); } }
 }
 const rooms=new Map(); const room=(code,cfg)=>{ if(!rooms.has(code)) rooms.set(code,new Room(code,cfg)); return rooms.get(code); };
@@ -94,7 +99,7 @@ const diskInfo={};
 function listRooms(){ const out=[]; const codes=new Set(rooms.keys());
   for(const f of fs.readdirSync(DATA)){ if(!f.endsWith('.json')) continue; const code=f.slice(0,-5); if(codes.has(code)) continue; codes.add(code);
     try{ const st=fs.statSync(path.join(DATA,f)); const c=diskInfo[code]; if(c&&c.mtime===st.mtimeMs){ out.push(c.info); continue; }
-      const d=JSON.parse(fs.readFileSync(path.join(DATA,f),'utf8')); if(d.v!==2) continue; const u=d.world.units; const info={code, cfg:pubCfg(roomCfg(d.cfg||{})), ops:[], t:d.world.t||0, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:d.savedAt,
+      const d=JSON.parse(fs.readFileSync(path.join(DATA,f),'utf8')); if(d.v!==3) continue; const u=d.world.units; const info={code, cfg:pubCfg(roomCfg(d.cfg||{})), ops:[], t:d.world.t||0, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:d.savedAt,
         running:false, lastCmd:0, stations:(d.world.stations||[]).map(S=>({k:S.k, name:S.name, ops:[], units:u.filter(x=>x.st===S.k).length, alive:u.filter(x=>x.st===S.k&&x.alive).length}))}; diskInfo[code]={mtime:st.mtimeMs,info}; out.push(info); }catch(e){} }
   for(const r of rooms.values()) out.push(r.info());
   return out.sort((a,b)=>(b.ops.length-a.ops.length)||(b.savedAt-a.savedAt)); }
@@ -166,6 +171,7 @@ const server=http.createServer((req,res)=>{
   if(f.startsWith('/pack/')){ packApi(req,res,u,f.slice(6)); return; }
   if(f.startsWith('/op/')){ opApi(req,res,u,f.slice(4)); return; }
   if(f==='/rooms'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(listRooms())); return; }
+  if(f==='/level.js'){ res.writeHead(200,{'Content-Type':MIME['.js'],'Cache-Control':'no-store'}); res.end(levelSrc); return; }   // карта сервера, та же, что в мире (спектатор, проверки)
   const fp=path.normalize(path.join(P,f)); if(!fp.startsWith(P)||/editor|serve\.py/.test(f)){ res.writeHead(404); res.end(); return; }   // редактор — только локально через serve.py
   fs.readFile(fp,(e,b)=>{ if(e){ res.writeHead(404); res.end('not found'); return; } res.writeHead(200,{'Content-Type':MIME[path.extname(fp)]||'application/octet-stream','Cache-Control':'no-store'}); res.end(b); });
 });
@@ -179,4 +185,4 @@ server.on('upgrade',(req,sock,head)=>{
 });
 process.on('SIGTERM',()=>{ for(const r of rooms.values()){ r.save(); r.flushLog(); } process.exit(0); });
 process.on('SIGINT',()=>{ for(const r of rooms.values()){ r.save(); r.flushLog(); } process.exit(0); });
-server.listen(PORT,()=>log(`станция слушает :${PORT}, данные в ${DATA}${DEBUG?', отладка':''}`));
+server.listen(PORT,()=>log(`станция слушает :${PORT}, данные в ${DATA}${DEBUG?', отладка':''}, карта ${LEVEL_FILE?levelPath:'proto/level.js'} (площадок ${MAXN})`));

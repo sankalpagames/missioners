@@ -14,6 +14,8 @@ function hmDirty(ms=80){ clearTimeout(hm.timer); hm.timer=setTimeout(()=>{ MAPDR
 
 // ---------- лог ----------
 let frames=[], events=[], cries=[], t0=0, t1=0, cur=0, playing=false, speed=4, pinned=null, hover=null, feedIdx=-1;
+let nSt=LEVEL.sites.length;   // сколько платформ было в сеансе — из записи start; базы рисуются по раскладке уровня (LEVEL.layouts), как их поднял хост
+const bases=()=>sitesFor(LEVEL,nSt).map((si,k)=>({k, ...baseAt(LEVEL.sites[si])}));
 const ACT_RU={sleep:'спит',idle:'стоит',freeze:'замерла',approach:'подходит',attack:'нападает',back:'отходит',flee:'бежит',home:'домой',rest:'передышка',goto:'идёт',stay:'ждёт',dead:'мертва'};
 function b64(s){ const b=atob(s); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
 function load(text){
@@ -29,7 +31,7 @@ function load(text){
     if(r.k==='pkt'&&r.kind==='EVT'){ const b=b64(r.b); events.push({t:r.at??t, cls:'op', text:`ARK-04${1+(r.st||0)}: событие ${b[0]}${r.unit?' М'+r.unit:''} — ${EVENTS[b[0]]||'?'}${b[1]?' ('+b[1]+')':''}`}); continue; }
     if(r.k==='up'){ events.push({t, cls:'op', text:`ARK-04${1+(r.st||0)}: команда ${r.bytes[0]}${r.bytes[2]?' М'+r.bytes[2]:''} (${r.bytes[1]})`}); continue; }
     if(r.k==='op'){ events.push({t, cls:'op', text:r.join?`оператор ${r.join} вошёл (ARK-04${1+(r.st||0)})`:`оператор ${r.leave} вышел`}); continue; }
-    if(r.k==='start'){ events.push({t, cls:'note', text:`начало: ${r.host}${r.code?' '+r.code:''}, платформ ${r.n}${r.wall?', '+r.wall:''}`}); continue; }
+    if(r.k==='start'){ const n=r.n||(r.cfg&&r.cfg.n); if(n) nSt=Math.max(1,Math.min(LEVEL.sites.length,n)); events.push({t, cls:'note', text:`начало: ${r.host}${r.code?' '+r.code:''}, платформ ${n||'?'}${r.level&&r.level!=='level.js'?', карта '+r.level:''}${r.wall?', '+r.wall:''}`}); continue; }
     if(r.k==='speed'){ events.push({t, cls:'note', text:`ускорение ×${r.v}`}); } }
   events.sort((a,b)=>a.t-b.t); cries.sort((a,b)=>a.t-b.t);
   t0=frames.length?frames[0].t:0; t1=frames.length?frames[frames.length-1].t:(events.length?events[events.length-1].t:0); cur=t0;
@@ -56,15 +58,15 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
       ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(S(p.x+nx*w0),Sy(p.y+ny*w0)); ctx.lineTo(S(q.x+nx*w1),Sy(q.y+ny*w1)); ctx.lineTo(S(q.x-nx*w1),Sy(q.y-ny*w1)); ctx.lineTo(S(p.x-nx*w0),Sy(p.y-ny*w0)); ctx.closePath(); ctx.fill(); } };
   band(C.pts,C.w,'rgba(80,140,255,0.18)',false); band(C.branch.pts,C.branch.w,'rgba(80,140,255,0.12)',true);
   if(LEVEL.bounds){ const b=LEVEL.bounds; ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(255,92,92,0.5)'; ctx.strokeRect(S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); ctx.setLineDash([]); }   // край уровня
-  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; for(const n of LEVEL.stations){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),500*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }   // радиус возврата ПС-2 (без мачты: усилитель — состояние мира, в логе его пока нет)
+  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; for(const n of bases()){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),500*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }   // радиус возврата ПС-2 (без мачты: усилитель — состояние мира, в логе его пока нет)
   // платформы, корпуса, ориентиры, логово
-  LEVEL.stations.forEach((st,k)=>{ const X=S(st.x),Y=Sy(st.y); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,(st.ang||0)*Math.PI/180,0,7); ctx.stroke(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+k),X-14,Y-STATION.ry*sc-6); } });
+  for(const B of bases()){ const X=S(B.x),Y=Sy(B.y); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,B.ang*Math.PI/180,0,7); ctx.stroke(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+B.k),X-14,Y-STATION.ry*sc-6); } }
   for(const h of LEVEL.hulls){ ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(h.x),Sy(h.y),h.r*sc,0,7); ctx.stroke(); }
   for(const p of LEVEL.pois){ const X=S(p.x),Y=Sy(p.y); ctx.fillStyle='rgba(127,224,127,0.6)'; ctx.beginPath(); ctx.moveTo(X,Y-4); ctx.lineTo(X+4,Y); ctx.lineTo(X,Y+4); ctx.lineTo(X-4,Y); ctx.closePath(); ctx.fill(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='rgba(127,224,127,0.6)'; ctx.fillText(CODEBOOK[p.id].name,X+7,Y-7); } }
   { const L=LEVEL.pack.lair; ctx.strokeStyle='#8a3a3a'; ctx.beginPath(); ctx.arc(S(L.x),Sy(L.y),Math.max(4,3*sc),0,7); ctx.stroke(); if(layers.labels&&sc>=1){ ctx.fillStyle='#8a3a3a'; ctx.fillText('логово',S(L.x)+7,Sy(L.y)); } }
   const f=frameAt(cur); if(!f){ return; }
   // турели: сектор и захват
-  LEVEL.stations.forEach(st=>{ ctx.setLineDash([3,5]); ctx.strokeStyle='rgba(255,220,120,0.3)'; ctx.beginPath(); ctx.arc(S(st.x),Sy(st.y),STATION.powerR*sc,0,7); ctx.stroke(); ctx.setLineDash([]); });   // зона питания
+  for(const B of bases()){ ctx.setLineDash([3,5]); ctx.strokeStyle='rgba(255,220,120,0.3)'; ctx.beginPath(); ctx.arc(S(B.x),Sy(B.y),STATION.powerR*sc,0,7); ctx.stroke(); ctx.setLineDash([]); }   // зона питания
   for(const [k,T] of f.turrets.entries()){ if(!T) continue; const X=S(T.x),Y=Sy(T.y); const live=T.on!==false&&T.powered!==false&&!T.broken;
     if(layers.sectors){ ctx.fillStyle=live?'rgba(255,220,120,0.07)':'rgba(120,120,120,0.05)'; ctx.strokeStyle=live?'rgba(255,220,120,0.35)':'rgba(120,120,120,0.3)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,T.range*sc,T.ang-T.fov/2,T.ang+T.fov/2); ctx.closePath(); ctx.fill(); ctx.stroke(); }
     ctx.fillStyle=T.broken?'#8a3a3a':live?'#ffdc78':'#777'; ctx.fillRect(X-3,Y-3,7,7);

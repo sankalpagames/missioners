@@ -20,26 +20,35 @@ function undo(){ if(!hist.length) return; replaceLevel(JSON.parse(hist.pop())); 
 const num=v=>String(Math.round(v*100)/100);
 const nameOf=t=>(CODEBOOK[t]||{}).name||('тип '+t);
 function levelText(){ const L=LEVEL; const o=[];
-  o.push(`// УРОВЕНЬ. Данные первого акта: где что стоит. Ориентиры с подобъектами, расщелина, корпуса, существо, сюжетные декорации.
+  o.push(`// УРОВЕНЬ. Данные первого акта: где что стоит. Ориентиры с подобъектами, расщелина, корпуса, одичалые, сюжетные декорации.
 // Подключается в мир (world.js, terrain.js), в редактор (editor.html, только localhost) и в headless-проверки; консоль этого файла не видит.
 // Файл пишет редактор — комментарии-имена он восстанавливает из кодовой книги, прочие комментарии при сохранении не сохраняются.
 // Типы и их свойства (имя, состояния, действия, спрайт, высота отражателя) — в codebook.js и world.js; здесь только положение и начальное состояние.
-//   stations — посадочные платформы: центр корпуса (эллипс STATION из кодовой книги) и курс ang в градусах; airlock — шлюз (ориентир
-//              типа 1, id 240+k) с подобъектами subs (id 160+k·4+i, не больше 4); spawn — где появляется миссионер и куда идёт «отступление».
-//              Сколько платформ поднимать, решает хост: одиночная игра — первую, сетевая комната — по числу операторов.
+//   sites    — площадки под базы: центр и курс ang в градусах. Самой базы в уровне нет — она разворачивается по штатному составу
+//              (BASE в кодовой книге: корпус, шлюз, старт, люк, прожектор, ящики, турель), когда хост поднимает платформу.
+//              subs — сюжетные подобъекты у шлюза сверх штатных (смещения от шлюза в осях площадки; всего не больше 10, id 160+k·10+i);
+//              turret — своя турель вместо штатной: dx/dy от центра площадки, f — курс от курса площадки, fov/range/aim/reload.
+//   layouts  — какие площадки заняты при n платформах: индексы площадок в порядке платформ (ARK-041, 042, …). Без записи — первые n.
+//              Сколько платформ поднимать, решает хост: одиночная игра — одну, сетевая комната — по настройке.
 //   pois     — ориентиры: id = тип из кодовой книги (2…9). subs — подобъекты, id = id ориентира·10 + индекс (не больше 10 штук):
 //              type — тип из кодовой книги, dx/dy — смещение от ориентира, м; f — курс, градусы (нет — по хешу id);
 //              state — начальное состояние (нет — 0); items — содержимое контейнера.
 //   canyon   — расщелина: колена pts и ширина w в каждом колене, м; branch — тупиковый отросток (первое колено — на оси расщелины).
+//   bounds   — край уровня, м: дальше тела и одичалые не ступают (рельеф — функция от координат, определён везде; край — техническая гарантия,
+//              что баг или бесконечная цель не уведут за карту). Спектатор и редактор рисуют его рамкой.
 //   hulls    — корпуса кроме платформы (она — STATION в кодовой книге): круги, непроходимы и отражают лидар; h — высота, м.
-//   pack     — одичалые: lair — логово, members — особи: лёжка x/y и черты 0…1 (size, courage, attention). Не больше 10.
+//   pack     — одичалые: lair — логово (куда уходят), members — особи: лёжка x/y и черты 0…1 — size (размер, 1 = тело миссионера),
+//              courage (храбрость: пугливый → агрессивный), attention (внимательность: радиус чувств, кто кричит первым). Не больше 10.
 //   decor    — сюжетные декорации: type — лист из SPRITES, f — курс в градусах, Hs — высота, м. Процедурные декорации — в terrain.js.
 const LEVEL = {`);
-  o.push(`  stations: [`);
-  L.stations.forEach((S,k)=>{ o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}, spawn:{x:${num(S.spawn.x)}, y:${num(S.spawn.y)}}, airlock:{x:${num(S.airlock.x)}, y:${num(S.airlock.y)}}, subs:[   // ARK-04${1+k}`);
+  o.push(`  sites: [`);
+  L.sites.forEach((S,i)=>{ const T=S.turret; const tur=T?`, turret:{dx:${num(T.dx)}, dy:${num(T.dy)}, f:${num(T.f||0)}${T.fov!==undefined?', fov:'+num(T.fov):''}${T.range!==undefined?', range:'+num(T.range):''}${T.aim!==undefined?', aim:'+num(T.aim):''}${T.reload!==undefined?', reload:'+num(T.reload):''}}`:'';
+    if(!S.subs||!S.subs.length){ o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}${tur} },   // площадка ${1+i}`); return; }
+    o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}${tur}, subs:[   // площадка ${1+i}`);
     for(const s of S.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
     o.push(`    ] },`); });
   o.push(`  ],`);
+  o.push(`  layouts: { ${Object.keys(L.layouts||{}).map(n=>`${n}:[${L.layouts[n].join(',')}]`).join(', ')} },`);
   o.push(`  pois: [`);
   for(const p of L.pois){ o.push(`    { id:${p.id}, x:${num(p.x)}, y:${num(p.y)}, subs:[   // ${nameOf(p.id)}`);
     for(const s of p.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; o.push(`      ${f}},   // ${nameOf(s.type)}`); }
@@ -49,7 +58,6 @@ const LEVEL = {`);
   o.push(`  canyon: {`); o.push(`    pts: [${pts(L.canyon.pts)}],`); o.push(`    w: [${L.canyon.w.map(num).join(', ')}],`);
   o.push(`    branch: { pts: [${pts(L.canyon.branch.pts)}], w: [${L.canyon.branch.w.map(num).join(', ')}] },`); o.push(`  },`);
   if(L.bounds) o.push(`  bounds: {x0:${num(L.bounds.x0)}, y0:${num(L.bounds.y0)}, x1:${num(L.bounds.x1)}, y1:${num(L.bounds.y1)}},`);
-  o.push(`  turrets: [`); for(const T of (L.turrets||[])) o.push(`    {st:${T.st}, x:${num(T.x)}, y:${num(T.y)}, f:${num(T.f||0)}${T.fov?', fov:'+num(T.fov):''}${T.range?', range:'+num(T.range):''}${T.aim?', aim:'+num(T.aim):''}${T.reload?', reload:'+num(T.reload):''}},`); o.push(`  ],`);
   o.push(`  hulls: [`); for(const h of L.hulls) o.push(`    {x:${num(h.x)}, y:${num(h.y)}, r:${num(h.r)}, h:${num(h.h)}},${h.name?'   // '+h.name:''}`); o.push(`  ],`);
   o.push(`  pack: { lair:{x:${num(L.pack.lair.x)},y:${num(L.pack.lair.y)}}, members:[`); for(const m of L.pack.members) o.push(`    {x:${num(m.x)}, y:${num(m.y)}, size:${num(m.size)}, courage:${num(m.courage)}, attention:${num(m.attention)}},`); o.push(`  ] },`);
   o.push(`  decor: [`); for(const d of L.decor) o.push(`    {id:${d.id}, type:'${d.type}', x:${num(d.x)}, y:${num(d.y)}, f:${num(d.f)}, Hs:${num(d.Hs)}},`); o.push(`  ],`);
@@ -61,6 +69,17 @@ async function save(){ const text=levelText(); setStatus('сохранение�
 function showText(){ $('#text').value=levelText(); $('#textwrap').hidden=false; }
 $('#btn-save').onclick=save; $('#btn-text').onclick=showText; $('#btn-text-close').onclick=()=>$('#textwrap').hidden=true;
 $('#btn-copy').onclick=()=>{ navigator.clipboard.writeText($('#text').value); setStatus('скопировано','ok'); };
+// импорт и экспорт карт: тот же формат, что level.js (его принимает сервер: node server/index.js … level=ФАЙЛ); импорт — файл или перетаскивание на карту
+let mapName='level.js';
+function exportLevel(){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([levelText()],{type:'text/javascript'})); a.download=mapName; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); setStatus('экспорт: '+mapName,'ok'); }
+function importLevel(text,name){ let obj; try{ if(!/^\/\/ УРОВЕНЬ/.test(text)||!/\nconst LEVEL = \{/.test(text)) throw new Error('не файл уровня'); obj=new Function(text+'\nreturn LEVEL;')(); if(!Array.isArray(obj.sites)||!Array.isArray(obj.pois)||!obj.canyon) throw new Error('нет площадок, ориентиров или расщелины'); }
+  catch(e){ setStatus('импорт не удался: '+e.message,'err'); return; }
+  if(dirty&&!confirm('Есть несохранённые правки. Заменить уровень импортом?')) return;
+  pushHist(); replaceLevel(obj); sel=null; mapName=name||mapName; fillAddSelects(); renderProps(); draw(); camShot(true); setStatus(`импорт: ${mapName} — не сохранено (сохранить → proto/level.js)`,'ok'); }
+$('#btn-export').onclick=exportLevel;
+$('#btn-import').onclick=()=>$('#file-import').click();
+$('#file-import').onchange=e=>{ const f=e.target.files[0]; if(f) f.text().then(t=>importLevel(t,f.name)); e.target.value=''; };
+window.addEventListener('dragover',e=>e.preventDefault()); window.addEventListener('drop',e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) f.text().then(t=>importLevel(t,f.name)); });
 $('#btn-reload').onclick=()=>{ if(!dirty||confirm('Есть несохранённые правки. Перечитать level.js?')) location.reload(); };
 $('#btn-undo').onclick=undo;
 window.addEventListener('beforeunload',e=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
@@ -68,7 +87,7 @@ window.addEventListener('beforeunload',e=>{ if(dirty){ e.preventDefault(); e.ret
 // ---------- физика линии в точке: тот же Link, что в игре; расстояние и затухание — как считает мир ----------
 const link=new Link();
 function tunnelT(x,y){ const c=TER.inside(x,y); return c && c.along>0 ? Math.min(1,c.along/TER.LEN) : -1; }
-function lineAt(x,y,tx){ const tT=tunnelT(x,y); link.phys.units[1]={id:1,dist:Math.max(1,Math.min(...LEVEL.stations.map(st=>Math.hypot(x-st.x,y-st.y)))),obstDb:tT>=0?8+22*tT:0,txDbm:tx,alive:true}; link.phys.extraGain=$('#boost').checked?6:0;
+function lineAt(x,y,tx){ const tT=tunnelT(x,y); link.phys.units[1]={id:1,dist:Math.max(1,Math.min(...LEVEL.sites.map(st=>Math.hypot(x-st.x,y-st.y)))),obstDb:tT>=0?8+22*tT:0,txDbm:tx,alive:true}; link.phys.extraGain=$('#boost').checked?6:0;
   return {snr:link.snrDb(1),cap:link.localCapBps(1),per:link.per(1,72)}; }
 
 // ---------- карта высот: сетка отсчётов по виду, тон по высоте + светотень, красное — склон круче 40°, изогипсы (marching squares) ----------
@@ -88,7 +107,7 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     for(let y=Math.ceil(iSy(0)/g)*g;y<=iSy(H);y+=g){ ctx.beginPath(); ctx.moveTo(0,Sy(y)+0.5); ctx.lineTo(W,Sy(y)+0.5); ctx.stroke(); ctx.fillText(y,3,Sy(y)-7); } }
   if(LEVEL.bounds){ const b=LEVEL.bounds; ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(255,92,92,0.5)'; ctx.strokeRect(S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); ctx.setLineDash([]); }   // край уровня
   // радиус возврата: станция и мачта (с усилителем)
-  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; ctx.lineWidth=1; const m=poiOf(3); for(const n of [...LEVEL.stations, ...( $('#boost').checked&&m?[m]:[] )]){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),RETURN_R*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
+  if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; ctx.lineWidth=1; const m=poiOf(3); for(const n of [...LEVEL.sites, ...( $('#boost').checked&&m?[m]:[] )]){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),RETURN_R*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
   // расщелина: полоса шириной w (интерполяция по колену), ось, колена
   // ширина: у расщелины — по коленам (интерполяция вдоль сегмента), у отростка — по сегментам
   const C=LEVEL.canyon; const band=(pts,w,col,perSeg)=>{ for(let i=0;i<pts.length-1;i++){ const p=pts[i], q=pts[i+1]; const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L; const w0=(w[i]!==undefined?w[i]:w[w.length-1])/2, w1=perSeg?w0:(w[i+1]!==undefined?w[i+1]:w0*2)/2;
@@ -97,28 +116,30 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   band(C.pts,C.w,'rgba(80,140,255,0.18)',false); band(C.branch.pts,C.branch.w,'rgba(80,140,255,0.12)',true);
   const knee=(pts,w,br)=>pts.forEach((p,i)=>{ handles.push({kind:'knee',ref:p,pts,w,i,br,x:p.x,y:p.y,r:7}); ctx.fillStyle='#7fb0ff'; ctx.fillRect(S(p.x)-3,Sy(p.y)-3,7,7); if(layers.labels&&sc>=1.5&&w[i]!==undefined){ ctx.fillStyle='rgba(160,200,255,0.8)'; ctx.fillText((br?'отр ':'')+i+' · '+w[i]+' м',S(p.x)+6,Sy(p.y)-8); } });
   knee(C.pts,C.w,false); knee(C.branch.pts,C.branch.w,true);
-  // корпуса: платформа (из кодовой книги) и круги уровня
-  LEVEL.stations.forEach((st,k)=>{ const X=S(st.x),Y=Sy(st.y); handles.push({kind:'station',ref:st,x:st.x,y:st.y,r:8}); ctx.strokeStyle='#aaa'; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,(st.ang||0)*Math.PI/180,0,7); ctx.stroke();
-    if(layers.labels&&sc>=0.7){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+k),X-14,Y-STATION.ry*sc-4); } });
-  LEVEL.stations.forEach(st=>{ ctx.setLineDash([3,5]); ctx.strokeStyle='rgba(255,220,120,0.35)'; ctx.beginPath(); ctx.arc(S(st.x),Sy(st.y),STATION.powerR*sc,0,7); ctx.stroke(); ctx.setLineDash([]); });   // зона питания
-  for(const T of (LEVEL.turrets||[])){ handles.push({kind:'turret',ref:T,x:T.x,y:T.y,r:7}); const X=S(T.x),Y=Sy(T.y), a=(T.f||0)*Math.PI/180, fov=(T.fov||140)*Math.PI/180, R=(T.range||120)*sc; ctx.fillStyle='rgba(255,220,120,0.06)'; ctx.strokeStyle='rgba(255,220,120,0.4)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,R,a-fov/2,a+fov/2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle='#ffdc78'; ctx.fillRect(X-3,Y-3,7,7); if(layers.labels&&sc>=1){ ctx.fillText(`турель ARK-04${1+T.st}`,X+7,Y+8); } }
+  // площадки: база на каждой — призраком, как её развернёт хост (корпус из кодовой книги, зона питания, турель сектором, старт)
+  const AIR=airlocks();
+  AIR.forEach(A=>{ const st=A.site, B=A.base, i=A.i, X=S(st.x),Y=Sy(st.y); handles.push({kind:'station',ref:st,x:st.x,y:st.y,r:8}); ctx.strokeStyle='#aaa'; ctx.lineWidth=1; ctx.setLineDash([4,3]); ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,(st.ang||0)*Math.PI/180,0,7); ctx.stroke(); ctx.setLineDash([]);
+    if(layers.labels&&sc>=0.7){ ctx.fillStyle='#aaa'; ctx.fillText(`площадка ${1+i} · ${layoutsOf(i)}`,X-14,Y-STATION.ry*sc-4); }
+    ctx.setLineDash([3,5]); ctx.strokeStyle='rgba(255,220,120,0.35)'; ctx.beginPath(); ctx.arc(X,Y,STATION.powerR*sc,0,7); ctx.stroke(); ctx.setLineDash([]);   // зона питания
+    const T=B.turret; handles.push({kind:'turret',ref:st,x:T.x,y:T.y,r:7}); const TX=S(T.x),TY=Sy(T.y), a=T.f*Math.PI/180, fov=T.fov*Math.PI/180, R=T.range*sc; ctx.fillStyle='rgba(255,220,120,0.06)'; ctx.strokeStyle=st.turret?'rgba(255,220,120,0.4)':'rgba(255,220,120,0.2)'; ctx.beginPath(); ctx.moveTo(TX,TY); ctx.arc(TX,TY,R,a-fov/2,a+fov/2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle=st.turret?'#ffdc78':'rgba(255,220,120,0.5)'; ctx.fillRect(TX-3,TY-3,7,7); if(layers.labels&&sc>=1){ ctx.fillText(st.turret?'турель':'турель (штатная)',TX+7,TY+8); }
+    const sp=B.spawn; ctx.fillStyle='#5cb85c'; ctx.beginPath(); ctx.arc(S(sp.x),Sy(sp.y),4,0,7); ctx.fill(); if(layers.labels&&sc>=1) ctx.fillText('старт',S(sp.x)+7,Sy(sp.y)+1); });
   for(const h of LEVEL.hulls){ handles.push({kind:'hull',ref:h,x:h.x,y:h.y,r:Math.max(6,h.r*sc)}); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(h.x),Sy(h.y),h.r*sc,0,7); ctx.stroke(); }
   // декорации: сюжетные — крестики; процедурные — точки (слой)
   if(layers.decor&&sc>=1){ ctx.fillStyle='rgba(200,200,200,0.35)'; const R=Math.max(W,H)/sc/2+20; for(const o of TER.decor({x:cx,y:cy},R)){ if(o.id>=7000&&o.id<7400&&LEVEL.decor.some(d=>d.id===o.id)) continue; const r=Math.max(1,(o.Hs||1)*0.4*sc); ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),r,0,7); ctx.fill(); } }
   for(const d of LEVEL.decor){ handles.push({kind:'decor',ref:d,x:d.x,y:d.y,r:6}); const X=S(d.x),Y=Sy(d.y); ctx.strokeStyle='rgba(220,220,220,0.7)'; ctx.beginPath(); ctx.moveTo(X-3,Y-3); ctx.lineTo(X+3,Y+3); ctx.moveTo(X-3,Y+3); ctx.lineTo(X+3,Y-3); ctx.stroke();
     if(layers.labels&&sc>=4){ ctx.fillStyle='rgba(200,200,200,0.6)'; ctx.fillText(d.type+' '+d.Hs,X+5,Y+6); } }
-  // ориентиры и подобъекты; шлюзы платформ рисуются как ориентиры (id 240+k), их подобъекты — как подобъекты
-  const AIR=LEVEL.stations.map((st,k)=>{ const a=st.airlock; for(const [key,value] of Object.entries({id:240+k,subs:st.subs,station:st})) Object.defineProperty(a,key,{value,enumerable:false,configurable:true}); return a; });   // служебные поля не сериализуются
-  for(const p of [...LEVEL.pois, ...AIR]){ const X=S(p.x),Y=Sy(p.y); const on=sel&&(sel.ref===p||sel.poi===p);
-    if(on){ ctx.strokeStyle='rgba(224,169,74,0.35)'; for(const s of p.subs){ ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(p.x+s.dx),Sy(p.y+s.dy)); ctx.stroke(); } }
-    p.subs.forEach((s,i)=>{ const x=p.x+s.dx, y=p.y+s.dy; handles.push({kind:'sub',ref:s,poi:p,i,x,y,r:6}); const sx=S(x),sy=Sy(y); ctx.fillStyle='#cfd6de'; ctx.beginPath(); ctx.arc(sx,sy,2.5,0,7); ctx.fill();
-      if(s.f!==undefined){ const a=s.f*Math.PI/180; ctx.strokeStyle='#cfd6de'; ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx+Math.cos(a)*9,sy+Math.sin(a)*9); ctx.stroke(); }
-      if(layers.labels&&sc>=2.5){ ctx.fillStyle='rgba(207,214,222,0.8)'; ctx.fillText(nameOf(s.type),sx+5,sy+5); } });
-    handles.push({kind:p.station?'airlock':'poi',ref:p,x:p.x,y:p.y,r:8}); ctx.fillStyle=UCOL; ctx.beginPath(); ctx.moveTo(X,Y-5); ctx.lineTo(X+5,Y); ctx.lineTo(X,Y+5); ctx.lineTo(X-5,Y); ctx.closePath(); ctx.fill();
-    if(layers.labels&&sc>=0.7){ ctx.fillStyle=UCOL; ctx.fillText(p.id+' '+(p.station?'ШЛЮЗ':nameOf(p.id).toUpperCase()),X+8,Y-8); } }
-  // существо, логово, старт, камера
+  // ориентиры и подобъекты; шлюзы баз рисуются как ориентиры (id 240+k), их подобъекты — как подобъекты: штатные (BASE) тусклее и не правятся, сюжетные — из площадки
+  for(const p of [...LEVEL.pois, ...AIR]){ const X=S(p.x),Y=Sy(p.y); const on=sel&&(sel.ref===p||sel.poi===p||(p.station&&(sel.ref===p.site||sel.poi&&sel.poi.site===p.site)));
+    const subs=p.station?p.base.subs:p.subs, nk=p.station?BASE.subs.length:0;
+    if(on){ ctx.strokeStyle='rgba(224,169,74,0.35)'; for(const s of subs){ ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(p.x+s.dx),Sy(p.y+s.dy)); ctx.stroke(); } }
+    subs.forEach((s,i)=>{ const x=p.x+s.dx, y=p.y+s.dy, kit=i<nk; handles.push(kit?{kind:'ksub',ref:BASE.subs[i],poi:p,i,x,y,r:6}:{kind:'sub',ref:p.station?p.site.subs[i-nk]:s,poi:p,i:i-nk,x,y,r:6}); const sx=S(x),sy=Sy(y); ctx.fillStyle=kit?'rgba(207,214,222,0.45)':'#cfd6de'; ctx.beginPath(); ctx.arc(sx,sy,2.5,0,7); ctx.fill();
+      if(s.f!==undefined){ const a=s.f*Math.PI/180; ctx.strokeStyle=ctx.fillStyle; ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx+Math.cos(a)*9,sy+Math.sin(a)*9); ctx.stroke(); }
+      if(layers.labels&&sc>=2.5){ ctx.fillStyle=kit?'rgba(207,214,222,0.45)':'rgba(207,214,222,0.8)'; ctx.fillText(nameOf(s.type),sx+5,sy+5); } });
+    if(!p.station) handles.push({kind:'poi',ref:p,x:p.x,y:p.y,r:8}); ctx.fillStyle=UCOL; ctx.beginPath(); ctx.moveTo(X,Y-5); ctx.lineTo(X+5,Y); ctx.lineTo(X,Y+5); ctx.lineTo(X-5,Y); ctx.closePath(); ctx.fill();
+    if(layers.labels&&sc>=0.7){ ctx.fillStyle=UCOL; ctx.fillText(p.station?'ШЛЮЗ':p.id+' '+nameOf(p.id).toUpperCase(),X+8,Y-8); } }
+  // существо, логово, камера
   const mark=(kind,ref,x,y,col,label)=>{ handles.push({kind,ref,x,y,r:7}); ctx.fillStyle=col; ctx.beginPath(); ctx.arc(S(x),Sy(y),4,0,7); ctx.fill(); if(layers.labels&&sc>=1){ ctx.fillText(label,S(x)+7,Sy(y)+1); } };
-  LEVEL.pack.members.forEach((m,i)=>mark('wild',m,m.x,m.y,'#ff5c5c',`особь ${i} · ${m.size} / ${m.courage} / ${m.attention}`)); mark('lair',LEVEL.pack.lair,LEVEL.pack.lair.x,LEVEL.pack.lair.y,'#8a3a3a','логово'); LEVEL.stations.forEach(st=>mark('spawn',st.spawn,st.spawn.x,st.spawn.y,'#5cb85c','старт'));
+  LEVEL.pack.members.forEach((m,i)=>mark('wild',m,m.x,m.y,'#ff5c5c',`особь ${i} · ${m.size} / ${m.courage} / ${m.attention}`)); mark('lair',LEVEL.pack.lair,LEVEL.pack.lair.x,LEVEL.pack.lair.y,'#8a3a3a','логово');
   { const hd=Math.atan2(cam.ty-cam.y,cam.tx-cam.x), f=cam.fov/2*Math.PI/180, L=25*sc; const X=S(cam.x),Y=Sy(cam.y); ctx.strokeStyle='rgba(224,169,74,0.6)'; ctx.fillStyle='rgba(224,169,74,0.08)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(hd-f)*L,Y+Math.sin(hd-f)*L); ctx.lineTo(X+Math.cos(hd+f)*L,Y+Math.sin(hd+f)*L); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.setLineDash([3,4]); ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(cam.tx),Sy(cam.ty)); ctx.stroke(); ctx.setLineDash([]);
     mark('cam',cam,cam.x,cam.y,'#e0a94a','камера'); handles.push({kind:'camtg',ref:cam,x:cam.tx,y:cam.ty,r:7}); const TX=S(cam.tx),TY=Sy(cam.ty); ctx.strokeStyle='#e0a94a'; ctx.beginPath(); ctx.moveTo(TX-5,TY); ctx.lineTo(TX+5,TY); ctx.moveTo(TX,TY-5); ctx.lineTo(TX,TY+5); ctx.stroke(); }
@@ -128,10 +149,16 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
 
 // ---------- положение объекта за ручкой: чтение и перемещение ----------
 function posOf(h){ return {x:h.x,y:h.y}; }
+// площадки: база на каждой — baseAt из кодовой книги; шлюзы — как ориентиры (для подобъектов и ближайшего); смещения площадки — в её осях
+function airlocks(){ return LEVEL.sites.map((site,i)=>{ const base=baseAt(site); return {station:true, site, base, i, x:base.airlock.x, y:base.airlock.y, subs:site.subs||[]}; }); }
+function toLocal(site,x,y){ const a=(site.ang||0)*Math.PI/180, c=Math.cos(a), s=Math.sin(a); return {dx:Math.round((x*c+y*s)*100)/100, dy:Math.round((-x*s+y*c)*100)/100}; }   // мировое смещение → оси площадки
+function layoutsOf(i){ const L=LEVEL.layouts||{}; const ns=Object.keys(L).filter(n=>L[n].includes(i)); return ns.length?ns.map(n=>`${n}: ARK-04${1+L[n].indexOf(i)}`).join(', '):'не занята'; }   // при каких n площадка занята и какой платформой
 function moveTo(h,x,y){ switch(h.kind){
-  case 'poi': case 'airlock': case 'turret': h.ref.x=x; h.ref.y=y; break;
-  case 'station': { const dx=x-h.ref.x, dy=y-h.ref.y; h.ref.x=x; h.ref.y=y; h.ref.airlock.x+=dx; h.ref.airlock.y+=dy; h.ref.spawn.x+=dx; h.ref.spawn.y+=dy; break; }   // платформа едет со шлюзом и стартом
-  case 'sub': h.ref.dx=x-h.poi.x; h.ref.dy=y-h.poi.y; break;
+  case 'poi': h.ref.x=x; h.ref.y=y; break;
+  case 'station': h.ref.x=x; h.ref.y=y; break;   // база едет за площадкой сама — всё в ней задано смещениями
+  case 'turret': { const st=h.ref; const l=toLocal(st,x-st.x,y-st.y); st.turret={...(st.turret||{f:0}), ...l}; break; }   // перетащенная штатная турель становится турелью площадки
+  case 'sub': if(h.poi.station){ const l=toLocal(h.poi.site,x-h.poi.x,y-h.poi.y); h.ref.dx=l.dx; h.ref.dy=l.dy; } else { h.ref.dx=x-h.poi.x; h.ref.dy=y-h.poi.y; } break;
+  case 'ksub': return;   // штатный подобъект базы — из кодовой книги, не двигается
   case 'knee': { const p=h.pts[h.i]; if(!h.br&&h.i>0){ const b=LEVEL.canyon.branch.pts[0]; if(Math.abs(b.x-p.x)<1e-6&&Math.abs(b.y-p.y)<1e-6){ b.x=x; b.y=y; } }   // корень отростка сидит на колене — едет вместе
     p.x=x; p.y=y; TER.reload(); hmDirty(150); break; }
   case 'cam': { const dx=x-h.ref.x, dy=y-h.ref.y; cam.x=x; cam.y=y; cam.tx+=dx; cam.ty+=dy; camShot(); break; }
@@ -141,7 +168,7 @@ function moveTo(h,x,y){ switch(h.kind){
 function hit(px,py){ let best=null, bd=1e9; for(const h of handles){ const d=Math.hypot(S(h.x)-px,Sy(h.y)-py); const pr=h.kind==='poi'?4:h.kind==='hull'?2:0;   // мелкое — приоритетнее крупного
     if(d<=h.r+4 && d+pr<bd){ bd=d+pr; best=h; } } return best; }
 function select(h){ sel=h?{kind:h.kind,ref:h.ref,poi:h.poi,i:h.i,pts:h.pts,w:h.w,br:h.br}:null; renderProps(); draw(); }
-function nearestPoi(x,y){ let b=null,bd=1e9; for(const p of [...LEVEL.pois, ...LEVEL.stations.map(st=>st.airlock)]){ const d=Math.hypot(p.x-x,p.y-y); if(d<bd){ bd=d; b=p; } } return b; }
+function nearestPoi(x,y){ let b=null,bd=1e9; for(const p of [...LEVEL.pois, ...airlocks()]){ const d=Math.hypot(p.x-x,p.y-y); if(d<bd){ bd=d; b=p; } } return b; }
 function snap(v,e){ const st=e.shiftKey?1:0.1; return Math.round(v/st)*st; }
 
 // ---------- мышь ----------
@@ -158,7 +185,7 @@ cv.addEventListener('mousemove',e=>{ const wx=iS(e.offsetX), wy=iSy(e.offsetY); 
   moveTo(drag.h,snap(wx-drag.ox,e),snap(wy-drag.oy,e)); renderProps(); draw(); });
 window.addEventListener('mouseup',e=>{ if(!drag) return; const d=drag; drag=null; cv.classList.remove('grab');
   if(d.ruler){ setMode(null); draw(); return; } if(d.pan){ if(!d.moved) select(null); else hmDirty(); return; }
-  if(d.moved&&d.h.kind==='knee') hmCompute(); if(d.moved&&['poi','sub','decor','hull','wild','lair','spawn','station','airlock'].includes(d.h.kind)) camShot(); });
+  if(d.moved&&d.h.kind==='knee') hmCompute(); if(d.moved&&['poi','sub','decor','hull','wild','lair','station','turret'].includes(d.h.kind)) camShot(); });
 cv.addEventListener('dblclick',e=>{ if(hit(e.offsetX,e.offsetY)) return; const wx=iS(e.offsetX), wy=iSy(e.offsetY); const c=TER.canyon(wx,wy); if(!(c.d<c.w/2+2)) return;   // новое колено на расщелине: в ближайший сегмент
   const C=LEVEL.canyon; const pts=c.branch?C.branch.pts:C.pts, w=c.branch?C.branch.w:C.w; let bi=0,bd=1e9; for(let i=0;i<pts.length-1;i++){ const p=pts[i],q=pts[i+1]; const dx=q.x-p.x,dy=q.y-p.y,L2=dx*dx+dy*dy; const t=Math.max(0,Math.min(1,((wx-p.x)*dx+(wy-p.y)*dy)/L2)); const d=Math.hypot(wx-p.x-dx*t,wy-p.y-dy*t); if(d<bd){ bd=d; bi=i; } }
   pushHist(); pts.splice(bi+1,0,{x:snap(wx,e),y:snap(wy,e)}); w.splice(bi+1,0,Math.round(((w[bi]||w[w.length-1])+(w[bi+1]||w[bi]||w[w.length-1]))/2*10)/10); TER.reload(); select({kind:'knee',pts,w,i:bi+1,br:!!c.branch,ref:pts[bi+1]}); hmCompute(); });
@@ -166,19 +193,18 @@ function setMode(m){ mode=m; $$('[data-add]').forEach(b=>b.classList.toggle('on'
 $$('[data-add]').forEach(b=>b.onclick=()=>setMode(mode&&mode.add===b.dataset.add?null:{add:b.dataset.add}));
 $('#btn-ruler').onclick=()=>setMode(mode==='ruler'?null:'ruler');
 function place(kind,x,y){ const p=kind==='sub'?((sel&&(sel.kind==='poi'?sel.ref:sel.poi))||nearestPoi(x,y)):null;
-  if(kind==='sub'&&p.subs.length>=(p.station?4:10)){ setStatus(p.station?'у шлюза не больше 4 подобъектов (id = 160 + k·4 + индекс)':'у ориентира уже 10 подобъектов (id = id·10 + индекс)','err'); return; }
+  if(kind==='sub'&&p.subs.length>=(p.station?10-BASE.subs.length:10)){ setStatus(p.station?`у шлюза не больше 10 подобъектов вместе со штатными ${BASE.subs.length} (id = 160 + k·10 + индекс)`:'у ориентира уже 10 подобъектов (id = id·10 + индекс)','err'); return; }
   if(kind==='poi'&&!+$('#add-poi-type').value){ setStatus('свободных типов ориентиров нет — добавить в codebook.js (1…9)','err'); return; }
   pushHist();
-  if(kind==='sub'){ const s={type:+$('#add-sub-type').value,dx:Math.round((x-p.x)*10)/10,dy:Math.round((y-p.y)*10)/10}; p.subs.push(s); select({kind:'sub',ref:s,poi:p,i:p.subs.length-1}); }
+  if(kind==='sub'){ const l=p.station?toLocal(p.site,x-p.x,y-p.y):{dx:x-p.x,dy:y-p.y}; const s={type:+$('#add-sub-type').value,dx:Math.round(l.dx*10)/10,dy:Math.round(l.dy*10)/10}; if(p.station){ p.site.subs=p.site.subs||[]; p.site.subs.push(s); } else p.subs.push(s); select({kind:'sub',ref:s,poi:p,i:(p.station?p.site.subs:p.subs).length-1}); }
   if(kind==='poi'){ const np={id:+$('#add-poi-type').value,x,y,subs:[]}; LEVEL.pois.push(np); LEVEL.pois.sort((a,b)=>a.id-b.id); fillAddSelects(); select({kind:'poi',ref:np}); }
   if(kind==='decor'){ const id=Math.max(7000,...LEVEL.decor.map(d=>d.id))+1; const type=$('#add-decor-type').value; const d={id,type,x,y,f:0,Hs:SPRITES[type].H}; LEVEL.decor.push(d); TER.reload(); select({kind:'decor',ref:d}); }
   if(kind==='hull'){ const h={x,y,r:3,h:3}; LEVEL.hulls.push(h); select({kind:'hull',ref:h}); }
-  if(kind==='turret'){ LEVEL.turrets=LEVEL.turrets||[]; const st=LEVEL.stations.map((S,k)=>k).find(k=>!LEVEL.turrets.some(T=>T.st===k)); if(st===undefined){ setStatus('у каждой платформы уже есть запись турели','err'); return; } const T={st,x,y,f:0}; LEVEL.turrets.push(T); select({kind:'turret',ref:T}); }
   if(kind==='wild'){ if(LEVEL.pack.members.length>=10){ setStatus('в стае не больше 10 особей (id 250…259)','err'); return; } const m={x,y,size:1,courage:0.5,attention:0.5}; LEVEL.pack.members.push(m); select({kind:'wild',ref:m}); }
   camShot(); }
 function del(){ if(!sel) return; const k=sel.kind;
-  if(k==='turret'){ pushHist(); LEVEL.turrets.splice(LEVEL.turrets.indexOf(sel.ref),1); }
-  if(k==='sub'){ pushHist(); sel.poi.subs.splice(sel.i,1); }
+  if(k==='turret'){ if(!sel.ref.turret) return; pushHist(); delete sel.ref.turret; }   // турель площадки → штатная
+  else if(k==='sub'){ pushHist(); if(sel.poi.station){ sel.poi.site.subs.splice(sel.i,1); if(!sel.poi.site.subs.length) delete sel.poi.site.subs; } else sel.poi.subs.splice(sel.i,1); }
   else if(k==='poi'){ if(!confirm(`Удалить ориентир ${sel.ref.id} «${nameOf(sel.ref.id)}» со всеми подобъектами?`)) return; pushHist(); LEVEL.pois.splice(LEVEL.pois.indexOf(sel.ref),1); fillAddSelects(); }
   else if(k==='decor'){ pushHist(); LEVEL.decor.splice(LEVEL.decor.indexOf(sel.ref),1); TER.reload(); }
   else if(k==='hull'){ pushHist(); LEVEL.hulls.splice(LEVEL.hulls.indexOf(sel.ref),1); }
@@ -201,7 +227,7 @@ function showCursor(x,y){ const z=TER.H(x,y), sl=TER.slope(x,y), c=TER.canyon(x,
   const snr=l=>l.snr<-5?`${l.snr.toFixed(1)} дБ — несущей нет`:`${l.snr.toFixed(1)} дБ · ${(l.cap/1000).toFixed(2)} кбит/с · потери ${(l.per*100).toFixed(0)} %`;
   const rows=[['x, y',`${x.toFixed(1)}, ${y.toFixed(1)}`],['высота',`${z.toFixed(2)} м`],['уклон',`${(Math.atan(sl)*180/Math.PI).toFixed(0)}°${sl>MAX_SLOPE?' — непроходимо':''}`],
     ['расщелина',inC?(c.along<0?`подход: ${(-c.along).toFixed(0)} м до входа`:`внутри: ${c.along.toFixed(0)} м от входа${c.branch?', отросток':''}, ширина ${c.w.toFixed(1)}, глубина ${(Math.max(0,tunnelT(x,y))*100).toFixed(0)} % — затухание ${(8+22*Math.max(0,tunnelT(x,y))).toFixed(0)} дБ`):(c.d<c.w/2+4?'стена/кромка':'—')],
-    ['от станции',`${Math.min(...LEVEL.stations.map(st=>Math.hypot(x-st.x,y-st.y))).toFixed(0)} м${Math.min(...LEVEL.stations.map(st=>Math.hypot(x-st.x,y-st.y)))>RETURN_R&&!( $('#boost').checked&&poiOf(3)&&Math.hypot(x-poiOf(3).x,y-poiOf(3).y)<=RETURN_R)?' — за радиусом возврата':''}`],
+    ['от станции',`${Math.min(...LEVEL.sites.map(st=>Math.hypot(x-st.x,y-st.y))).toFixed(0)} м${Math.min(...LEVEL.sites.map(st=>Math.hypot(x-st.x,y-st.y)))>RETURN_R&&!( $('#boost').checked&&poiOf(3)&&Math.hypot(x-poiOf(3).x,y-poiOf(3).y)<=RETURN_R)?' — за радиусом возврата':''}`],
     ['SNR 0 дБм',snr(l0)],['SNR +10 дБм',snr(l10)]];
   if(sel&&sel.kind!=='cam'&&sel.kind!=='camtg'){ const h=handles.find(h=>h.ref===sel.ref); if(h) rows.push(['до выбранного',`${Math.hypot(h.x-x,h.y-y).toFixed(1)} м`]); }
   $('#cur').innerHTML=rows.map(([k,v])=>`<label>${k}</label><b>${v}</b>`).join(''); }
@@ -210,12 +236,18 @@ function renderProps(){ const P=$('#props'); if(!sel){ $('#sel-title').textConte
   const rows=[]; const k=sel.kind, r=sel.ref; const F=(label,get,set,attrs='step="0.1"')=>rows.push({label,html:`<input type="number" value="${num(get())}" ${attrs}>`,on:v=>set(+v)});
   const XY=(o)=>{ F('x',()=>o.x,v=>o.x=v); F('y',()=>o.y,v=>o.y=v); };
   let title='';
-  if(k==='turret'){ title=`турель ARK-04${1+r.st} · id ${230+r.st}`; XY(r); F('курс, °',()=>r.f||0,v=>r.f=v,'step="1"'); F('сектор, °',()=>r.fov||140,v=>r.fov=v,'step="5"'); F('дальность, м',()=>r.range||120,v=>r.range=v,'step="5"'); F('прицел, с',()=>r.aim||3,v=>r.aim=v,'step="0.5"'); F('перезарядка, с',()=>r.reload||10,v=>r.reload=v,'step="1"'); }
+  if(k==='turret'){ const i=LEVEL.sites.indexOf(r), B=baseAt(r), T=B.turret; title=`турель площадки ${1+i}${r.turret?'':' · штатная'} · id 230 + k`;   // правка любого поля делает турель площадки; без записи — штатная из BASE
+    const own=()=>{ r.turret=r.turret||{dx:BASE.turret.dx,dy:BASE.turret.dy,f:BASE.turret.f}; return r.turret; }; const loc=(x,y)=>toLocal(r,x-r.x,y-r.y);
+    F('x',()=>T.x,v=>{ const l=loc(v,T.y); Object.assign(own(),l); }); F('y',()=>T.y,v=>{ const l=loc(T.x,v); Object.assign(own(),l); });
+    F('курс, °',()=>T.f,v=>own().f=v-(r.ang||0),'step="1"'); F('сектор, °',()=>T.fov,v=>own().fov=v,'step="5"'); F('дальность, м',()=>T.range,v=>own().range=v,'step="5"'); F('прицел, с',()=>T.aim,v=>own().aim=v,'step="0.5"'); F('перезарядка, с',()=>T.reload,v=>own().reload=v,'step="1"');
+    if(r.turret) rows.push({label:'',html:`<button data-act="del" class="ghost">штатная</button>`}); }
+  if(k==='ksub'){ title=`штатный объект базы · ${nameOf(r.type)}`; rows.push({label:'',html:`<span class="dim">состав базы — BASE в codebook.js: dx ${r.dx}, dy ${r.dy} от шлюза${r.items?', предметы '+r.items.map(i=>ITEMS[i]).join(', '):''}; id 160 + k·10 + ${sel.i}</span>`}); }
   if(k==='poi'){ title=`ориентир ${r.id} · ${nameOf(r.id)}`; XY(r); rows.push({label:'подобъектов',html:`<span>${r.subs.length} (id ${r.id*10}…${r.id*10+r.subs.length-1})</span>`}); }
-  if(k==='sub'){ const id=sel.poi.id*10+sel.i; title=`объект ${id} · ${nameOf(r.type)}`; const cb=CODEBOOK[r.type]||{};
+  if(k==='sub'){ const st=sel.poi.station?sel.poi.site:null; title=st?`объект 160 + k·10 + ${BASE.subs.length+sel.i} · ${nameOf(r.type)} · площадка ${1+LEVEL.sites.indexOf(st)}`:`объект ${sel.poi.id*10+sel.i} · ${nameOf(r.type)}`; const cb=CODEBOOK[r.type]||{};
     rows.push({label:'тип',html:`<select>${Object.keys(CODEBOOK).filter(t=>t>=10&&t<250).map(t=>`<option value="${t}" ${+t===r.type?'selected':''}>${t} ${CODEBOOK[t].name}</option>`).join('')}</select>`,on:v=>{ r.type=+v; delete r.state; }});
-    F('x',()=>sel.poi.x+r.dx,v=>r.dx=Math.round((v-sel.poi.x)*100)/100); F('y',()=>sel.poi.y+r.dy,v=>r.dy=Math.round((v-sel.poi.y)*100)/100);
-    F('dx',()=>r.dx,v=>r.dx=v); F('dy',()=>r.dy,v=>r.dy=v);
+    const A=st?baseAt(st).airlock:sel.poi, w=()=>{ if(!st) return {dx:r.dx,dy:r.dy}; const a=(st.ang||0)*Math.PI/180; return {dx:r.dx*Math.cos(a)-r.dy*Math.sin(a), dy:r.dx*Math.sin(a)+r.dy*Math.cos(a)}; };   // мировое положение: у площадки смещение в её осях
+    F('x',()=>A.x+w().dx,v=>{ if(st) Object.assign(r,toLocal(st,v-A.x,w().dy)); else r.dx=Math.round((v-A.x)*100)/100; }); F('y',()=>A.y+w().dy,v=>{ if(st) Object.assign(r,toLocal(st,w().dx,v-A.y)); else r.dy=Math.round((v-A.y)*100)/100; });
+    F(st?'dx (оси площадки)':'dx',()=>r.dx,v=>r.dx=v); F(st?'dy (оси площадки)':'dy',()=>r.dy,v=>r.dy=v);
     rows.push({label:'курс',html:`<input type="number" value="${r.f===undefined?'':r.f}" step="5" placeholder="по хешу">`,on:v=>{ if(v==='') delete r.f; else r.f=((+v%360)+360)%360; }});
     if(cb.states&&cb.states.length>1) rows.push({label:'состояние',html:`<select>${cb.states.map((s,i)=>`<option value="${i}" ${i===(r.state||0)?'selected':''}>${i} ${s.slice(0,42)}</option>`).join('')}</select>`,on:v=>{ if(+v) r.state=+v; else delete r.state; }});
     if(cb.container!==undefined) rows.push({label:'предметы',html:`<input type="text" value="${(r.items||[]).join(',')}" placeholder="${Object.entries(ITEMS).map(([i,n])=>i+' '+n).join(', ')}">`,on:v=>{ const a=v.split(/[,\s]+/).map(Number).filter(i=>ITEMS[i]); if(a.length) r.items=a; else delete r.items; }});
@@ -223,11 +255,11 @@ function renderProps(){ const P=$('#props'); if(!sel){ $('#sel-title').textConte
   if(k==='knee'){ title=`колено ${sel.i}${sel.br?' отростка':''}`; XY(r); if(sel.w[sel.i]!==undefined) F('ширина',()=>sel.w[sel.i],v=>{ sel.w[sel.i]=v; }); rows.push({label:'',html:`<button data-act="knee-add">колено после</button>`}); }
   if(k==='decor'){ title=`декорация ${r.id}`; rows.push({label:'тип',html:`<select>${decorTypes().map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select>`,on:v=>r.type=v}); XY(r); F('курс',()=>r.f,v=>r.f=v,'step="5"'); F('высота Hs',()=>r.Hs,v=>r.Hs=v); }
   if(k==='hull'){ title='корпус'; XY(r); F('радиус',()=>r.r,v=>r.r=v); F('высота',()=>r.h,v=>r.h=v); }
-  if(k==='wild'){ title=`особь ${LEVEL.pack.members.indexOf(r)} (id ${250+LEVEL.pack.members.indexOf(r)})`; XY(r); F('размер',()=>r.size,v=>r.size=v,'step="0.1" min="0.5" max="1.5"'); F('храбрость',()=>r.courage,v=>r.courage=v,'step="0.05" min="0" max="1"'); F('внимательность',()=>r.attention,v=>r.attention=v,'step="0.05" min="0" max="1"'); } if(k==='lair'){ title='логово стаи'; XY(r); } if(k==='spawn'){ title='точка старта'; XY(r); }
-  if(k==='station'){ title='платформа ARK-04'+(1+LEVEL.stations.indexOf(r)); XY(r); F('курс',()=>r.ang||0,v=>r.ang=v,'step="5"'); }
-  if(k==='airlock'){ title='шлюз '+r.id; XY(r); }
+  if(k==='wild'){ title=`особь ${LEVEL.pack.members.indexOf(r)} (id ${250+LEVEL.pack.members.indexOf(r)})`; XY(r); F('размер',()=>r.size,v=>r.size=v,'step="0.1" min="0.5" max="1.5"'); F('храбрость',()=>r.courage,v=>r.courage=v,'step="0.05" min="0" max="1"'); F('внимательность',()=>r.attention,v=>r.attention=v,'step="0.05" min="0" max="1"'); } if(k==='lair'){ title='логово стаи'; XY(r); }
+  if(k==='station'){ const i=LEVEL.sites.indexOf(r); title=`площадка ${1+i}`; XY(r); F('курс',()=>r.ang||0,v=>r.ang=v,'step="5"'); rows.push({label:'платформы',html:`<span>${layoutsOf(i)}</span>`}); rows.push({label:'раскладки',html:`<span class="dim">layouts в level.js: n → площадки; правится в тексте</span>`}); }
   if(k==='cam'||k==='camtg'){ title=k==='cam'?'камера':'цель камеры'; const o=k==='cam'?{get x(){return cam.x},set x(v){cam.x=v},get y(){return cam.y},set y(v){cam.y=v}}:{get x(){return cam.tx},set x(v){cam.tx=v},get y(){return cam.ty},set y(v){cam.ty=v}}; XY(o); }
-  if(!['cam','camtg','station','airlock','spawn','lair'].includes(k)) rows.push({label:'',html:`<button data-act="del" class="ghost">удалить</button> <button data-act="cam-here" class="ghost">кадр сюда</button>`});
+  if(!['cam','camtg','station','lair','turret','ksub'].includes(k)) rows.push({label:'',html:`<button data-act="del" class="ghost">удалить</button> <button data-act="cam-here" class="ghost">кадр сюда</button>`});
+  if(['station','turret','ksub'].includes(k)) rows.push({label:'',html:`<button data-act="cam-here" class="ghost">кадр сюда</button>`});
   $('#sel-title').textContent=title; P.innerHTML=rows.map(r=>`<label>${r.label}</label><span>${r.html}</span>`).join('');
   [...P.querySelectorAll('input,select')].forEach((el,i)=>{ const row=rows.filter(r=>r.on)[i]; if(!row) return; el.onchange=()=>{ if(!['cam','camtg'].includes(k)) pushHist(); row.on(el.value); if(k==='knee'||k==='decor') TER.reload(); if(k==='knee') hmCompute(); draw(); renderProps(); camShot(); }; });
   P.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{ const a=b.dataset.act; if(a==='del') del(); if(a==='cam-here') camToSel(); if(a==='knee-add'){ pushHist(); const p=sel.pts[sel.i], q=sel.pts[sel.i+1]||{x:p.x+10,y:p.y}; sel.pts.splice(sel.i+1,0,{x:(p.x+q.x)/2,y:(p.y+q.y)/2}); sel.w.splice(sel.i+1,0,sel.w[sel.i]); TER.reload(); select({kind:'knee',pts:sel.pts,w:sel.w,i:sel.i+1,br:sel.br,ref:sel.pts[sel.i+1]}); hmCompute(); } }); }
@@ -242,7 +274,7 @@ const camW=(()=>{ const base=new URL('.',location.href).href, v=window.__v;
     const ready=CAM.load(${JSON.stringify(String(v))},${JSON.stringify(base)});
     function scene(u){ const out=[]; for(const p of LEVEL.pois){ if(SPRITES[p.id]) out.push({id:p.id,type:p.id,x:p.x,y:p.y}); p.subs.forEach((s,i)=>{ if(SPRITES[s.type]) out.push({id:p.id*10+i,type:s.type,x:p.x+s.dx,y:p.y+s.dy,facing:s.f===undefined?undefined:s.f*Math.PI/180}); }); }
       LEVEL.pack.members.forEach((m,i)=>out.push({id:250+i,type:'sleep',x:m.x,y:m.y,facing:Math.atan2(u.y-m.y,u.x-m.x),Hs:0.6*m.size}));
-      LEVEL.stations.forEach((st,k)=>{ out.push({id:900+k,type:'station',x:st.x,y:st.y,facing:(st.ang||0)*Math.PI/180}); out.push({id:201+k,type:252,x:st.spawn.x,y:st.spawn.y,facing:0}); st.subs.forEach((s,i)=>{ if(SPRITES[s.type]) out.push({id:160+k*4+i,type:s.type,x:st.airlock.x+s.dx,y:st.airlock.y+s.dy,facing:s.f===undefined?undefined:s.f*Math.PI/180}); }); });
+      LEVEL.sites.forEach((st,k)=>{ const B=baseAt(st); out.push({id:900+k,type:'station',x:B.x,y:B.y,facing:B.ang*Math.PI/180}); out.push({id:201+k,type:252,x:B.spawn.x,y:B.spawn.y,facing:0}); out.push({id:230+k,type:34,x:B.turret.x,y:B.turret.y,facing:B.turret.f*Math.PI/180}); B.subs.forEach((s,i)=>{ if(SPRITES[s.type]) out.push({id:160+k*10+i,type:s.type,x:B.airlock.x+s.dx,y:B.airlock.y+s.dy,facing:s.f===undefined?undefined:s.f*Math.PI/180}); }); });
       return out.concat(TER.decor(u,120)); }
     onmessage=async e=>{ const m=e.data; await ready; for(const k in LEVEL) delete LEVEL[k]; Object.assign(LEVEL,m.level); TER.reload(); const t0=Date.now();
       const img=CAM.renderRaw(m.u,m.W,scene(m.u),{H:m.H,fov:m.fov,heading:m.u.heading,z:m.z}); postMessage({img,W:m.W,H:m.H,ms:Date.now()-t0,atlas:CAM.ready}); };`;

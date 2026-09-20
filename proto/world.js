@@ -2,7 +2,7 @@
 // Наружу: (а) байтовые сообщения для канала, (б) физика линии по каждому миссионеру.
 const LAB=/&lab\b/.test(self.location.search);   // лаборатория лидара: одичалые спят, тело не умирает; остальное — как в игре
 const VER=self.location.search.replace(/^\?v=/,'').replace(/&.*$/,'')||'0'; importScripts('level.js?v='+VER,'codebook.js?v='+VER,'terrain.js?v='+VER,'camera.js?v='+VER);
-const NST=Math.max(1,Math.min(LEVEL.stations.length,+(/&st=(\d+)/.exec(self.location.search)||[])[1]||1));   // сколько платформ поднято: решает хост (одиночная игра — одна)
+const NST=Math.max(1,Math.min(LEVEL.sites.length,+(/&st=(\d+)/.exec(self.location.search)||[])[1]||1));   // сколько платформ поднято: решает хост (одиночная игра — одна)
 const TEAMS=((/&teams=([\d,]+)/.exec(self.location.search)||[])[1]||'').split(',').filter(x=>x!=='').map(Number);   // команда каждой платформы (кто с кем): нет — каждая сама за себя; одичалые всегда чужие всем
 const teamOf=k=>TEAMS.length>k?TEAMS[k]:k;
 CAM.load(VER);   // атлас спрайтов грузится асинхронно; до загрузки объекты в кадре — серые блоки
@@ -18,24 +18,27 @@ function poi(id){ return POIS.find(p=>p.id===id); }
 function poiInCanyon(p){ return !!TER.inside(p.x,p.y); }
 function poiDeep(p){ return tunnelT(p.x,p.y)>0.05; }
 const TUN_A = TER.CANYON.pts[0];                                             // вход в расщелину (ориентир 6)
-// ---------- станции: посадочные платформы из уровня, по одной на оператора (или одна на всех — кооператив) ----------
-// У каждой — свой запас, склад, выращивание, задача, пульс, стационарная камера и канал (у хоста); тела помечены станцией (u.st).
-// Общее — мир: рельеф, ориентиры, предметы, одичалые, мачта с усилителем. Шлюз станции — ориентир id 240+k, его подобъекты — 160+k·4+i.
-const stations = LEVEL.stations.slice(0,NST).map((L,k)=>{ const ang=(L.ang||0)*Math.PI/180; const a={x:L.airlock.x,y:L.airlock.y};
-  const dx=a.x-L.x, dy=a.y-L.y, d=Math.hypot(dx,dy)||1, ox=dx/d, oy=dy/d;   // наружу — от центра корпуса к шлюзу
-  return { k, name:'ARK-04'+(1+k), x:L.x, y:L.y, ang, spawn:{...L.spawn}, airlock:a,
-    subs:L.subs.slice(0,4).map(s=>[s.type,s.dx,s.dy,s.f===undefined?undefined:s.f*Math.PI/180]),
+// ---------- станции: базы на площадках уровня, по одной на оператора (или одна на всех — кооператив) ----------
+// В уровне только площадки (LEVEL.sites) и раскладка по числу платформ (LEVEL.layouts); база на площадке — штатный состав BASE из кодовой
+// книги (baseAt): корпус, шлюз, старт, люк, прожектор, ящики с брикетами и патронами, турель. У каждой — свой запас, склад, выращивание,
+// задача, пульс, стационарная камера и канал (у хоста); тела помечены станцией (u.st). Общее — мир: рельеф, ориентиры, предметы, одичалые,
+// мачта с усилителем. Шлюз станции — ориентир id 240+k, его подобъекты — 160+k·10+i.
+const BASES = sitesFor(LEVEL,NST).map(si=>({si, ...baseAt(LEVEL.sites[si])}));
+const stations = BASES.map((B,k)=>{ const ang=B.ang*Math.PI/180; const a={x:B.airlock.x,y:B.airlock.y};
+  const dx=a.x-B.x, dy=a.y-B.y, d=Math.hypot(dx,dy)||1, ox=dx/d, oy=dy/d;   // наружу — от центра корпуса к шлюзу
+  return { k, site:B.si, name:'ARK-04'+(1+k), x:B.x, y:B.y, ang, spawn:{...B.spawn}, airlock:a,
+    subs:B.subs.map(s=>[s.type,s.dx,s.dy,s.f===undefined?undefined:s.f*Math.PI/180]),
     bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2, team:teamOf(k), ox, oy,
     // стационарная камера у шлюза: смотрит от люка наружу, сигнала не требует — она на станции
     cam:{ id:0, st:k, x:a.x-4*ox, y:a.y-4*oy, heading:Math.atan2(oy,ox), goal:{x:a.x+44*ox-8*oy,y:a.y+44*oy+8*ox}, lightOn:true, charge:100, alive:true, lastImg:{}, pendingImg:null, frameNo:0, sensors:{camera:true}, sub:{img:{interval:0,level:2,delta:true}}, subT:{img:0}, items:[] } }; });
-const SPOIS = stations.map(S=>({ id:240+S.k, x:S.airlock.x, y:S.airlock.y, subs:S.subs, station:S, idBase:160+S.k*4 }));
-// Турели — отдельные объекты (id 230+j, тип 34), у каждой владелец st. Из уровня (LEVEL.turrets) или по умолчанию: в 6 м перед шлюзом,
-// сектором наружу. Питание — зона станции STATION.powerR (розетки и кабели — потом). Магазин 8, ёмкость AMMO_MAX; без патронов
-// наводится и светит, не стреляет. Повреждённая — слепа. Своя команда — по транспондеру, не цель.
+const SPOIS = stations.map(S=>({ id:240+S.k, x:S.airlock.x, y:S.airlock.y, subs:S.subs, station:S, idBase:160+S.k*10 }));
+// Турели — отдельные объекты (id 230+j, тип 34), у каждой владелец st; положение и сектор — из базы (штатно в 6 м перед шлюзом,
+// сектором наружу; площадка может задать свою). Питание — зона станции STATION.powerR (розетки и кабели — потом). Магазин 8, ёмкость AMMO_MAX;
+// без патронов наводится и светит, не стреляет. Повреждённая — слепа. Своя команда — по транспондеру, не цель.
 const AMMO_MAX=24;
-const turrets = stations.map((S,k)=>{ const L=(LEVEL.turrets||[]).find(T=>T.st===k); const T=L||{x:S.airlock.x+6*S.ox, y:S.airlock.y+6*S.oy, f:Math.atan2(S.oy,S.ox)*180/Math.PI};
-  return { id:230+k, st:k, x:T.x, y:T.y, ang:(T.f||0)*Math.PI/180, fov:(T.fov||140)*Math.PI/180, range:T.range||120, aim:T.aim||3, reload:T.reload||10, ammo:8, on:true, broken:false, powered:true, aimT:0, reloadT:0, tgt:null, cut:null }; });
-function turretState(T){ objState[T.id]=T.broken?2:T.on?1:0; }   // состояние объекта для описаний и осмотра: 0 включена, 1 выключена, 2 повреждена
+const turrets = BASES.map((B,k)=>{ const T=B.turret;
+  return { id:230+k, st:k, x:T.x, y:T.y, ang:T.f*Math.PI/180, fov:T.fov*Math.PI/180, range:T.range, aim:T.aim, reload:T.reload, ammo:8, on:true, broken:false, powered:true, aimT:0, reloadT:0, tgt:null, cut:null }; });
+function turretState(T){ objState[T.id]=T.broken?2:T.on?0:1; }   // состояние объекта для описаний и осмотра: 0 включена, 1 выключена, 2 повреждена
 function turretAlive(T){ return T.on&&!T.broken&&T.powered; }
 function stOf(u){ return stations[u.st]||stations[0]; }
 // ПС-2, радиус гарантированного возврата: цель дальше RETURN_R от ближайшего узла (своя станция, работающий ретранслятор) станция не принимает —
@@ -66,13 +69,13 @@ turrets.forEach(turretState);
 function stateOf(id){ return objState[id]||0; }
 const contents = {};                        // содержимое контейнеров: id объекта → предметы; начальное — из уровня
 for(const p of LEVEL.pois) p.subs.forEach((s,i)=>{ const id=p.id*10+i; if(s.state) objState[id]=s.state; if(s.items&&s.items.length) contents[id]=s.items.slice(); });
-LEVEL.stations.slice(0,NST).forEach((L,k)=>L.subs.slice(0,4).forEach((s,i)=>{ const id=160+k*4+i; if(s.state) objState[id]=s.state; if(s.items&&s.items.length) contents[id]=s.items.slice(); }));
-const ground = [];                          // свёртки на грунте: {id, x, y}; id 100…199
+BASES.forEach((B,k)=>B.subs.forEach((s,i)=>{ const id=160+k*10+i; if(s.state) objState[id]=s.state; if(s.items&&s.items.length) contents[id]=s.items.slice(); }));
+const ground = [];                          // свёртки на грунте: {id, x, y}; id 100…159
 let nextGround = 100;
 // изъять предмет из контейнера (тело — камера отдельно; пустой свёрток исчезает); свёрток на грунт — предмет под ногами
 function removeItem(o,item){ if(o.unit){ const v=o.unit; if(item===42){ v.sensors.camera=false; v.sub.img.interval=0; } else v.items.splice(v.items.indexOf(item),1); }
   else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ const gi=ground.findIndex(g=>g.id===o.id); if(gi>=0){ ground.splice(gi,1); delete contents[o.id]; } } } }   // свёрток уровня (не из ground) пустым остаётся
-function dropBundle(x,y,item){ const g={id:nextGround++, x:Math.round(x), y:Math.round(y)}; if(nextGround>199) nextGround=100; ground.push(g); contents[g.id]=[item]; return g; }
+function dropBundle(x,y,item){ const g={id:nextGround++, x:Math.round(x), y:Math.round(y)}; if(nextGround>159) nextGround=100; ground.push(g); contents[g.id]=[item]; return g; }
 function isContainer(o){ if(o.unit) return !o.unit.alive; const cb=CODEBOOK[o.type]; return !!cb && cb.container!==undefined; }
 function containerOpen(o){ if(o.unit) return true; const cb=CODEBOOK[o.type]; return stateOf(o.id)>=cb.container; }
 function contentsOf(o){ if(o.unit){ const v=o.unit; return [...(v.sensors.camera?[42]:[]), ...v.items]; } return contents[o.id]||[]; }
@@ -660,7 +663,7 @@ const r1=v=>+v.toFixed(1), r2=v=>+v.toFixed(2), xy=p=>p?[r1(p.x),r1(p.y)]:null;
 function truth(){ return {
   units:units.map(u=>({id:u.id,st:u.st,x:r1(u.x),y:r1(u.y),h:r2(u.heading),alive:u.alive,mode:u.mode,stealth:u.stealth,stance:u.stance,reflex:u.reflex,light:u.lightOn,tg:xy(u.target),
     pulse:Math.round(u.pulse),skin:Math.round(u.skin),bone:Math.round(u.bone),glu:Math.round(u.glucose),chg:Math.round(u.charge),psy:Math.round(u.psyche),fear:r2(u.fear),car:u.carrier,items:u.items,cam:u.sensors.camera})),
-  stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang,team:S.team,bio:S.bioStock,power:S.power})),
+  stations:stations.map(S=>({k:S.k,site:S.site,name:S.name,x:S.x,y:S.y,ang:S.ang,team:S.team,bio:S.bioStock,power:S.power})),
   turrets:turrets.map(T=>({id:T.id,st:T.st,x:r1(T.x),y:r1(T.y),ang:r2(T.ang),fov:r2(T.fov),range:T.range,on:T.on,powered:T.powered,broken:T.broken,ammo:T.ammo,tgt:T.tgt,aim:r1(T.aimT),rel:r1(T.reloadT),cut:T.cut?r1(T.cut.t):null})),
   pack:pack.map(p=>({i:p.i,x:r1(p.x),y:r1(p.y),h:r2(p.heading),act:p.act,hp:p.hp,fear:r2(p.fear),tired:r2(p.tired),nerve:r2(nerve(p)),size:p.size,tg:xy(p.target),foe:p.foe&&foeOf(p)?[...xy(p.foe),p.foe.u]:null,told:p.told?p.told.v:null,item:p.item||null,lit:p.lit!==undefined&&t-p.lit<0.6,why:p.why,rest:r1(p.rest),hold:r1(p.hold)})),
   ground:ground.map(g=>({id:g.id,x:g.x,y:g.y,items:contents[g.id]||[]})),

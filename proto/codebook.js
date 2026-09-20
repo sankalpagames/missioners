@@ -54,6 +54,21 @@ const ITEMS = { 40:'пищевой брикет', 41:'резак', 42:'каме�
 // Корпус платформы в плане: эллипс 16×9 м, длинная ось по курсу, люк на торце +x (в 2 м перед ним — ориентир «шлюз», 16,0).
 // Одна геометрия для лидара, столкновений, спрайта в кадре и знака станции на карте.
 const STATION = { x:6, y:0, rx:8, ry:4.5, ang:0, h:7, powerR:40 };   // powerR — зона питания вокруг корпуса, м: что внутри — запитано (турели); розетки и кабели — потом
+// Штатный состав базы — то, что разворачивается на площадке уровня (LEVEL.sites), когда хост поднимает платформу: сама станция (корпус STATION),
+// шлюз и точка старта, у шлюза — люк, прожектор, два ящика (провизия и патроны), перед шлюзом — турель. В уровне баз нет — только площадки
+// (центр и курс) и, если нужно, сюжетные подобъекты у шлюза и своя запись турели. Смещения — в осях площадки (x — по курсу), м;
+// подобъекты — от шлюза (id 160 + k·10 + индекс: сначала штатные, потом из уровня, всего не больше 10). Курс турели f — от курса площадки.
+const BASE = { airlock:{dx:10,dy:0}, spawn:{dx:10,dy:0},
+  subs:[ {type:10,dx:3,dy:2}, {type:11,dx:-2,dy:5}, {type:13,dx:2,dy:-4,items:[40,40,40]}, {type:13,dx:4.5,dy:-5,items:[43,43]} ],   // люк, прожектор, ящик с брикетами, ящик с патронами
+  turret:{dx:16,dy:0,f:0,fov:140,range:120,aim:3,reload:10} };
+// Какие площадки заняты при n платформах: LEVEL.layouts[n] — список индексов площадок в порядке платформ (ARK-041, 042, …); нет записи — первые n
+function sitesFor(L,n){ const a=(L.layouts&&L.layouts[n])||L.sites.map((_,i)=>i); return a.slice(0,n).filter(i=>L.sites[i]); }
+// База на площадке: всё в мировых координатах (углы — градусы), подобъекты — смещения от шлюза, турель — из уровня или штатная
+function baseAt(site){ const ang=site.ang||0, a=ang*Math.PI/180, c=Math.cos(a), s=Math.sin(a); const R=(dx,dy)=>({x:site.x+dx*c-dy*s, y:site.y+dx*s+dy*c});
+  const rot=o=>({...o, dx:o.dx*c-o.dy*s, dy:o.dx*s+o.dy*c, f:o.f===undefined?undefined:o.f+ang});
+  const T={...BASE.turret, ...(site.turret||{})}; const tp=R(T.dx,T.dy);
+  return { x:site.x, y:site.y, ang, airlock:R(BASE.airlock.dx,BASE.airlock.dy), spawn:R(BASE.spawn.dx,BASE.spawn.dy),
+    subs:[...BASE.subs, ...(site.subs||[])].slice(0,10).map(rot), turret:{x:tp.x, y:tp.y, f:T.f+ang, fov:T.fov, range:T.range, aim:T.aim, reload:T.reload} }; }
 const SPRITES = {
   2:{sheet:'crates_sheet',H:2.4},                                                     // штабель — один объект-ориентир
   11:{sheet:'floodlight_sheet',H:3.0}, 12:{flat:true}, 16:{flat:true}, 17:{sheet:'mast_sheet',H:7}, 18:{sheet:'cabinet_sheet',H:1.8}, 19:{flat:true},
@@ -120,4 +135,4 @@ const EVENTS = {
   40:'турель переключена',
 };
 
-if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, AUTONOMY, EVENTS, encText, decText };
+if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, MODES, STANCES, AUTONOMY, EVENTS, STATION, BASE, sitesFor, baseAt, encText, decText };

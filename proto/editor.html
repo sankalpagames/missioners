@@ -46,6 +46,9 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
   <button id="btn-text" class="ghost" title="Текст файла — скопировать, если сервер не принимает">текст</button>
   <button id="btn-reload" class="ghost" title="Перечитать level.js с диска">перечитать</button>
   <button id="btn-undo" class="ghost" title="⌘Z / Ctrl+Z">отменить</button>
+  <button id="btn-import" class="ghost" title="Открыть карту из файла в формате level.js (или перетащить файл на карту); в proto/level.js попадёт только после «сохранить»">импорт</button>
+  <button id="btn-export" class="ghost" title="Скачать карту файлом в формате level.js — сервер поднимет её: node server/index.js … level=ФАЙЛ">экспорт</button>
+  <input type="file" id="file-import" accept=".js,text/javascript" hidden>
   <span id="status"></span>
   <span class="grow"></span>
   <span class="dim small">слои</span>
@@ -67,7 +70,7 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
     <div id="props" class="props"><span class="dim wide">клик по объекту на карте</span></div>
     <h3>ДОБАВИТЬ <span class="dim">— выбрать, затем клик по карте</span></h3>
     <div class="row">
-      <button data-add="sub" title="Подобъект к ближайшему (или выбранному) ориентиру">объект</button>
+      <button data-add="sub" title="Подобъект к ближайшему (или выбранному) ориентиру или шлюзу площадки (сверх штатных)">объект</button>
       <select id="add-sub-type"></select>
     </div>
     <div class="row">
@@ -77,7 +80,6 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
       <select id="add-decor-type"></select>
       <button data-add="hull" title="Круглый корпус: непроходим, отражает лидар">корпус</button>
       <button data-add="wild" title="Особь одичалых: лёжка и черты (размер, храбрость, внимательность)">особь</button>
-      <button data-add="turret" title="Турель платформы, у которой ещё нет записи (иначе она стоит по умолчанию в 6 м перед шлюзом)">турель</button>
       <button id="btn-ruler" title="R: линейка — растянуть отрезок">линейка</button>
     </div>
     <h3>КАМЕРА <span id="cam-info" class="dim"></span></h3>
@@ -91,7 +93,7 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
     </div>
     <div class="hint">камера и её цель — на карте, перетаскиваются · <kbd>↑</kbd><kbd>↓</kbd> вперёд/назад 2 м (<kbd>⇧</kbd> 10) · <kbd>←</kbd><kbd>→</kbd> поворот 5° · <kbd>PgUp</kbd><kbd>PgDn</kbd> высота · кадр — тот же CAM.renderRaw, что в игре; фигура в точке старта — масштаб</div>
     <h3>КАРТА</h3>
-    <div class="hint">колёсико — масштаб · перетаскивание пустого места — сдвиг · перетаскивание объекта, колена, лёжки, корпуса, камеры — переместить (<kbd>⇧</kbd> — шаг 1 м) · двойной клик по расщелине — новое колено · <kbd>Del</kbd> — удалить · <kbd>Esc</kbd> — снять выбор · красное — склон круче 40°, тело не пройдёт · пунктир — радиус возврата ПС-2</div>
+    <div class="hint">колёсико — масштаб · перетаскивание пустого места — сдвиг · перетаскивание объекта, колена, лёжки, корпуса, площадки, турели, камеры — переместить (<kbd>⇧</kbd> — шаг 1 м) · двойной клик по расщелине — новое колено · <kbd>Del</kbd> — удалить (турель площадки → штатная) · <kbd>Esc</kbd> — снять выбор · красное — склон круче 40°, тело не пройдёт · пунктир — радиус возврата ПС-2 · площадки — пунктирный эллипс: базы в уровне нет, штатный состав (BASE в codebook.js) показан призраком, его объекты тусклые и не правятся</div>
     <div id="textwrap" hidden><textarea id="text" spellcheck="false"></textarea><div class="row"><button id="btn-copy">скопировать</button><button id="btn-text-close" class="ghost">закрыть</button></div></div>
   </aside>
 </div>
