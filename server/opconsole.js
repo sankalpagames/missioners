@@ -4,7 +4,7 @@
 // Никаких данных мира напрямую — честность по построению: консоль подключается к комнате как обычный оператор.
 const path=require('path'), fs=require('fs');
 const CB=require(path.join(__dirname,'..','proto','codebook.js'));
-const {EVENTS, MODES, STANCES, AUTONOMY, ITEMS, decText}=CB;
+const {EVENTS, MODES, STANCES, AUTONOMY, ITEMS, decText, objCmds}=CB;
 const RUMBS=['В','ЮВ','Ю','ЮЗ','З','СЗ','С','СВ'];   // пеленг 0° — восток (+x), 90° — юг (+y на карте)
 const rumb=deg=>RUMBS[Math.round(deg/45)%8];
 const KIND_RU={TLM:'телеметрия',HB:'пульс станции',SONAR:'лидар',DESC:'описание',IMG:'кадр',EVT:'событие',EXAM:'осмотр',ACT:'действие',INFO:'паспорт',CONT:'содержимое'};
@@ -41,8 +41,8 @@ class OpConsole {
       case 'EVT': this.evt(p,replay); break;
       case 'INFO': { const text=decText(p.bytes); const pp=/платформа: (-?[\d.]+), (-?[\d.]+)/.exec(text); if(pp) this.station.pos={x:+pp[1],y:+pp[2]}; const rr=/возврат:.*?(\d+) м/.exec(text); if(rr) this.station.returnR=+rr[1]; this.station.info=text; if(!replay) this.say('станция: '+text.replace(/\n/g,' · ')); break; }
       case 'CONT': { const b=p.bytes; const c=[...b.slice(2,2+b[1])]; this.contents.set(b[0],c); if(!replay) this.say(`содержимое ${this.oname(b[0])}: ${c.map(i=>ITEMS[i]).join(', ')||'пусто'}`); break; }
-      case 'EXAM': { const b=p.bytes, id=b[0], len=(b[2]<<8)|b[3]; const text=decText(b.slice(4,4+len)); if(!replay) this.say(`М${p.unit} осмотр ${this.oname(id)}: ${text}`); break; }
-      case 'ACT': { const b=p.bytes, id=b[0], code=b[1], len=(b[2]<<8)|b[3]; const text=decText(b.slice(4,4+len)); if(!replay) this.say(`М${p.unit} ${this.oname(id)}: ${text}${code?' [не вышло]':''}`); break; }
+      case 'EXAM': { const b=p.bytes, id=b[0], st=b[2], len=(b[3]<<8)|b[4]; const text=decText(b.slice(5,5+len)); const k=this.known.get(id); if(k){ k.state=st; k.examined=true; } if(!replay) this.say(`М${p.unit} осмотр ${this.oname(id)}: ${text}${this.cmdsText(id)}`); break; }   // [id, код, состояние после, длина 2 Б, текст]
+      case 'ACT': { const b=p.bytes, id=b[0], code=b[1], st=b[2], len=(b[3]<<8)|b[4]; const text=decText(b.slice(5,5+len)); const k=this.known.get(id); if(k) k.state=st; if(!replay) this.say(`М${p.unit} ${this.oname(id)}: ${text}${code?' [не вышло]':''}${this.cmdsText(id)}`); break; }
       case 'SONAR': this.sonar(p,replay); break;
       default: if(/^IMG\d/.test(p.kind)) this.imgPyr(p,replay); else if(/^IMD\d/.test(p.kind)) this.imgDelta(p,replay);
     }
@@ -74,10 +74,12 @@ class OpConsole {
   turretText(T){ return `турель ${T.id}: ${T.broken?'повреждена':!T.powered?'без питания, данных нет':T.on?(T.tracking?'ведёт цель':T.reloading?'перезарядка':'включена'):'выключена'}${T.ammo==null?'':', патронов '+T.ammo}`; }
   stationText(){ const S=this.station; return `станция: биоматериал ${S.bio??'—'}, камер на складе ${S.cam??'—'}, брикетов ${S.brik??'—'}, резаков ${S.cut??'—'}${S.grow!=null?`, выращивание: готовность через ${Math.floor(S.grow/60)}:${String(S.grow%60).padStart(2,'0')}`:''}`; }
   desc(p,replay){ const b=p.bytes, u=this.unit(p.unit); const at=pos(b,0); const items=[];
-    for(let i=4;i+4<b.length;){ const len=b[i+4]; const it={id:b[i],cls:b[i+1],bearing:b[i+2]*2,range:b[i+3],name:decText(b.slice(i+5,i+5+len))}; i+=5+len; it.x=at.x+Math.cos(it.bearing*Math.PI/180)*it.range; it.y=at.y+Math.sin(it.bearing*Math.PI/180)*it.range; items.push(it);
-      const prev=this.known.get(it.id); const keep=prev&&it.cls!==2&&prev.range<it.range; this.known.set(it.id,{id:it.id,cls:it.cls,name:it.name,x:keep?prev.x:it.x,y:keep?prev.y:it.y,range:keep?prev.range:it.range,at:this.tNow,unit:p.unit}); }
+    for(let i=4;i+6<b.length;){ const len=b[i+6]; const it={id:b[i],cls:b[i+1],bearing:b[i+2]*2,range:b[i+3],type:b[i+4],state:b[i+5],name:decText(b.slice(i+7,i+7+len))}; i+=7+len;   // тип — корпоративная номенклатура или 0; состояние — байт it.x=at.x+Math.cos(it.bearing*Math.PI/180)*it.range; it.y=at.y+Math.sin(it.bearing*Math.PI/180)*it.range; items.push(it);
+      const prev=this.known.get(it.id); const keep=prev&&it.cls!==2&&prev.range<it.range; this.known.set(it.id,{id:it.id,cls:it.cls,type:it.type,state:it.state,examined:prev&&prev.examined,name:it.name,x:keep?prev.x:it.x,y:keep?prev.y:it.y,range:keep?prev.range:it.range,at:this.tNow,unit:p.unit}); }
     u.desc=items; u.descAt=this.tNow; u.descPos=at; if(replay) return;
-    this.say(`М${p.unit} описание (снято в ${f1(at.x)}, ${f1(at.y)}), ${items.length}: `+items.map(it=>`${it.name} [${it.id}, ${CLS_RU[it.cls]}, ${rumb(it.bearing)} ${it.bearing}°, ${it.range} м]`).join('; ')); }
+    this.say(`М${p.unit} описание (снято в ${f1(at.x)}, ${f1(at.y)}), ${items.length}: `+items.map(it=>`${it.name} [${it.id}, ${CLS_RU[it.cls]}, ${rumb(it.bearing)} ${it.bearing}°, ${it.range} м${this.cmdsText(it.id,true)}]`).join('; ')); }
+  // команды объекта по типу и состоянию из описания (objCmds, кодовая книга): «изучить» — у всего; указатель — только оно; тип 0 — «взаимодействовать»
+  cmdsText(id,short){ const k=this.known.get(id); if(!k||k.cls!==0) return ''; const own=k.type===34?(this.station.turrets||[]).some(T=>T.id===id):undefined; const c=objCmds(k.type||0,k.state||0,{own}).filter(c=>!c.afterExam||k.examined).map(c=>c.label+(c.needs?' (нужен '+ITEMS[c.needs]+')':'')); return c.length?(short?'; ':' Команды: ')+c.join(', '):''; }
   evt(p,replay){ const b=p.bytes, code=b[0], arg=b[1], un=p.unit?`М${p.unit} `:''; const txt=EVENTS[code]||('событие '+code); let s;
     if(code===7) s=`${un}${txt}: ${MODES[arg]}`; else if(code===32) s=`${un}${txt}: ${arg?'включена':'выключена'}`; else if(code===33) s=`${un}${txt}: ${STANCES[arg]}`; else if(code===35) s=`${un}${txt}: ${AUTONOMY[arg]}`; else if(code===13) s=`${un}${txt} М${arg}`; else if(code===16) s=`${un}${txt} (id ${arg}); нужно новое описание`; else if(code===19||code===20) s=`${un}${txt}: ${ITEMS[arg]||arg}`; else if(code===28) s=`${un}${txt} (${arg*10} м от ближайшего узла${this.station.returnR?', предел '+this.station.returnR+' м':''})`; else if(code===3||code===41) s=`${txt}: ${arg}`; else if(code===42) s=`${txt}: ${arg>>1} ${arg&1?'включён':'выключен'}`; else s=`${un}${txt}`;
     if(code===5) this.unit(p.unit).alive=false; if(code===6) this.unit(p.unit);

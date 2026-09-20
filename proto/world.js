@@ -446,9 +446,12 @@ function examText(o){
 }
 function withContents(o,text){ if(!isContainer(o)||!containerOpen(o)) return text; const c=contentsOf(o); return text+(c.length?' Здесь: '+c.map(i=>ITEMS[i]).join(', ')+'.':' Пусто.'); }
 function classOf(o){ return o.pack?2 : o.unit?(o.unit.alive?4:3) : o.landmark?1 : 0; }
+// Тип в описании — только корпоративной номенклатуры (CODEBOOK.corp): станция знает такие вещи заранее, консоль показывает их команды; остальное — 0.
+// Состояние — байт для всех объектов (objState); тела, особи, указатели — 0
+function typeByte(o){ const cb=CODEBOOK[o.type]; return o.unit||o.pack||o.landmark||!cb||!cb.corp ? 0 : o.type; }
 function describe(u, cls='cmd'){
   const objs=objectsAround(u,100); const parts=[];
-  for(const o of objs){ const t=encText(nameOf(o)); parts.push([o.id&255, classOf(o), Math.round(bearingDeg(u,o)/2), Math.min(255,Math.round(dist(u,o))), t.length, ...t]); }
+  for(const o of objs){ const t=encText(nameOf(o)); parts.push([o.id&255, classOf(o), Math.round(bearingDeg(u,o)/2), Math.min(255,Math.round(dist(u,o))), typeByte(o), o.unit||o.pack||o.landmark?0:stateOf(o.id), t.length, ...t]); }
   emit(cls,'DESC',u.id,new Uint8Array([...posBytes(u),...parts.flat()]));   // первые 4 байта — где снято
 }
 function posBytes(u){ const c=v=>Math.max(0,Math.min(65535,Math.round(v*10)+32768)), x=c(u.x), y=c(u.y); return [x>>8,x&255,y>>8,y&255]; }   // дециметры, 16 бит: ±3276 м, за пределом — край, не заворот
@@ -526,7 +529,7 @@ function beginAction(u,kind,id,item){
     const has = item===42 ? u.sensors.camera : u.items.includes(item); if(!has){ evt(2,u.id); return; }
     if(item===42){ u.sensors.camera=false; u.sub.img.interval=0; } else u.items.splice(u.items.indexOf(item),1);
     const g=dropBundle(u.x,u.y,item);
-    const t=encText(`сбросил: ${ITEMS[item]}.`); emit('cmd','ACT',u.id,new Uint8Array([g.id,0,t.length>>8,t.length&255,...t])); emit('cmd','CONT',u.id,new Uint8Array([g.id,1,item])); return; }
+    const t=encText(`сбросил: ${ITEMS[item]}.`); emit('cmd','ACT',u.id,new Uint8Array([g.id,0,0,t.length>>8,t.length&255,...t])); emit('cmd','CONT',u.id,new Uint8Array([g.id,1,item])); return; }
   const o=findObj(u,id); if(!o){ evt(16,u.id,id); return; }
   const near=reachDist(u,o)<=REACH; if(!near && beyondReturn(u,o)) return;
   u.pending={kind,id,item}; u.goal={x:o.x,y:o.y};
@@ -535,7 +538,7 @@ function beginAction(u,kind,id,item){
 function doPending(u){
   const p=u.pending; u.pending=null; if(!p) return; const o=findObj(u,p.id); if(!o){ evt(16,u.id,p.id); return; }
   const st=stateOf(o.id), cb=CODEBOOK[o.type]||CODEBOOK[250];
-  const textReply=(kind,code,text)=>{ const t=encText(text); emit('cmd',kind,u.id,new Uint8Array([o.id,code,t.length>>8,t.length&255,...t])); };   // длина — 2 байта
+  const textReply=(kind,code,text)=>{ const t=encText(text); emit('cmd',kind,u.id,new Uint8Array([o.id,code,o.unit||o.pack||o.landmark?0:stateOf(o.id),t.length>>8,t.length&255,...t])); };   // [id, код, состояние после, длина 2 Б, текст]
   const sendCont=()=>{ if(isContainer(o)&&containerOpen(o)){ const c=contentsOf(o); emit('cmd','CONT',u.id,new Uint8Array([o.id,c.length,...c])); } };
   if(p.kind==='exam'){ textReply('EXAM',0,examText(o)); sendCont(); return; }
   if(p.kind==='put' && o.turret){ const T=o.turret; if(p.item!==43){ textReply('ACT',1,'турель принимает только патроны.'); return; } if(!u.items.includes(43)){ textReply('ACT',1,'нечего положить: патроны.'); return; }
