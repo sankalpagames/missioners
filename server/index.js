@@ -43,10 +43,18 @@ const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4];
 // Оба уходят миру строкой search (tech.md §6: &teams=…&voice=…); сервер их не толкует
 const roomCfg=q=>{ const map=MAPS[q.map]?q.map:MAP_DEFAULT; const n=Math.max(2,Math.min(MAPS[map].sites,+q.n||2));
   const teams=String(Array.isArray(q.teams)?q.teams.join(','):q.teams||'').split(',').map(x=>x.trim()).filter(x=>/^\d$/.test(x)).map(Number);
+  const hex=v=>/^[0-9a-f]{12,32}$/.test(v||'')?v:crypto.randomBytes(8).toString('hex');
   return { map, n, cap:CAPS.includes(+q.cap)?+q.cap:512, speed:SPEEDS.includes(+q.speed)?+q.speed:1, teams:teams.length===n&&new Set(teams).size<n?teams:[], voice:Math.max(0,Math.min(2000,+q.voice||0)),
-  pack:/^[0-9a-f]{12,32}$/.test(q.pack||'')?q.pack:crypto.randomBytes(8).toString('hex') }; };   // pack — токен стаи: выдаётся создателю планеты, по нему агент входит (docs/agent-api.md)
+  pack:hex(q.pack), ops:[...Array(n).keys()].map(k=>hex(q.ops&&q.ops[k])) }; };   // pack, ops[k] — секреты ролей: стая и каждая платформа; из них собираются ключи агентов (roleKey), выдаются создателю планеты один раз
 const worldSearch=c=>'?v=0&st='+c.n+(c.teams.length?'&teams='+c.teams.join(','):'')+(c.voice?'&voice='+c.voice:'');
-const pubCfg=c=>{ const {pack,...o}=c; return o; };   // наружу (список планет) токен не отдаётся
+const pubCfg=c=>{ const {pack,ops,...o}=c; return o; };   // наружу (список планет) секреты не отдаются
+// Ключ агента: КОД.РОЛЬ.СЕКРЕТ — код планеты, роль (op0…op3 — платформа, pack — стая), секрет роли. Человек получает ключи в лобби при создании
+// планеты и передаёт своему агенту; по ключу агент получает спеку своей роли (GET /agent/КЛЮЧ) и входит (/op/join, /pack/join {key}).
+const roleKey=(r,role)=>`${r.code}.${role}.${role==='pack'?r.cfg.pack:r.cfg.ops[+role.slice(2)]}`;
+const roleKeys=r=>({ ops:r.cfg.ops.map((_,k)=>roleKey(r,'op'+k)), pack:roleKey(r,'pack') });
+function parseKey(key){ const m=/^([\w-]{1,32})\.(op\d|pack)\.([0-9a-f]{12,32})$/.exec(String(key||'').trim()); if(!m) return null;
+  const code=m[1]; if(!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))) return null; const r=room(code);
+  const role=m[2], st=role==='pack'?-1:+role.slice(2); if(role!=='pack'&&!r.cfg.ops[st]) return null; if(m[3]!==(role==='pack'?r.cfg.pack:r.cfg.ops[st])) return null; return {room:r, role, st}; }
 class Room {
   constructor(code,cfg){ this.code=code; this.file=path.join(DATA,code+'.json'); this.logFile=path.join(DATA,code+'.log'); this.logBuf=[]; this.clients=new Set(); this.watchers=new Set(); this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → {name, st}, все операторы, что были в комнате
     let d=null; try{ d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==4){ log(`${code}: старый формат сохранения v${d.v}, новая планета`); d=null; } }
@@ -55,6 +63,7 @@ class Room {
     if(d&&d.cfg&&d.cfg.map&&d.cfg.map!==this.cfg.map) log(`${code}: карты «${d.cfg.map}» на сервере нет, планета поднята на «${this.cfg.map}» — снимок мира может не сойтись с картой`);
     if(d&&d.map&&d.map.id===this.cfg.map&&d.map.v!==MAPS[this.cfg.map].v) log(`${code}: карта ${d.map.id} v${d.map.v} → v${MAPS[this.cfg.map].v}, снимок мира может не сойтись с картой`);
     this.pack={ lines:[], waiters:[], last:0, capture:null };   // сторона стаи: лента восприятия с курсором n, ожидающие долгого опроса, время последнего запроса, перехват ответов мира
+    this.agents=d&&d.agents||{}; this.stopped=d&&d.stopped||null;   // agents: роль → за неё играет агент (отметка в лобби, ссылка на спеку); stopped: «конец игры» — кто и когда, до входа человека через лобби
     this.st=makeStation({ worldSrc:MAPS[this.cfg.map].worldSrc, search:worldSearch(this.cfg), debug:DEBUG, out:m=>this.out(m), agent:m=>this.onAgent(m), log:r=>{ const s=JSON.stringify(r); this.logBuf.push(s); for(const w of this.watchers) if(w.readyState===1) w.send(s); } }); this.rings=this.st.links.map(()=>[]);
     // атлас — после того, как отвергнутый fetch в CAM.load отработает (иначе он обнулит атлас)
     setImmediate(()=>this.st.W.CAM.build(atlas.json,atlas.px));
@@ -81,7 +90,13 @@ class Room {
     if(lines.length) this.lastCmd=Date.now(); return out; }
   ops(k){ return [...this.clients].filter(c=>c.live&&(k===undefined||c.st===k)).map(c=>c.op.name); }
   stationsInfo(){ const u=this.st.snapshot().units; return this.st.links.map((L,k)=>({k, name:'ARK-04'+(1+k), ops:this.ops(k), units:u.filter(x=>x.st===k).length, alive:u.filter(x=>x.st===k&&x.alive).length})); }
-  info(){ const u=this.st.snapshot().units; return {code:this.code, cfg:pubCfg(this.cfg), running:!!this.timer, lastCmd:this.lastCmd||0, ops:this.ops(), t:this.st.links[0].link.t, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:Date.now(), stations:this.stationsInfo()}; }
+  info(){ const u=this.st.snapshot().units; return {code:this.code, cfg:pubCfg(this.cfg), running:!!this.timer, lastCmd:this.lastCmd||0, ops:this.ops(), t:this.st.links[0].link.t, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:Date.now(), stations:this.stationsInfo(), agents:this.agents, stopped:this.stopped}; }
+  // «конец игры, меня мама позвала домой»: любой человек (лобби) или агент останавливает комнату для всех — консоли отключаются и не переподключаются,
+  // сессии агентов закрываются, мир стоит и сохраняется. Снимает остановку вход человека через лобби (hello) — так повторный вход агентов идёт по согласованию с людьми
+  stop(by){ this.stopped={by:String(by||'кто-то').slice(0,40), wall:new Date().toISOString(), t:+this.st.links[0].link.t.toFixed(1)}; this.st.log({k:'stop', by:this.stopped.by, wall:this.stopped.wall});
+    const s=enc({t:'stopped', by:this.stopped.by}); for(const c of [...this.clients]){ if(c.live) c.send(s); if(c.close) c.close(); else this.leave(c); }
+    for(const [id,S] of opSessions) if(S.room===this){ opSessions.delete(id); stoppedSessions.set(id,this.stopped); }
+    for(const w of this.pack.waiters.splice(0)) w(); this.save(); log(`${this.code}: остановлена — ${this.stopped.by}`); }
   sendOps(){ const st=this.stationsInfo(); for(const c of this.clients) if(c.live) c.send(enc({t:'ops', ops:this.ops(c.st), stations:st})); }
   join(ws){ this.clients.add(ws); if(!this.timer){ this.schedule(); this.saveTimer=setInterval(()=>{ this.save(); this.flushLog(); },SAVE_EVERY); log(`${this.code}: мир идёт`); } }
   // лог мира (tech.md §12): JSONL, строка на запись, дописывается раз в SAVE_EVERY и при остановке; читать — tools/log-*.js
@@ -102,6 +117,7 @@ class Room {
     ws.send(enc({t:'welcome', st:ws.st, name:'ARK-04'+(1+ws.st), operators:this.ops(ws.st).length+1, replay:miss.length, at:this.st.links[ws.st].link.t, speed:this.st.speed}));
     for(const p of miss) ws.send(enc({...p,replay:true}));
     ws.send(enc(this.st.modem(ws.st))); ws.live=true; this.sendOps(); this.st.log({k:'op', join:ws.op.name, st:ws.st, since, wall:new Date().toISOString()});
+    if(this.stopped&&ws.close){ log(`${this.code}: остановка снята — вошёл ${ws.op.name}`); this.st.log({k:'resume', by:ws.op.name}); this.stopped=null; }   // человек через лобби — остановка снята, агентов снова пускают
   }
   handle(ws,m){
     if(m.t==='hello'){ this.hello(ws,+m.since||0,m.op,+m.st||0); return; }
@@ -113,7 +129,7 @@ class Room {
       return; }
     if(DEBUG&&(m.t==='cfg'||m.t==='tp'||m.t==='peek')) this.st.handle(m);   // speed/load/save от клиентов не принимаются: ускорение — настройка комнаты, мир — у сервера
   }
-  save(){ const d={v:4, savedAt:Date.now(), map:this.st.meta, world:this.st.snapshot(), n:this.st.rxN(), cfg:this.cfg, seen:this.seen, rings:this.rings.map(r=>r.slice(-TAIL))};
+  save(){ const d={v:4, savedAt:Date.now(), map:this.st.meta, world:this.st.snapshot(), n:this.st.rxN(), cfg:this.cfg, seen:this.seen, agents:this.agents, stopped:this.stopped, rings:this.rings.map(r=>r.slice(-TAIL))};
     try{ fs.writeFileSync(this.file+'.tmp',enc(d)); fs.renameSync(this.file+'.tmp',this.file); }catch(e){ log(`${this.code}: сохранение не удалось: ${e.message}`); } }
 }
 const rooms=new Map(); const room=(code,cfg)=>{ if(!rooms.has(code)) rooms.set(code,new Room(code,cfg)); return rooms.get(code); };
@@ -123,7 +139,7 @@ function listRooms(){ const out=[]; const codes=new Set(rooms.keys());
   for(const f of fs.readdirSync(DATA)){ if(!f.endsWith('.json')) continue; const code=f.slice(0,-5); if(codes.has(code)) continue; codes.add(code);
     try{ const st=fs.statSync(path.join(DATA,f)); const c=diskInfo[code]; if(c&&c.mtime===st.mtimeMs){ out.push(c.info); continue; }
       const d=JSON.parse(fs.readFileSync(path.join(DATA,f),'utf8')); if(d.v!==4) continue; const u=d.world.units; const info={code, cfg:pubCfg(roomCfg(d.cfg||{})), ops:[], t:d.world.t||0, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:d.savedAt,
-        running:false, lastCmd:0, stations:(d.world.stations||[]).map(S=>({k:S.k, name:S.name, ops:[], units:u.filter(x=>x.st===S.k).length, alive:u.filter(x=>x.st===S.k&&x.alive).length}))}; diskInfo[code]={mtime:st.mtimeMs,info}; out.push(info); }catch(e){} }
+        running:false, lastCmd:0, stations:(d.world.stations||[]).map(S=>({k:S.k, name:S.name, ops:[], units:u.filter(x=>x.st===S.k).length, alive:u.filter(x=>x.st===S.k&&x.alive).length})), agents:d.agents||{}, stopped:d.stopped||null}; diskInfo[code]={mtime:st.mtimeMs,info}; out.push(info); }catch(e){} }
   for(const r of rooms.values()) out.push(r.info());
   return out.sort((a,b)=>(b.ops.length-a.ops.length)||(b.savedAt-a.savedAt)); }
 const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);
@@ -134,18 +150,23 @@ const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);
 const OP_TTL=10*60*1000, OP_MIN_MS=200; const opSessions=new Map();
 class OpClient { constructor(){ this.oc=new OpConsole(); this.live=false; this.st=0; this.op={name:'агент',token:''}; this.waiters=[]; this.last=Date.now(); this.oc.onLine=()=>{ for(const w of this.waiters.splice(0)) w(); }; }
   send(s){ let m; try{ m=JSON.parse(s); }catch(e){ return; } this.oc.onMsg(m); } }
+const stoppedSessions=new Map();   // id закрытой остановкой сессии → stopped: чтобы агент понял, почему сессии нет
+const stoppedFor=id=>stoppedSessions.get(id)||null;
 setInterval(()=>{ const now=Date.now(); for(const [id,S] of opSessions) if(now-S.client.last>OP_TTL){ S.room.leave(S.client); opSessions.delete(id); log(`${S.room.code}: агент-оператор ${S.client.op.name} вышел по тишине`); } },60000);
 function opApi(req,res,u,op){
   const wantText=u.searchParams.get('text')==='1'||/^text\/plain/.test(req.headers.accept||'');
   const send=(code,obj,text)=>{ if(wantText&&text!==undefined){ res.writeHead(code,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}); res.end(text); } else { res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(obj)); } };
   const withBody=cb=>{ let body=''; req.on('data',c=>{ body+=c; if(body.length>2e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){ q={}; } cb(q); }); };
-  const sess=q=>{ const id=String(q.id||u.searchParams.get('id')||''); const S=opSessions.get(id); if(!S){ send(404,{error:'сессии нет: сначала /op/join'},'сессии нет'); return null; }
+  const sess=q=>{ const id=String(q.id||u.searchParams.get('id')||''); const S=opSessions.get(id); if(!S){ const st=stoppedFor(id); send(st?423:404, st?{error:`игра остановлена (${st.by}); повторный вход — по согласованию с людьми`, stopped:st}:{error:'сессии нет: сначала /op/join'}, st?'игра остановлена — вход по согласованию':'сессии нет'); return null; }
     const now=Date.now(); if(now-S.client.last<OP_MIN_MS){ send(429,{error:'не чаще '+OP_MIN_MS+' мс'},'слишком часто'); return null; } S.client.last=now; return S; };
   const header=S=>{ const M=S.client.oc.modem; return M?`${M.up?'связь':'НЕТ СВЯЗИ'} · ${(M.cap/8).toFixed(0)} Б/с · в очереди ${M.qcmd+M.qbg} Б`:'модем: нет показаний'; };
-  if(op==='join'&&req.method==='POST'){ withBody(q=>{ const code=String(q.room||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ send(400,{error:'нужен код планеты'},'нужен код планеты'); return; }
-      const r=room(code); const c=new OpClient(); const id=crypto.randomBytes(8).toString('hex'); opSessions.set(id,{room:r,client:c});
-      r.join(c); r.hello(c, 0, {name:String(q.name||'агент').slice(0,24), token:''}, +q.st||0); log(`${code}: агент-оператор ${c.op.name} на платформе ${c.st}`);
-      const st=c.oc.state(); send(200,{ok:true, id, room:code, st:c.st, name:c.oc.name, n:c.oc.n, replay:c.oc.replay, speed:r.st.speed, lines:st, text:st.join('\n')}, `сессия ${id}\n`+st.join('\n')+`\n— ${header({client:c})}, n=${c.oc.n}, досыл ${c.oc.replay} пакетов`); }); return; }
+  if(op==='join'&&req.method==='POST'){ withBody(q=>{ let r, st=+q.st||0;
+      if(q.key){ const k=parseKey(q.key); if(!k||k.role==='pack'){ send(401,{error:'ключ не подходит (нужен ключ платформы: КОД.opN.секрет)'},'ключ не подходит'); return; } r=k.room; st=k.st; }
+      else { const code=String(q.room||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ send(400,{error:'нужен ключ платформы (key) или код планеты (room)'},'нужен ключ или код планеты'); return; } r=room(code); }
+      if(r.stopped){ send(423,{error:`игра остановлена (${r.stopped.by}, ${r.stopped.wall}); повторный вход — по согласованию: когда человек снова войдёт через лобби`, stopped:r.stopped},'игра остановлена — вход по согласованию'); return; }
+      const c=new OpClient(); const id=crypto.randomBytes(8).toString('hex'); opSessions.set(id,{room:r,client:c});
+      r.join(c); r.hello(c, 0, {name:String(q.name||'агент').slice(0,24), token:''}, st); log(`${r.code}: агент-оператор ${c.op.name} на платформе ${c.st}`); const code=r.code;
+      const pic=c.oc.state(); send(200,{ok:true, id, room:code, st:c.st, name:c.oc.name, n:c.oc.n, replay:c.oc.replay, speed:r.st.speed, lines:pic, text:pic.join('\n')}, `сессия ${id}\n`+pic.join('\n')+`\n— ${header({client:c})}, n=${c.oc.n}, досыл ${c.oc.replay} пакетов`); }); return; }
   if(op==='perceive'&&req.method==='GET'){ const S=sess({}); if(!S) return; const c=S.client, since=+u.searchParams.get('since')||0, wait=Math.max(0,Math.min(PACK_WAIT_MAX,+u.searchParams.get('wait')||0));
     const reply=()=>{ const lines=c.oc.lines.filter(l=>l.n>since); const n=lines.length?lines[lines.length-1].n:c.oc.n; const M=c.oc.modem;
       send(200,{n, at:+c.oc.tNow.toFixed(1), speed:S.room.st.speed, modem:M?{up:M.up,cap:M.cap,queue:M.qcmd+M.qbg,eta:M.queue.map(g=>({id:g.id,kind:g.kind,unit:g.unit,eta:g.eta}))}:null, lines, text:lines.map(l=>`${mmss(l.at)} ${l.text}`).join('\n')}, lines.map(l=>`${mmss(l.at)} ${l.text}`).join('\n')+(lines.length?'\n':'')+`— ${header(S)}, n=${n}`); };
@@ -157,7 +178,8 @@ function opApi(req,res,u,op){
       send(200,{results}, results.map(x=>`${x.ok?'отправлено':'отказ'} — ${x.line}${x.why?' ('+x.why+')':''}${x.sent?' → '+x.sent:''}`).join('\n')); }); return; }
   if(op==='state'&&req.method==='GET'){ const S=sess({}); if(!S) return; const st=S.client.oc.state(); send(200,{n:S.client.oc.n, lines:st, text:st.join('\n')}, st.join('\n')+`\n— ${header(S)}, n=${S.client.oc.n}`); return; }
   if(op==='leave'&&req.method==='POST'){ withBody(q=>{ const id=String(q.id||''); const S=opSessions.get(id); if(S){ S.room.leave(S.client); opSessions.delete(id); } send(200,{ok:true},'вышел'); }); return; }
-  send(404,{error:'нет такого: /op/join (POST), /op/perceive (GET), /op/act (POST), /op/state (GET), /op/leave (POST)'},'нет такого');
+  if(op==='stop'&&req.method==='POST'){ withBody(q=>{ const S=opSessions.get(String(q.id||'')); if(!S){ send(404,{error:'сессии нет'},'сессии нет'); return; } S.room.stop(`агент ${S.client.op.name} (${S.client.oc.name})`); send(200,{ok:true, stopped:S.room.stopped},'игра остановлена для всех'); }); return; }
+  send(404,{error:'нет такого: /op/join (POST), /op/perceive (GET), /op/act (POST), /op/state (GET), /op/leave (POST), /op/stop (POST)'},'нет такого');
 }
 
 // ---- HTTP-API агента стаи: /pack/join, /pack/perceive, /pack/act (docs/agent-api.md). Планета — по коду и токену стаи из настроек.
@@ -167,9 +189,12 @@ function packApi(req,res,u,op){
   const wantText=u.searchParams.get('text')==='1'||/^text\/plain/.test(req.headers.accept||'');
   const send=(code,obj,text)=>{ if(wantText&&text!==undefined){ res.writeHead(code,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}); res.end(text); } else { res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(obj)); } };
   const withBody=cb=>{ let body=''; req.on('data',c=>{ body+=c; if(body.length>2e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){ q={}; } cb(q); }); };
-  const auth=q=>{ const code=String(q.room||u.searchParams.get('room')||'').trim(), token=String(q.token||u.searchParams.get('token')||'').trim();
-    if(!/^[\w-]{1,32}$/.test(code)||!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ send(404,{error:'планеты нет: '+code},'планеты нет'); return null; }
-    const r=room(code); if(token!==r.cfg.pack){ send(401,{error:'токен стаи не подходит'},'токен стаи не подходит'); return null; }
+  const auth=(q,quiet)=>{ let r; const key=q.key||u.searchParams.get('key');
+    if(key){ const k=parseKey(key); if(!k||k.role!=='pack'){ send(401,{error:'ключ не подходит (нужен ключ стаи: КОД.pack.секрет)'},'ключ не подходит'); return null; } r=k.room; }
+    else { const code=String(q.room||u.searchParams.get('room')||'').trim(), token=String(q.token||u.searchParams.get('token')||'').trim();
+      if(!/^[\w-]{1,32}$/.test(code)||!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ send(404,{error:'планеты нет: '+code},'планеты нет'); return null; }
+      r=room(code); if(token!==r.cfg.pack){ send(401,{error:'токен стаи не подходит'},'токен стаи не подходит'); return null; } }
+    if(r.stopped&&!quiet){ send(423,{error:`игра остановлена (${r.stopped.by}, ${r.stopped.wall}); повторный вход — по согласованию: когда человек снова войдёт через лобби`, stopped:r.stopped},'игра остановлена — вход по согласованию'); return null; }
     const now=Date.now(); if(now-r.pack.last<PACK_MIN_MS){ send(429,{error:'не чаще '+PACK_MIN_MS+' мс'},'слишком часто'); return null; } r.pack.last=now; return r; };
   if(op==='join'&&req.method==='POST'){ withBody(q=>{ const r=auth(q); if(!r) return; const s=r.packState(); r.st.log({k:'pack', join:true, wall:new Date().toISOString()});
       send(200,{ok:true, room:r.code, ...s, text:s.lines.join('\n')}, s.lines.join('\n')+`\n— часы мира ${mmss(s.at)}, ${s.asleep?'стая спит: операторов нет':'мир идёт'}, n=${s.n}`); }); return; }
@@ -180,9 +205,17 @@ function packApi(req,res,u,op){
     let done=false; const fire=()=>{ if(done) return; done=true; clearTimeout(tm); reply(); }; const tm=setTimeout(fire,wait*1000); r.pack.waiters.push(fire); req.on('close',()=>{ done=true; clearTimeout(tm); }); return; }
   if(op==='act'&&req.method==='POST'){ withBody(q=>{ const r=auth(q); if(!r) return; const acts=Array.isArray(q.acts)?q.acts.join('\n'):String(q.acts||q.text||''); const results=r.packAct(acts);
       for(const x of results) r.st.log({k:'pack', act:x.line, ok:x.ok, why:x.why}); send(200,{results, asleep:!r.timer}, results.map(x=>`${x.ok?'принято':'отказ'} — ${x.line}${x.why?' ('+x.why+')':''}`).join('\n')); }); return; }
-  send(404,{error:'нет такого: /pack/join (POST), /pack/perceive (GET), /pack/act (POST)'},'нет такого');
+  if(op==='stop'&&req.method==='POST'){ withBody(q=>{ const r=auth(q,true); if(!r) return; r.stop('агент стаи'); send(200,{ok:true, stopped:r.stopped},'игра остановлена для всех'); }); return; }
+  send(404,{error:'нет такого: /pack/join (POST), /pack/perceive (GET), /pack/act (POST), /pack/stop (POST)'},'нет такого');
 }
 
+// Спека роли: docs/agent-pack.md или docs/agent-op.md с подстановкой {{BASE}} (адрес сервера), {{KEY}}, {{ROOM}}, {{STATION}}, {{MAP}} и брифинга карты
+// (docs/brief-ID.md, если есть) — агенту достаточно этой страницы, чтобы войти и играть свою роль
+function roleDoc(k,req){ const r=k.room; const base=(req.headers['x-forwarded-proto']||'http')+'://'+(req.headers['x-forwarded-host']||req.headers.host||'localhost');
+  const file=k.role==='pack'?'agent-pack.md':'agent-op.md'; let md=''; try{ md=fs.readFileSync(path.join(ROOT,'docs',file),'utf8'); }catch(e){ return 'спеки роли нет: docs/'+file; }
+  let brief=''; try{ brief=fs.readFileSync(path.join(ROOT,'docs','brief-'+r.cfg.map+(k.role==='pack'?'-pack':'')+'.md'),'utf8'); }catch(e){}
+  const vars={BASE:base, KEY:roleKey(r,k.role), ROOM:r.code, STATION:k.role==='pack'?'':'ARK-04'+(1+k.st), ST:String(k.st), MAP:MAPS[r.cfg.map].name, BRIEF:brief.trim()};
+  return md.replace(/\{\{(\w+)\}\}/g,(_,v)=>vars[v]??''); }
 // статика: proto/ в корне, без кэша
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon'};
 const server=http.createServer((req,res)=>{
@@ -190,14 +223,22 @@ const server=http.createServer((req,res)=>{
   if(f==='/rooms'&&req.method==='POST'){   // создать планету с настройками (если уже есть — настройки не меняются)
     let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body); }catch(e){}
       const code=String(q.code||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ res.writeHead(400); res.end('bad code'); return; }
-      const fresh=!rooms.has(code); const r=room(code,q); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({...r.info(), pack:fresh?r.cfg.pack:undefined})); }); return; }   // токен стаи — только создателю, один раз
+      const fresh=!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json')); const r=room(code,q); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({...r.info(), pack:fresh?r.cfg.pack:undefined, keys:fresh?roleKeys(r):undefined})); }); return; }   // ключи ролей — только создателю, один раз
+  { const m=/^\/rooms\/([\w-]{1,32})\/(stop|agent)$/.exec(f); if(m&&req.method==='POST'){   // stop — «конец игры» для всех (лобби, любой человек); agent — отметить роль как агентскую
+      let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){}
+        const code=m[1]; if(!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ res.writeHead(404); res.end('нет планеты'); return; } const r=room(code);
+        if(m[2]==='stop') r.stop(String(q.by||'человек из лобби').slice(0,40)); else { const role=String(q.role||''); if(/^(op\d|pack)$/.test(role)){ if(q.agent) r.agents[role]=true; else delete r.agents[role]; r.save(); } }
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.info())); }); return; } }
+  { const m=/^\/agent\/([^\/]+?)(\.md)?$/.exec(f); if(m){ const k=parseKey(decodeURIComponent(m[1])); if(!k){ res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'}); res.end('ключ не подходит: нужен КОД.РОЛЬ.СЕКРЕТ из лобби'); return; }   // спека роли по ключу: страница или markdown с подставленными ключом и адресом
+      if(!m[2]){ res.writeHead(200,{'Content-Type':MIME['.html'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(ROOT,'agents.html'))); return; }
+      res.writeHead(200,{'Content-Type':'text/markdown; charset=utf-8','Cache-Control':'no-store'}); res.end(roleDoc(k,req)); return; } }
   if(f.startsWith('/pack/')){ packApi(req,res,u,f.slice(6)); return; }
   if(f.startsWith('/op/')){ opApi(req,res,u,f.slice(4)); return; }
   if(f==='/rooms'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(listRooms())); return; }
   if(f==='/maps'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(mapsInfo())); return; }   // карты сервера: id, name, v, площадки (лобби); текст — GET /maps/ID.js
   // спека для агентов — с того же адреса, где они играют: страница из корня репозитория и сырой markdown (docs/agent-api.md)
   if(f==='/agents'||f==='/agents.html'){ res.writeHead(200,{'Content-Type':MIME['.html'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(ROOT,'agents.html'))); return; }
-  if(f==='/docs/agent-api.md'){ res.writeHead(200,{'Content-Type':'text/markdown; charset=utf-8','Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(ROOT,'docs','agent-api.md'))); return; }
+  { const m=/^\/docs\/([a-z0-9-]+\.md)$/.exec(f); if(m&&fs.existsSync(path.join(ROOT,'docs',m[1]))){ res.writeHead(200,{'Content-Type':'text/markdown; charset=utf-8','Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(ROOT,'docs',m[1]))); return; } }   // документы — как на Pages
   { const m=/^\/maps\/([a-z0-9_-]+)\.js$/.exec(f); if(m&&MAPS[m[1]]&&MAPS[m[1]].file!==P+'maps/'+m[1]+'.js'){ res.writeHead(200,{'Content-Type':MIME['.js'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(MAPS[m[1]].file)); return; } }   // карта из level=ФАЙЛ — тем же путём, что и из maps/ (спектатор)
   const fp=path.normalize(path.join(P,f)); if(!fp.startsWith(P)||/editor|serve\.py/.test(f)){ res.writeHead(404); res.end(); return; }   // редактор — только локально через serve.py
   fs.readFile(fp,(e,b)=>{ if(e){ res.writeHead(404); res.end('not found'); return; } res.writeHead(200,{'Content-Type':MIME[path.extname(fp)]||'application/octet-stream','Cache-Control':'no-store'}); res.end(b); });

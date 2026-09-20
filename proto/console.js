@@ -12,7 +12,7 @@ const transport=ROOM?wsTransport(ROOM):workerTransport();
 function workerTransport(){ const w=new Worker('station-worker.js?v='+window.__v+(LAB?'&lab':'')+(MAP!=='act1'?'&map='+MAP:'')); let ready=false; const q=[]; const tr={ mp:false, onmessage:null, send(m){ if(ready) w.postMessage(m); else q.push(m); } };
   w.onmessage=e=>{ const m=e.data; if(m.t==='ready'){ ready=true; for(const x of q) w.postMessage(x); q.length=0; return; } tr.onmessage&&tr.onmessage(m); }; return tr; }
 function wsTransport(room){ const q=[]; const tr={ mp:true, onmessage:null, onopen:null, send(m){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(m)); else q.push(m); } }; let ws=null;   // до соединения — очередь; после обрыва — переподключение
-  const open=()=>{ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?room='+encodeURIComponent(room)); ws.onopen=()=>{ tr.onopen&&tr.onopen(); for(const m of q) ws.send(JSON.stringify(m)); q.length=0; }; ws.onclose=()=>{ setTimeout(open,2000); };
+  const open=()=>{ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?room='+encodeURIComponent(room)); ws.onopen=()=>{ tr.onopen&&tr.onopen(); for(const m of q) ws.send(JSON.stringify(m)); q.length=0; }; ws.onclose=()=>{ if(!tr.stopped) setTimeout(open,2000); };   // stopped — «конец игры»: не переподключаться, вход снова через лобби
     ws.onmessage=e=>{ const m=JSON.parse(e.data); if(m.bytes) m.bytes=new Uint8Array(m.bytes); if(m.img) m.img=new Uint8Array(m.img); tr.onmessage&&tr.onmessage(m); }; };
   open(); return tr; }
 if(ROOM){ $('#room').hidden=false; $('#room').textContent='комната '+ROOM; $('#btn-debug').hidden=true; $('#speed').disabled=true; $('#speed').title='ускорение — настройка планеты, задаётся при создании'; }   // в сети отладки нет: мир общий, крутилки были бы читом
@@ -73,6 +73,7 @@ function onMessage(m){
   else if(m.t==='welcome') boot.onWelcome&&boot.onWelcome(m);
   else if(m.t==='ops') showOps(m.ops,m.stations); else if(m.t==='echo') onEcho(m);
   else if(m.t==='fault') fault(m.where,{message:m.text,stack:m.stack},'хост мира');   // исключение в станции (такт, команда) или воркере — та же панель, другая подпись
+  else if(m.t==='stopped') onStopped(m.by);
 }
 // операторы на станции: терминалы, подключённые к той же комнате (не пакеты — знание своего инструментария)
 let opsNow=null; const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -124,6 +125,10 @@ function syncSubs(u,who,got){ const rq=u.subReq||(u.subReq={}); let changed=fals
 function noteSubReq(u,keys){ const rq=u.subReq||(u.subReq={}); for(const k of keys) rq[k]=tNow; }
 function syncSubControls(){ const u=units.get(active); if(u){ $('#sub-tlm').value=u.subs.tlm; $('#tx-pow').value=u.subs.tx||0; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta; }
   $('#st-sub-img').value=stcam.subs.img; $('#st-img-level').value=stcam.subs.level; $('#st-img-delta').checked=stcam.subs.delta; }
+// «конец игры, меня мама позвала домой» (tech.md §9): кто-то остановил комнату для всех — сервер закрыл соединение, консоль не переподключается.
+// Терминал поверх консоли; вернуться — через лобби, мир сохранён и продолжится с того же места
+function onStopped(by){ transport.stopped=true; requestSave(); log(`терминал: игра остановлена — ${by}. Консоли всех операторов отключены; продолжить — через лобби`,'err');
+  const el=$('#boot-text'); el.textContent=`$ ares-tk --key ~/old/dse.key ping ${ROOM}\nsession closed by peer: ${by}\n\nигра остановлена для всех: «конец игры» — ${by}\nмир стоит и сохранён; продолжить — через лобби\n\n`; const a=document.createElement('a'); a.href='/'; a.textContent='$ ares-tk stations'; a.style.color='#cfe3cf'; el.appendChild(a); $('#boot').classList.remove('off'); }
 function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.brik=b[3]; station.cut=b[4]; station.at=tNow; const n=b[5];
   { const o=6+n*9, nt=b[o]??0; const prev=station.turrets; station.turrets=[]; for(let j=0;j<nt;j++){ const id=b[o+1+j*3], f=b[o+2+j*3], am=b[o+3+j*3]; const T={id, powered:!!(f&1), on:!!(f&2), broken:!!(f&4), tracking:!!(f&8), reloading:!!(f&16), ammo:am===255?null:am}; station.turrets.push(T);
       const was=prev.find(x=>x.id===id); if(was){ if(!was.broken&&T.broken) log(`станция: турель ${id} повреждена`,'err'); if(was.ammo>0&&T.ammo===0) log(`станция: турель ${id} — патроны кончились`,'warn'); }
@@ -133,7 +138,7 @@ function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.c
       const rq=station.relayReq[id]; if(rq&&(rq.on===R.on||tNow-rq.at>90)) delete station.relayReq[id]; }
     for(const was of prevR) if(!station.relays.find(x=>x.id===was.id)) delete station.relayReq[was.id];
     const o3=o2+1+nr*2; if(b.length>o3) syncSubs(stcam,'камера шлюза',{img:b[o3]&31, delta:!!(b[o3]&32), level:b[o3]>>6}); }   // свои турели: состояние и патроны; без питания — данных нет (255)
-  for(let i=0;i<n;i++){ const id=b[6+i*9], f=b[7+i*9], ch=b[8+i*9]/2.55, it=b[9+i*9], snr=b[10+i*9]-30; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[]), ...(it&8?[43]:[])];
+  for(let i=0;i<n;i++){ const id=b[6+i*9], f=b[7+i*9], ch=b[8+i*9]/2.55, it=b[9+i*9], snr=b[10+i*9]-30; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[]), ...(it&8?[43]:[]), ...(it&64?[44]:[])];
     u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.atAirlock=!!(f&32); u.charge=ch; u.snr=snr; u.hbAt=tNow;
     syncSubs(u,'М'+id,{tlm:b[11+i*9], sonar:b[12+i*9], desc:b[13+i*9], img:b[14+i*9]&31, delta:!!(b[14+i*9]&32), level:b[14+i*9]>>6, tx:[-10,0,10][(it>>4)&3]??u.subs.tx});
     if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err');
@@ -406,12 +411,14 @@ function renderCmds(){ const box=$('#objcmds'); if(!box) return; const tg=T(); i
   if(o.cls===0||o.cls===undefined){ const own=o.type===34?station.turrets.some(T=>T.id===o.id):undefined;
     for(const c of objCmds(o.type||0,o.state||0,{own})){ if(c.afterExam&&!o.examined) continue;
       if(c.kind==='act') html+=btn(c.label[0].toUpperCase()+c.label.slice(1),'8',c.label==='взаимодействовать'?'Взаимодействовать: подойти и выполнить действие, доступное для текущего состояния объекта. Может требовать предмет или состояние другого объекта.':`${c.label}: подойти и выполнить.${c.needs?' Нужен предмет: '+ITEMS[c.needs]+'.':''}`,c.needs&&!carry.includes(c.needs));
+      else if(c.kind==='take') html+=btn('Взять','23,'+c.item,`Взять с собой: объект становится предметом (${ITEMS[c.item]}); сдать на склад — у шлюза.`);
       else html+=btn(c.label[0].toUpperCase()+c.label.slice(1),'22,'+c.item,`Положить ${ITEMS[c.item]} в объект.${carry.includes(c.item)?'':' Предмета с собой нет.'}`,!carry.includes(c.item)); } }
   if(box.innerHTML!==html) box.innerHTML=html; }
 $('#objcmds').onclick=e=>{ const b=e.target.closest('button[data-ocmd]'); if(!b||b.disabled) return; const tg=T(); if(!tg||!tg.id) return log('объект не выбран','err'); const [c,item]=b.dataset.ocmd.split(',').map(Number);
   if(c===19){ if(send([19,tg.id,active],`М${active} изучить: ${tg.name}`)) setGoal(tg.name); }
   else if(c===8){ if(send([8,tg.id,active],`М${active} ${b.textContent.toLowerCase()}: ${tg.name}`)) setGoal(tg.name); }
-  else if(c===22){ if(send([22,item,active,tg.id],`М${active} ${b.textContent.toLowerCase()} — ${tg.name}`)) setGoal(tg.name); } };
+  else if(c===22){ if(send([22,item,active,tg.id],`М${active} ${b.textContent.toLowerCase()} — ${tg.name}`)) setGoal(tg.name); }
+  else if(c===23){ if(send([23,item,active,tg.id],`М${active} взять: ${tg.name}`)) setGoal(tg.name); } };
 $('#btn-desc').onclick=()=>{ const u=units.get(active); if(!u.alive) return log('М'+active+': тело мертво, описание недоступно','err'); send([1,0,active],`М${active} описание`); };
 $('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); moveTo(tg); };
 $('#btn-look').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); if(send([18,0,active,...coordBytes(tg)],`М${active} смотреть: ${tg.name}`)) setGoal(tg.name); };
@@ -508,9 +515,9 @@ setInterval(()=>{
   { const at=[...units.values()].filter(v=>v.alive&&v.atAirlock).sort((a,b)=>a.id-b.id); const el=$('#airlock'); let html=`<div class="small dim">склад: камер ${station.cam??'—'} · брикетов ${station.brik} · резаков ${station.cut}</div>`;
     if(!at.length) html+='<div class="small dim">у шлюза никого</div>';
     for(const v of at){ const n40=v.items.filter(i=>i===40).length, has41=v.items.includes(41);
-      const give=[v.camera?`<button class="mini" data-tr="42,0,${v.id}">камера → склад ●</button>`:'', n40?`<button class="mini" data-tr="40,0,${v.id}">брикет${n40>1?' ×'+n40:''} → склад ●</button>`:'', has41?`<button class="mini" data-tr="41,0,${v.id}">резак → склад ●</button>`:''].filter(Boolean).join(' ');
+      const give=[v.camera?`<button class="mini" data-tr="42,0,${v.id}">камера → склад ●</button>`:'', n40?`<button class="mini" data-tr="40,0,${v.id}">брикет${n40>1?' ×'+n40:''} → склад ●</button>`:'', has41?`<button class="mini" data-tr="41,0,${v.id}">резак → склад ●</button>`:'', v.items.includes(44)?`<button class="mini" data-tr="44,0,${v.id}">планшет → склад ●</button>`:''].filter(Boolean).join(' ');
       const take=[station.cam&&!v.camera?`<button class="mini" data-tr="42,1,${v.id}">← камера ●</button>`:'', station.brik?`<button class="mini" data-tr="40,1,${v.id}">← брикет ●</button>`:'', station.cut&&!has41?`<button class="mini" data-tr="41,1,${v.id}">← резак ●</button>`:''].filter(Boolean).join(' ');
-      html+=`<div class="row small" style="margin:3px 0"><b>М${v.id}</b> <span class="dim">${[v.camera?'камера':'',v.sonar?'лидар':''].filter(Boolean).join(', ')||'без датчиков'}${n40||has41?' · '+[n40?'брикет'+(n40>1?' ×'+n40:''):'',has41?'резак':''].filter(Boolean).join(', '):''}</span> ${give} ${take}</div>`; }
+      html+=`<div class="row small" style="margin:3px 0"><b>М${v.id}</b> <span class="dim">${[v.camera?'камера':'',v.sonar?'лидар':''].filter(Boolean).join(', ')||'без датчиков'}${n40||has41||v.items.includes(44)?' · '+[n40?'брикет'+(n40>1?' ×'+n40:''):'',has41?'резак':'',v.items.includes(44)?'планшет':''].filter(Boolean).join(', '):''}</span> ${give} ${take}</div>`; }
     if(el.dataset.html!==html){ el.innerHTML=html; el.dataset.html=html; } }
   $('#st-bio').textContent=station.bio??'—'; $('#st-cam').textContent=station.cam??'—'; $('#st-grow').textContent=station.grow==null?'нет':`${Math.floor(station.grow/60)}:${String(station.grow%60).padStart(2,'0')}`;
   { const growing=station.grow!=null; $('#btn-grow').disabled=growing||station.bio===0; $('#g-cam').disabled=!station.cam; $('#g-cam-l').classList.toggle('dim',!station.cam); if(!station.cam) $('#g-cam').checked=false;

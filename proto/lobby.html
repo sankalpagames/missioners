@@ -47,7 +47,7 @@ $('#n').onchange=()=>{ $('#teams').placeholder=[...Array(+$('#n').value).keys()]
 function join(code,st=0){ code=code.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; } saveOp($('#op').value); location.href='index.html?room='+encodeURIComponent(code)+'&st='+st; }
 async function create(){ const code=$('#code').value.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; }
   try{ const r=await fetch('rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,map:$('#map').value,n:+$('#n').value,cap:+$('#cap').value,speed:+$('#speed').value,teams:$('#teams').value.trim(),voice:+$('#voice').value})}); if(!r.ok) throw new Error(r.status);
-    const j=await r.json(); if(j.pack) localStorage.setItem('missioners.pack:'+code,j.pack); }catch(e){ $('#err').textContent='сервер не ответил: '+e.message; return; }   // токен стаи — создателю, хранится в этом браузере
+    const j=await r.json(); if(j.pack) localStorage.setItem('missioners.pack:'+code,j.pack); if(j.keys) localStorage.setItem('missioners.keys:'+code,JSON.stringify(j.keys)); }catch(e){ $('#err').textContent='сервер не ответил: '+e.message; return; }   // ключи ролей — создателю, хранятся в этом браузере
   join(code,0); }
 $('#go').onclick=create; $('#code').onkeydown=e=>{ if(e.key==='Enter') create(); };
 async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()); const tb=$('#rooms'); tb.innerHTML='';
@@ -55,11 +55,26 @@ async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()
     for(const r of rooms) r.stations.forEach((s,i)=>{ const tr=document.createElement('tr'); const c=r.cfg||{cap:512,speed:1};
       const state=!r.running?'стоит'+(r.savedAt?' · '+ago(Date.now()-r.savedAt):''):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина');   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
       const team=c.teams&&c.teams.length?' · К'+(c.teams[s.k]+1):'';   // команда платформы, если платформы разбиты на команды
-      const cells=[i?'':r.code+(c.map&&c.map!=='act1'?' · '+c.map:'')+(c.voice?' · голос '+c.voice+' м':''), i?'':state, s.name+team, s.ops.length?s.ops.join(', '):'—', `${s.alive} жив. из ${s.units}`, i?'':fmtT(r.t), i?'':c.cap+' бит/с', i?'':'×'+c.speed];
+      const stopped=r.stopped?` · остановлена (${r.stopped.by})`:'';
+      const cells=[i?'':r.code+(c.map&&c.map!=='act1'?' · '+c.map:'')+(c.voice?' · голос '+c.voice+' м':''), i?'':state+stopped, s.name+team, s.ops.length?s.ops.join(', '):'—', `${s.alive} жив. из ${s.units}`, i?'':fmtT(r.t), i?'':c.cap+' бит/с', i?'':'×'+c.speed];
       for(const c of cells){ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }
-      const td=document.createElement('td'); const b=document.createElement('button'); b.textContent=s.ops.length?'присоединиться':'подключиться'; b.onclick=()=>join(r.code,s.k); td.appendChild(b); if(!i){ const w=document.createElement('a'); w.textContent='смотреть'; w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.href='spectate.html?room='+encodeURIComponent(r.code); w.target='_blank'; w.style.marginLeft='8px'; td.appendChild(w); } tr.appendChild(td); tb.appendChild(tr);
-      const pk=i?null:localStorage.getItem('missioners.pack:'+r.code); if(pk){ const t2=document.createElement('tr'); const c2=document.createElement('td'); c2.colSpan=9; c2.className='dim'; c2.textContent=`стая: токен ${pk} — для агента, см. docs/agent-api.md`; t2.appendChild(c2); tb.appendChild(t2); } });   // токен стаи виден только создателю планеты
+      const td=document.createElement('td'); const b=document.createElement('button'); b.textContent=s.ops.length?'присоединиться':'подключиться'; b.onclick=()=>join(r.code,s.k); td.appendChild(b); td.appendChild(agentToggle(r,'op'+s.k));
+      if(!i){ const w=document.createElement('a'); w.textContent='смотреть'; w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.href='spectate.html?room='+encodeURIComponent(r.code); w.target='_blank'; w.style.marginLeft='8px'; td.appendChild(w);
+        const x=document.createElement('button'); x.textContent='конец игры'; x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — подключиться снова отсюда'; x.style.marginLeft='8px'; x.onclick=()=>stopRoom(r.code); td.appendChild(x); }
+      tr.appendChild(td); tb.appendChild(tr);
+      if(i===r.stations.length-1){ const t2=document.createElement('tr'); const c2=document.createElement('td'); c2.colSpan=8; c2.className='dim'; c2.textContent='стая одичалых'; t2.appendChild(c2); const c3=document.createElement('td'); c3.appendChild(agentToggle(r,'pack')); t2.appendChild(c3); tb.appendChild(t2); } });   // стая — своя строка: за неё тоже может сесть агент
   }catch(e){ $('#rooms').innerHTML='<tr><td class="dim" colspan="9">список недоступен</td></tr>'; } }
+// Роль за агентом: флажок в лобби (хранится на сервере, видят все) и ссылка на спеку роли по ключу — ключи знает только создатель планеты (этот браузер).
+// Ссылку человек отдаёт своему агенту: по ней — документация роли и вход (docs/agent-api.md)
+function keysOf(code){ try{ return JSON.parse(localStorage.getItem('missioners.keys:'+code))||null; }catch(e){ return null; } }
+function agentToggle(r,role){ const span=document.createElement('span'); span.style.marginLeft='8px'; const lab=document.createElement('label'); lab.className='dim'; lab.style.cursor='pointer'; const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!(r.agents&&r.agents[role]); cb.title='За эту роль играет агент (модель, скрипт): показать ссылку на спеку роли с ключом входа';
+  cb.onchange=async()=>{ try{ await fetch('rooms/'+encodeURIComponent(r.code)+'/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role,agent:cb.checked})}); }catch(e){} refresh(); };
+  lab.appendChild(cb); lab.appendChild(document.createTextNode(' агент')); span.appendChild(lab);
+  if(cb.checked){ const K=keysOf(r.code); const key=K&&(role==='pack'?K.pack:K.ops[+role.slice(2)]); const a=document.createElement('a'); a.style.marginLeft='6px';
+    if(key){ a.href='agent/'+encodeURIComponent(key); a.target='_blank'; a.textContent='ссылка для агента'; a.title='Спека роли и ключ входа: '+key; const c=document.createElement('button'); c.textContent='⧉'; c.title='скопировать ссылку'; c.style.marginLeft='4px'; c.onclick=()=>navigator.clipboard.writeText(location.origin+location.pathname.replace(/[^/]*$/,'')+'agent/'+key); span.appendChild(a); span.appendChild(c); }
+    else { a.textContent='ключ у создателя планеты'; a.className='dim'; span.appendChild(a); } }
+  return span; }
+async function stopRoom(code){ if(!confirm(`Остановить планету ${code} для всех? Консоли отключатся, агенты потеряют сессии; мир сохранится`)) return; try{ await fetch('rooms/'+encodeURIComponent(code)+'/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
 refresh(); setInterval(refresh,5000);
 </script>
 </body>

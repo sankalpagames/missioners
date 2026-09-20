@@ -70,8 +70,11 @@ function render(md){ const L=md.split('\n'); const out=[]; const toc=[]; let i=0
     if(!l.trim()){ flush(); i++; continue; }
     para.push(l.trim()); i++; }
   flush(); return {html:out.join('\n'), toc}; }
-const src=document.getElementById('raw').getAttribute('href');
-fetch(src,{cache:'no-store'}).then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); }).then(md=>{ const {html,toc}=render(md); document.getElementById('doc').innerHTML=html; document.getElementById('toc').innerHTML=toc.map(t=>`<a href="#${t.id}">${t.t}</a>`).join(''); if(location.hash){ const el=document.getElementById(decodeURIComponent(location.hash.slice(1))); if(el) el.scrollIntoView(); } })
+// По ключу (/agent/КЛЮЧ на сервере) — спека роли с подставленным ключом: markdown лежит рядом, /agent/КЛЮЧ.md; иначе — общий документ
+const byKey=/^\/agent\/[^/]+$/.test(location.pathname); const src=byKey?location.pathname+'.md':document.getElementById('raw').getAttribute('href');
+if(byKey){ const raw=document.getElementById('raw'); raw.href=src; raw.textContent='сырой markdown — для модели (с ключом)'; document.querySelector('header a[href="index.html"]').href='/'; document.querySelector('header .dim').textContent='спека роли · ключ внутри · не публиковать'; }
+fetch(src,{cache:'no-store'}).then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); }).then(md=>{ const {html,toc}=render(md); document.getElementById('doc').innerHTML=html; document.getElementById('toc').innerHTML=toc.map(t=>`<a href="#${t.id}">${t.t}</a>`).join('');
+    if(byKey){ const h=document.querySelector('#doc h1'); if(h){ document.querySelector('header h1').textContent=h.textContent.toUpperCase(); document.title='Missioners — '+h.textContent; } } if(location.hash){ const el=document.getElementById(decodeURIComponent(location.hash.slice(1))); if(el) el.scrollIntoView(); } })
   .catch(e=>{ document.getElementById('doc').innerHTML=`<p class="err">спека не загрузилась (${e.message}): <a href="${src}">${src}</a></p>`; });
 </script>
 </body>

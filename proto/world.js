@@ -31,7 +31,7 @@ const stations = BASES.map((B,k)=>{ const ang=B.ang*Math.PI/180; const a={x:B.ai
   const dx=a.x-B.x, dy=a.y-B.y, d=Math.hypot(dx,dy)||1, ox=dx/d, oy=dy/d;   // наружу — от центра корпуса к шлюзу
   return { k, site:B.si, name:'ARK-04'+(1+k), x:B.x, y:B.y, ang, spawn:{...B.spawn}, airlock:a,
     subs:B.subs.map(s=>[s.type,s.dx,s.dy,s.f===undefined?undefined:s.f*Math.PI/180]),
-    bioStock:4, camInv:0, store:{40:0,41:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2, team:teamOf(k), freq:1+teamOf(k), ox, oy,
+    bioStock:4, camInv:0, store:{40:0,41:0,44:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2, team:teamOf(k), freq:1+teamOf(k), ox, oy,
     // стационарная камера у шлюза: смотрит от люка наружу, сигнала не требует — она на станции
     cam:{ id:0, st:k, x:a.x-4*ox, y:a.y-4*oy, heading:Math.atan2(oy,ox), goal:{x:a.x+44*ox-8*oy,y:a.y+44*oy+8*ox}, lightOn:true, charge:100, alive:true, lastImg:{}, pendingImg:null, frameNo:0, sensors:{camera:true}, sub:{img:{interval:0,level:2,delta:true}}, subT:{img:0}, items:[] } }; });
 const SPOIS = stations.map(S=>({ id:240+S.k, x:S.airlock.x, y:S.airlock.y, subs:S.subs, station:S, idBase:160+S.k*10 }));
@@ -411,7 +411,7 @@ const imgSubByte=s=>Math.min(31,s.interval|0)|(s.delta?32:0)|((s.level&3)<<6);  
 function heartbeat(S){
   const own=units.filter(u=>u.st===S.k);
   const b=[S.bioStock, S.camInv, S.growing?Math.ceil(S.growing.tLeft):255, S.store[40], S.store[41], own.length];
-  for(const u of own){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)|(u.items.includes(43)?8:0)|(Math.max(0,Math.min(3,Math.round(u.txDbm/10+1)))<<4), Math.max(0,Math.min(255,Math.round((u.snr||0)+30))),
+  for(const u of own){ b.push(u.id, (u.alive?1:0)|(u.carrier?2:0)|(u.sensors.camera?4:0)|(u.sensors.sonar?8:0)|(u.sub.img.interval?16:0)|(atAirlock(u)?32:0), Math.round(u.charge*2.55), Math.min(3,u.items.filter(i=>i===40).length)|(u.items.includes(41)?4:0)|(u.items.includes(43)?8:0)|(Math.max(0,Math.min(3,Math.round(u.txDbm/10+1)))<<4)|(u.items.includes(44)?64:0), Math.max(0,Math.min(255,Math.round((u.snr||0)+30))),
     Math.min(255,u.sub.tlm|0), Math.min(255,u.sub.sonar|0), Math.min(255,u.sub.desc|0), imgSubByte(u.sub.img)); }
   // свои турели: станция знает их все; без питания (потом — без связи) данных нет, только флаг
   const own_t=turrets.filter(T=>T.st===S.k); b.push(own_t.length); for(const T of own_t) b.push(T.id, (T.powered?1:0)|(T.on?2:0)|(T.broken?4:0)|(T.tgt?8:0)|(T.reloadT>0?16:0), T.powered?T.ammo:255);
@@ -430,7 +430,7 @@ function objectsAround(u, maxR){
   for(const S of SPOIS){ if(visible(S) && dist(u,S)<=300) out.push({id:S.id,type:1,x:S.x,y:S.y,landmark:true,station:S.station});
     if(!visible(S)) continue;
     for(let i=0;i<S.subs.length;i++){ const s=S.subs[i]; const o={id:S.idBase+i,type:s[0],x:S.x+s[1],y:S.y+s[2],facing:s[3]}; if(dist(u,o)<=maxR) out.push(o); } }
-  for(const b of OBJS){ if(dist(u,b)>maxR || !visible(b)) continue; const o={id:b.id,type:b.type,x:b.x,y:b.y,facing:b.facing,col:b.col}; if(CODEBOOK[b.type]&&CODEBOOK[b.type].relay) o.relay=relays.find(R=>R.id===b.id); out.push(o); }
+  for(const b of OBJS){ if(dist(u,b)>maxR || !visible(b) || (CODEBOOK[b.type]||{}).gone===stateOf(b.id)) continue; const o={id:b.id,type:b.type,x:b.x,y:b.y,facing:b.facing,col:b.col}; if(CODEBOOK[b.type]&&CODEBOOK[b.type].relay) o.relay=relays.find(R=>R.id===b.id); out.push(o); }
   for(const v of units){ if(v===u) continue; if(dist(u,v)<=maxR) out.push({id:200+v.id,type:v.alive?252:251,x:v.x,y:v.y,unit:v}); }
   for(const g of ground){ if(dist(u,g)<=maxR) out.push({id:g.id,type:33,x:g.x,y:g.y}); }
   for(const T of turrets){ if(!inT && dist(u,T)<=maxR) out.push({id:T.id,type:34,x:T.x,y:T.y,facing:T.ang,turret:T}); }
@@ -566,6 +566,8 @@ function doPending(u){
     note('relay',{id:R.id,by:u.id,st:u.st,on:R.on,freq:R.freq,was}); relayState(R);
     for(const T of stations) if(R.reach[T.k]&&R.freq===T.freq) evt(42,0,(R.on?1:0)|((R.id&127)<<1),T.k);   // кто слышал до перемены и слышит после — событие «переключён»; остальным скажет relayTick (в сети / вне сети)
     relayTick(); textReply('ACT',0,`${verb}. ${relayText(R)}`); return; }
+  if(p.kind==='take'&&cb.pickup===p.item){ if(st===cb.gone){ textReply('ACT',1,'здесь его больше нет.'); return; }   // объект-предмет (планшет): взял — объекта в мире нет
+    objState[o.id]=cb.gone; u.items.push(p.item); note('item',{take:p.item,obj:o.id,by:u.id,st:u.st}); textReply('ACT',0,`взял: ${ITEMS[p.item]}.`); return; }
   if(p.kind==='take'||p.kind==='put'){
     if(!isContainer(o)||!containerOpen(o)){ textReply('ACT',1,'не контейнер.'); return; }
     const item=p.item;
@@ -613,7 +615,7 @@ onmessage = e => {
   }
   if(cmd===11){ // статус: паспорт станции текстом + пульс
     const own=units.filter(u=>u.st===S.k);
-    const info=`${S.name}, посадочная платформа; штатно; миссия 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nплатформа: ${S.x.toFixed(0)}, ${S.y.toFixed(0)}; курс ${Math.round(S.ang*180/Math.PI)}°\nбиоматериал ${S.bioStock}; камер ${S.camInv}; развёрнуто ${own.length}\nвозврат: ПС-2, ${RETURN_R} м от узла; узлов ${nodes(S).length}\nтурели: ${turrets.filter(T=>T.st===S.k).map(T=>`${T.id} (${T.x.toFixed(0)}, ${T.y.toFixed(0)}) курс ${Math.round(T.ang*180/Math.PI)}° сектор ${Math.round(T.fov*180/Math.PI)}° дальность ${T.range} м`).join('; ')}; питание ${STATION.powerR} м от корпуса\n${relayLine(S)}\nзадача: ${S.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся. Серия 0 исчерпана (7)':'ПС-7 закрыта'}`;
+    const info=`${S.name}, посадочная платформа; штатно; миссия 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nплатформа: ${S.x.toFixed(0)}, ${S.y.toFixed(0)}; курс ${Math.round(S.ang*180/Math.PI)}°\nбиоматериал ${S.bioStock}; камер ${S.camInv}${S.store[44]?'; планшет на складе':''}; развёрнуто ${own.length}\nвозврат: ПС-2, ${RETURN_R} м от узла; узлов ${nodes(S).length}\nтурели: ${turrets.filter(T=>T.st===S.k).map(T=>`${T.id} (${T.x.toFixed(0)}, ${T.y.toFixed(0)}) курс ${Math.round(T.ang*180/Math.PI)}° сектор ${Math.round(T.fov*180/Math.PI)}° дальность ${T.range} м`).join('; ')}; питание ${STATION.powerR} м от корпуса\n${relayLine(S)}\nзадача: ${S.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся. Серия 0 исчерпана (7)':'ПС-7 закрыта'}`;
     emit('cmd','INFO',0,encText(info),S.k); heartbeat(S); return; }
   if(cmd===15){ S.hbInterval=arg; return; }
   if(cmd===28){ const T=turrets.find(T=>T.id===unit&&T.st===S.k); if(!T) return; T.on=!!arg; if(!T.on) turretDrop(T); turretState(T); evt(40,0,(arg?1:0)|((T.id&63)<<1),S.k); note('turret',{st:S.k,id:T.id,on:T.on,by:'станция'}); heartbeat(S); return; }   // турель: arg — вкл/выкл, третий байт — id
@@ -632,7 +634,7 @@ onmessage = e => {
     case 17: if(u.alive){ u.target=null; u.pending=null; if(u.reflex===6) u.reflex=0; evt(15,u.id); } break;   // стоп снимает и бегство: оператор видит больше тела
     case 21: { const item=arg, toUnit=!!m.bytes[3]; if(!atAirlock(u)){ evt(2,u.id); break; }
       if(item===42){ if(toUnit){ if(S.camInv>0&&!u.sensors.camera){ S.camInv--; u.sensors.camera=true; u.lastImg={}; evt(20,u.id,42); } else evt(2,u.id); } else { if(u.sensors.camera){ u.sensors.camera=false; u.sub.img.interval=0; S.camInv++; evt(19,u.id,42); } else evt(2,u.id); } }
-      else { if(toUnit){ if(S.store[item]>0){ S.store[item]--; u.items.push(item); evt(20,u.id,item); } else evt(2,u.id); } else { const i=u.items.indexOf(item); if(i>=0){ u.items.splice(i,1); S.store[item]++; evt(19,u.id,item); } else evt(2,u.id); } }
+      else { if(toUnit){ if(S.store[item]>0){ S.store[item]--; u.items.push(item); evt(20,u.id,item); } else evt(2,u.id); } else { const i=u.items.indexOf(item); if(i>=0){ u.items.splice(i,1); S.store[item]=(S.store[item]||0)+1; evt(19,u.id,item); if(item===44) note('goal',{st:S.k,by:u.id,tablet:'на складе'}); } else evt(2,u.id); } }
       heartbeat(S); break; }
     case 22: beginAction(u,'put',m.bytes[3],arg); break;    // положить: [22,item,unit,objId] (objId 0 — на грунт)
     case 23: beginAction(u,'take',m.bytes[3],arg); break;   // взять:    [23,item,unit,objId]
