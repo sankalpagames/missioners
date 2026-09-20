@@ -132,7 +132,7 @@ function modeByte(u){ return (u.mode&7)|(u.stealth?8:0)|((u.stance&3)<<4)|(u.ref
 // attention (внимательность); состояние: fear, tired, hp, act. Мир не знает, кто за них играет: агент (потом) даёт намерения
 // через ту же `p.target`, рефлексы остаются. Стая одна на мир — чужие для всех платформ.
 const LAIR = {...LEVEL.pack.lair};
-const pack = LEVEL.pack.members.slice(0,10).map((m,i)=>({ i, x:m.x, y:m.y, home:{x:m.x,y:m.y}, heading:0, size:m.size, courage:m.courage, attention:m.attention,
+const pack = LEVEL.pack.members.slice(0,6).map((m,i)=>({ i, x:m.x, y:m.y, home:{x:m.x,y:m.y}, heading:0, size:m.size, courage:m.courage, attention:m.attention,
   hpMax:Math.max(1,Math.round(3*m.size)), hp:Math.max(1,Math.round(3*m.size)), fear:0, tired:0, act:'sleep', target:null, foe:null,
   rest:0, throat:0, freezeT:0, hold:0, rage:0, alert:0, idle:0, hitT:0, stuckT:0, heard:{}, lastAct:'sleep', why:'' }));
 const cries = [];   // крики за последние секунды: {word, x, y, t, i} — для рефлексов и шторки

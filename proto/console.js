@@ -347,7 +347,8 @@ const map={tf:null,zoom:1,panX:0,panY:0,drag:null,hm:true,iso:true,walls:true,tr
   $('#map-plus').onclick=()=>zoomBy(1.5); $('#map-minus').onclick=()=>zoomBy(1/1.5); $('#map-reset').onclick=()=>{ map.zoom=1; map.panX=0; map.panY=0; drawMap(); }; }
 $('#map').onclick=e=>{ if(map.suppressClick){ map.suppressClick=false; return; } const cv=$('#map'), r=cv.getBoundingClientRect(), tf=map.tf; if(!tf) return; const px=(e.clientX-r.left)*(cv.width/r.width), py=(e.clientY-r.top)*(cv.height/r.height);
   if(LAB){ labJump(tf.cx+(px-tf.W/2)/tf.sc, tf.cy+(py-tf.H/2)/tf.sc); return; }
-  let best=null, bd=12; for(const o of known.values()){ const d=Math.hypot(tf.sx(o.x)-px,tf.sy(o.y)-py); if(d<bd){ bd=d; best=o; } }
+  // объекты в 12 px от клика, ближний первым; повторный клик по той же куче выбирает следующий — предметы в метре друг от друга на карте сливаются
+  const near=[...known.values()].map(o=>({o,d:Math.hypot(tf.sx(o.x)-px,tf.sy(o.y)-py)})).filter(x=>x.d<12).sort((a,b)=>a.d-b.d).map(x=>x.o); const cur=T(); const ci=cur?near.findIndex(o=>o.id===cur.id&&o.cls===cur.cls):-1; const best=near.length?near[(ci+1)%near.length]:null;
   const wx=Math.round(tf.cx+(px-tf.W/2)/tf.sc), wy=Math.round(tf.cy+(py-tf.H/2)/tf.sc);
   setTarget(best?{id:best.id,cls:best.cls,x:best.x,y:best.y,name:best.name}:{id:0,cls:0,x:wx,y:wy,name:`точка ${wx}, ${wy}`}); };
 
