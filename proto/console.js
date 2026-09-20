@@ -26,7 +26,7 @@ const known=new Map();          // ключ → объект с координа
 const journal=new Map();        // id объекта → [{t, unit, text}] — что узнали, изучив или взаимодействуя
 function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push({t:tNow,unit,text}); if($('.tabs button.on').dataset.tab==='journal') renderJournal(); }
 function jlast(id){ const j=journal.get(id); return j?j[j.length-1]:null; }
-function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:(id>=100&&id<160?'свёрток':'объект '+id); }
+function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:(id>=100&&id<200?'свёрток':'объект '+id); }
 // объект, который миссионер изучил или трогал, — знакомый ему: подсветить на карте, дать имя, если его ещё нет
 function markSeen(id,unit){ let o=[...known.values()].find(k=>k.id===id); const p=pos(unit);
   if(!o){ o={id,cls:0,x:p.x,y:p.y,at:tNow,unit,seenBy:new Set(),name:oname(id)}; known.set(id>=250?'c'+id:id>=200?'unit'+id:'o'+id,o); }
@@ -52,14 +52,20 @@ function fmtT(t){ if(!isFinite(t)) return '—'; const m=Math.floor(t/60), s=Mat
 
 // ---------- станция → консоль ----------
 let rxN=0;   // номер последнего принятого пакета: по нему сервер досылает пропущенное при повторном подключении
-transport.onmessage=m=>{
+// сбой терминала (ошибка в коде консоли) — строкой в журнал с пометкой «терминал:», как имена операторов: знание инструментария, не станции.
+// Иначе исключение уходит в DevTools, а панель молча показывает «нет данных». Повторы одной и той же ошибки не дублируются.
+const faults=new Set();
+function fault(where,e){ const txt=`терминал: сбой ${where} — ${e&&e.message||e}`; if(faults.has(txt)) return; faults.add(txt); log(txt,'err'); console.error(where,e); }
+window.addEventListener('error',e=>fault('скрипта',e.error||e.message)); window.addEventListener('unhandledrejection',e=>fault('скрипта',e.reason));
+transport.onmessage=m=>{ try{ onMessage(m); }catch(e){ fault(`приёма ${m.t}${m.kind?' '+m.kind:''}${m.unit?' М'+m.unit:''}`,e); } };
+function onMessage(m){
   if(m.t==='pkt'){ if(m.replay) tNow=m.at; rxN=Math.max(rxN,m.n); onDeliver(m); }
   else if(m.t==='drop') onDrop(m);
   else if(m.t==='modem'){ Object.assign(modem,m); if(m.sec){ modemHist.push(m.sec); if(modemHist.length>90) modemHist.shift(); } if(Math.abs(tNow-m.at)>0.3) tNow=m.at; if(speed!==m.speed){ speed=m.speed; $('#speed').value=String(speed); } }
   else if(m.t==='level') dbgLevel=m; else if(m.t==='peekImg') drawGray($('#peek'),m.img,64); else if(m.t==='state') saveNow(m.data); else if(m.t==='logText') downloadText(m.text,'ark-041-world.jsonl');
   else if(m.t==='welcome') boot.onWelcome&&boot.onWelcome(m);
   else if(m.t==='ops') showOps(m.ops,m.stations); else if(m.t==='echo') onEcho(m);
-};
+}
 // операторы на станции: терминалы, подключённые к той же комнате (не пакеты — знание своего инструментария)
 let opsNow=null; const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function showOps(ops,stations){ const others=(stations||[]).filter(s=>s.k!==ST).map(s=>`${s.name}: ${s.ops.join(', ')||'—'}`).join(' · '); $('#room').textContent=`${station.name} · комната ${ROOM} · операторы: ${ops.join(', ')||'—'}${others?' · '+others:''}`;
@@ -113,7 +119,7 @@ function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.c
 function decodeDesc(pkt){ const b=pkt.bytes, u=U(pkt.unit); const p={x:(((b[0]<<8)|b[1])-32768)/10,y:(((b[2]<<8)|b[3])-32768)/10}; const items=[];   // позиция съёмки — из пакета, дециметры
   for(let i=4;i+4<b.length;){ const len=b[i+4]; const it={id:b[i],cls:b[i+1],bearing:b[i+2]*2,range:b[i+3],name:decText(b.slice(i+5,i+5+len))}; i+=5+len;
     it.x=p.x+Math.cos(it.bearing*Math.PI/180)*it.range; it.y=p.y+Math.sin(it.bearing*Math.PI/180)*it.range; items.push(it);
-    const key=it.cls===2?'c'+it.id:'o'+it.id; const prev=known.get(key); const seen=prev?prev.seenBy:new Set(); seen.add(pkt.unit);   // особей несколько — по id
+    const key=it.cls===2?'c'+it.id:'o'+it.id;   // особей несколько — по id const prev=known.get(key); const seen=prev?prev.seenBy:new Set(); seen.add(pkt.unit);
     // ошибка места ∝ дальности (пеленг шагом 2°): для неподвижного объекта остаётся оценка с самой близкой съёмки; существо — всегда свежая
     const keep=prev&&it.cls!==2&&prev.range!==undefined&&prev.range<it.range;
     known.set(key,{id:it.id,cls:it.cls,x:keep?prev.x:it.x,y:keep?prev.y:it.y,range:keep?prev.range:it.range,at:tNow,unit:pkt.unit,seenBy:seen,name:it.name}); }
@@ -479,7 +485,7 @@ setInterval(()=>{
 },100);
 
 // ---------- сохранение: мир + знание консоли, хранилище браузера ----------
-const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:''), SAVE_VERSION=10;   // в сети — своё знание на каждую комнату и платформу   // поднимать при несовместимых изменениях формата мира или консоли
+const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:''), SAVE_VERSION=9;   // в сети — своё знание на каждую комнату и платформу   // поднимать при несовместимых изменениях формата мира или консоли
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));
