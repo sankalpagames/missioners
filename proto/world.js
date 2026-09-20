@@ -11,11 +11,12 @@ CAM.load(VER);   // атлас спрайтов грузится асинхро�
 const DT = 0.1;
 let speed = 1, msgId = 1, t = 0;
 
-// ---------- геометрия: уровень (level.js) ----------
-// Ориентиры: id = тип из кодовой книги; подобъект получает id = id ориентира·10 + индекс, положение — смещение от ориентира, курс — из уровня (нет — по хешу id).
-const POIS = LEVEL.pois.map(p=>({ id:p.id, x:p.x, y:p.y, subs:p.subs.map(s=>[s.type,s.dx,s.dy,s.f===undefined?undefined:s.f*Math.PI/180]) }));
-function poi(id){ return POIS.find(p=>p.id===id); }
-// видимость по расщелине — из геометрии: ориентир внутри расщелины (вход, глубина) виден изнутри; глубокий (дальше 5 % пути) снаружи — только у входа
+// ---------- геометрия: уровень (proto/maps/ID.js, формат 2) ----------
+// Указатели (LEVEL.pois): место с именем и текстом, id 120…159; не объект — спрайта и действий нет, «изучить» отдаёт текст.
+// Объекты (LEVEL.objects): абсолютные координаты, свой id 1…99, курс из уровня (нет — по хешу id); коллайдер — objCollider (экземпляр или тип).
+const POIS = LEVEL.pois.map(p=>({ id:p.id, x:p.x, y:p.y, name:p.name, text:p.text||'' }));
+const OBJS = LEVEL.objects.map(o=>({ id:o.id, type:o.type, x:o.x, y:o.y, facing:o.f===undefined?undefined:o.f*Math.PI/180, col:objCollider(o) }));
+// видимость по расщелине — из геометрии: то, что внутри расщелины (вход, глубина), видно изнутри; глубокое (дальше 5 % пути) снаружи — только у входа
 function poiInCanyon(p){ return !!TER.inside(p.x,p.y); }
 function poiDeep(p){ return tunnelT(p.x,p.y)>0.05; }
 const TUN_A = TER.CANYON.pts[0];                                             // вход в расщелину (ориентир 6)
@@ -43,16 +44,16 @@ const turrets = BASES.map((B,k)=>{ const T=B.turret;
 function turretState(T){ objState[T.id]=T.broken?2:T.on?0:1; }   // состояние объекта для описаний и осмотра: 0 включена, 1 выключена, 2 повреждена
 function turretAlive(T){ return T.on&&!T.broken&&T.powered; }
 function stOf(u){ return stations[u.st]||stations[0]; }
-// Ретрансляторы — узлы связи (tech.md §6 «Ретранслятор»): подобъекты уровня типа 35 (стационарный) или 36 (переносной), id — как у подобъекта.
+// Ретрансляторы — узлы связи (tech.md §6 «Ретранслятор»): объекты уровня типа 35 (стационарный) или 36 (переносной), id — объекта.
 // У ретранслятора: питание powered (из уровня; feed {obj,state} — питание есть, пока другой объект в этом состоянии: срощенный кабель),
 // включён on, канал freq (0 — не настроен), дальность линии до станции range, м, и усиление антенны gain, дБ (по виду из кодовой книги;
 // range площадка может задать свою). Станция k «слышит» ретранслятор (reach[k]) — маяк на её канале: питание есть, freq = S.freq, до станции
 // не дальше range; включённый слышимый — узел станции: тела считают линию до ближайшего узла, радиус возврата — от узла. Выключенный
 // слышимый в пульсе есть — его можно включить со станции (команда 29). Тело вплотную: выключенный — настраивает на свой канал и включает,
 // включённый на своём канале — выключает, на чужом — перестраивает (захват). Носимости пока нет.
-const relays=[]; for(const p of LEVEL.pois) p.subs.forEach((s,i)=>{ const cb=CODEBOOK[s.type]; if(!cb||!cb.relay) return;
-  relays.push({ id:p.id*10+i, type:s.type, x:p.x+s.dx, y:p.y+s.dy, on:!!s.on, freq:s.freq|0, feed:s.feed||null, powered:s.feed?false:(s.powered===undefined?true:!!s.powered),
-    range:s.range||cb.relay.range, gain:cb.relay.gain, reach:[], linked:[] }); });
+const relays=[]; for(const s of LEVEL.objects){ const cb=CODEBOOK[s.type]; if(!cb||!cb.relay) continue;
+  relays.push({ id:s.id, type:s.type, x:s.x, y:s.y, on:!!s.on, freq:s.freq|0, feed:s.feed||null, powered:s.feed?false:(s.powered===undefined?true:!!s.powered),
+    range:s.range||cb.relay.range, gain:cb.relay.gain, reach:[], linked:[] }); }
 function relayKind(R){ return R.type===36?'переносной':'стационарный'; }
 function relayPower(R){ return R.feed ? stateOf(R.feed.obj)===R.feed.state : R.powered; }
 function relayHears(R,S){ return relayPower(R) && R.freq===S.freq && dist(R,S)<=R.range; }
@@ -71,7 +72,8 @@ const LINK_LOST_S = 5;   // столько секунд без несущей �
 function nodes(S){ return [{x:S.x,y:S.y,gain:0,id:0}, ...relays.filter(R=>R.linked[S.k]).map(R=>({x:R.x,y:R.y,gain:R.gain,id:R.id}))]; }
 function nodeDist(S,p){ return Math.min(...nodes(S).map(n=>dist(p,n))); }
 function beyondReturn(u,p){ const d=nodeDist(stOf(u),p); if(d<=RETURN_R) return false; evt(28,u.id,Math.min(255,Math.ceil(d/10))); note('station',{st:u.st,unit:u.id,refuse:'ПС-2',d:+d.toFixed(0),nodes:nodes(stOf(u)).length}); return true; }   // отказ: arg — расстояние до узла, десятки метров
-const HULLS = [ ...stations.map(S=>({x:S.x,y:S.y,rx:STATION.rx,ry:STATION.ry,ang:S.ang,h:STATION.h})), ...LEVEL.hulls.map(h=>({...h})) ];   // корпуса платформ (эллипс из кодовой книги), корпуса уровня (круги: обломки): непроходимы и отражают лидар; остальное — рельеф
+// Коллайдеры: корпуса платформ (эллипс из кодовой книги), объекты и декор с коллайдером (круги). Одно свойство — стена для ходьбы, отражатель лидара, преграда обзора; остальное — рельеф
+const HULLS = [ ...stations.map(S=>({x:S.x,y:S.y,rx:STATION.rx,ry:STATION.ry,ang:S.ang,h:STATION.h})), ...OBJS.filter(o=>o.col).map(o=>({x:o.x,y:o.y,r:o.col.r,h:o.col.h,id:o.id})), ...TER.FIXED.filter(d=>d.collider).map(d=>({x:d.x,y:d.y,r:d.collider.r,h:d.collider.h||d.Hs})) ];
 // точка внутри корпуса (с запасом pad); луч в корпус: эллипс приводится к единичному кругу, параметр t — в метрах по лучу
 function hullIn(x,y,c,pad=0){ if(c.r!==undefined) return Math.hypot(x-c.x,y-c.y)<c.r+pad; const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=(x-c.x)*ca+(y-c.y)*sa, ly=-(x-c.x)*sa+(y-c.y)*ca; return (lx/(c.rx+pad))**2+(ly/(c.ry+pad))**2<1; }
 function rayHull(ox,oy,dx,dy,c){ if(c.r!==undefined) return rayCircle(ox,oy,dx,dy,c); const ca=Math.cos(c.ang), sa=Math.sin(c.ang); const fx=((ox-c.x)*ca+(oy-c.y)*sa)/c.rx, fy=(-(ox-c.x)*sa+(oy-c.y)*ca)/c.ry, ex=(dx*ca+dy*sa)/c.rx, ey=(-dx*sa+dy*ca)/c.ry;
@@ -94,14 +96,14 @@ const objState = {};                       // id объекта → состоя
 turrets.forEach(turretState);
 function stateOf(id){ return objState[id]||0; }
 const contents = {};                        // содержимое контейнеров: id объекта → предметы; начальное — из уровня
-for(const p of LEVEL.pois) p.subs.forEach((s,i)=>{ const id=p.id*10+i; if(s.state) objState[id]=s.state; if(s.items&&s.items.length) contents[id]=s.items.slice(); });
+for(const s of LEVEL.objects){ if(s.state) objState[s.id]=s.state; if(s.items&&s.items.length) contents[s.id]=s.items.slice(); }
 BASES.forEach((B,k)=>B.subs.forEach((s,i)=>{ const id=160+k*10+i; if(s.state) objState[id]=s.state; if(s.items&&s.items.length) contents[id]=s.items.slice(); }));
-const ground = [];                          // свёртки на грунте: {id, x, y}; id 100…159
+const ground = [];                          // свёртки на грунте: {id, x, y}; id 100…119 (IDS.ground)
 let nextGround = 100;
 // изъять предмет из контейнера (тело — камера отдельно; пустой свёрток исчезает); свёрток на грунт — предмет под ногами
 function removeItem(o,item){ if(o.unit){ const v=o.unit; if(item===42){ v.sensors.camera=false; v.sub.img.interval=0; } else v.items.splice(v.items.indexOf(item),1); }
   else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ const gi=ground.findIndex(g=>g.id===o.id); if(gi>=0){ ground.splice(gi,1); delete contents[o.id]; } } } }   // свёрток уровня (не из ground) пустым остаётся
-function dropBundle(x,y,item){ const g={id:nextGround++, x:Math.round(x), y:Math.round(y)}; if(nextGround>159) nextGround=100; ground.push(g); contents[g.id]=[item]; return g; }
+function dropBundle(x,y,item){ const g={id:nextGround++, x:Math.round(x), y:Math.round(y)}; if(nextGround>IDS.ground[1]) nextGround=IDS.ground[0]; ground.push(g); contents[g.id]=[item]; return g; }
 function isContainer(o){ if(o.unit) return !o.unit.alive; const cb=CODEBOOK[o.type]; return !!cb && cb.container!==undefined; }
 function containerOpen(o){ if(o.unit) return true; const cb=CODEBOOK[o.type]; return stateOf(o.id)>=cb.container; }
 function contentsOf(o){ if(o.unit){ const v=o.unit; return [...(v.sensors.camera?[42]:[]), ...v.items]; } return contents[o.id]||[]; }
@@ -248,7 +250,7 @@ const ACT_WORDS = { dead:'лежу, мёртв', sleep:'сплю', idle:'сто�
 // ориентиры, которые особь видит издалека: платформы и крупные ориентиры уровня — дальность по высоте, стены — как у зрения
 let LANDMARKS=null; function landmarks(){ return LANDMARKS=LANDMARKS||[ ...stations.map(S=>({key:'st'+S.k, name:'постройка', x:S.x, y:S.y, H:STATION.h})),
   ...turrets.map(T=>({key:'tur'+T.id, get name(){ return turretAlive(T)?'свет':'турель'; }, x:T.x, y:T.y, H:1.6, get R(){ return turretAlive(T)?200:64; }})),   // горящая лампа видна дальше самой турели
-  ...POIS.filter(p=>p.id<=5).map(p=>({key:'poi'+p.id, name:CODEBOOK[p.id].name, x:p.x, y:p.y, H:Math.max(0.5,...p.subs.map(s=>OBJ_H[s[0]]||0))})) ]; }   // лениво: OBJ_H объявлен ниже
+  ...POIS.filter(p=>!poiInCanyon(p)).map(p=>({key:'poi'+p.id, name:p.name, x:p.x, y:p.y, H:Math.max(0.5,...OBJS.filter(o=>dist(o,p)<15).map(o=>o.col?o.col.h:OBJ_H[o.type]||0))})) ]; }   // указатель виден по тому, что стоит вокруг него (15 м); лениво: OBJ_H объявлен ниже
 function seesLandmark(p,L){ const d=dist(p,L); if(d>(L.R||Math.min(300,40*L.H))) return false; const q=d>8?{x:L.x+(p.x-L.x)*6/d, y:L.y+(p.y-L.y)*6/d}:p; return losFrac(p,q,1.2,L.H)<0.34; }   // луч до 6 м перед ориентиром: свой корпус его не закрывает
 function farWord(d){ return d<3?'вплотную':d<15?'близко':d<60?'недалеко':'далеко'; }
 function placeWord(p){ if(dist(p,LAIR)<5) return 'у логова'; const tt=tunnelT(p.x,p.y); if(tt>0.5) return 'в глубине расщелины'; if(tt>=0) return 'в расщелине'; if(dist(p,TUN_A)<30) return 'у выхода из расщелины'; return 'снаружи'; }
@@ -355,7 +357,7 @@ function killPack(p,why){ p.hp=0; p.act='dead'; p.target=null; p.told=null; p.fo
 // ---------- столкновения: тело не проходит сквозь корпус, скалы и стены тоннеля; вдоль препятствия скользит ----------
 const BODY_R = 0.6;
 const MAX_SLOPE=0.84;   // tg 40°: круче тело не идёт — стены расщелины, обрыв; дюны, осыпь, завал проходимы
-const BOUNDS=LEVEL.bounds||{x0:-1e4,y0:-1e4,x1:1e4,y1:1e4};   // край уровня: рельеф определён везде, но дальше никто не ступает
+const BOUNDS=LEVEL.terrain.bounds||{x0:-1e4,y0:-1e4,x1:1e4,y1:1e4};   // край уровня: рельеф определён везде, но дальше никто не ступает
 function inBounds(x,y){ return x>=BOUNDS.x0&&x<=BOUNDS.x1&&y>=BOUNDS.y0&&y<=BOUNDS.y1; }
 function blocked(x,y,fromX,fromY){ if(!inBounds(x,y)) return true;
   const len=Math.hypot(x-fromX,y-fromY)||1; if((TER.H(x,y)-TER.H(fromX,fromY))/len>MAX_SLOPE) return true;
@@ -364,7 +366,7 @@ function blocked(x,y,fromX,fromY){ if(!inBounds(x,y)) return true;
 }
 // цель внутри корпуса (платформа, обломки — сам ориентир стоит в их центре) → ближайшая точка снаружи, к ней и идти
 // (радиально от центра корпуса; цель в самом центре — со стороны тела)
-function outsideHulls(x,y,from){ for(const c of HULLS){ if(!hullIn(x,y,c,BODY_R)) continue; const pad=BODY_R+0.4; let vx=x-c.x, vy=y-c.y; if(Math.hypot(vx,vy)<0.5){ vx=from.x-c.x; vy=from.y-c.y; }
+function outsideHulls(x,y,from,pad=BODY_R+0.4){ for(const c of HULLS){ if(!hullIn(x,y,c,BODY_R)) continue; let vx=x-c.x, vy=y-c.y; if(Math.hypot(vx,vy)<0.5){ vx=from.x-c.x; vy=from.y-c.y; }
     if(c.r!==undefined){ const d=Math.hypot(vx,vy)||1; return {x:c.x+vx/d*(c.r+pad), y:c.y+vy/d*(c.r+pad)}; }
     const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=vx*ca+vy*sa, ly=-vx*sa+vy*ca; const k=Math.hypot(lx/(c.rx+pad),ly/(c.ry+pad))||1; const ox=lx/k, oy=ly/k;   // в осях эллипса
     return {x:c.x+ox*ca-oy*sa, y:c.y+ox*sa+oy*ca}; }
@@ -413,14 +415,12 @@ function heartbeat(S){
 function objectsAround(u, maxR){
   const out=[]; const inT=tunnelT(u.x,u.y)>=0;
   out.push=function(o){ o.viewer=u; return Array.prototype.push.call(this,o); };   // кто смотрит — для «наш»/«чужой» в тексте
-  for(const p of [...POIS, ...SPOIS]){
-    const pInT=poiInCanyon(p), deep=poiDeep(p);
-    const lmVisible = inT ? pInT : (!deep || dist(u,TUN_A)<=30);
-    if(lmVisible && dist(u,p)<=300) out.push({id:p.id,type:p.station?1:p.id,x:p.x,y:p.y,landmark:true,station:p.station});
-    if(inT && !pInT) continue;
-    if(!inT && deep) continue;
-    for(let i=0;i<p.subs.length;i++){ const s=p.subs[i]; const o={id:p.station?p.idBase+i:p.id*10+i,type:s[0],x:p.x+s[1],y:p.y+s[2],facing:s[3]}; if(dist(u,o)>maxR) continue; if(CODEBOOK[s[0]]&&CODEBOOK[s[0]].relay) o.relay=relays.find(R=>R.id===o.id); out.push(o); }
-  }
+  const visible=(p)=>{ const pInT=poiInCanyon(p); return inT ? pInT : !(poiDeep(p) && dist(u,TUN_A)>30); };   // изнутри расщелины — только её; снаружи — глубокое лишь у входа
+  for(const p of POIS){ if(visible(p) && dist(u,p)<=300) out.push({id:p.id,x:p.x,y:p.y,name:p.name,text:p.text,landmark:true}); }
+  for(const S of SPOIS){ if(visible(S) && dist(u,S)<=300) out.push({id:S.id,type:1,x:S.x,y:S.y,landmark:true,station:S.station});
+    if(!visible(S)) continue;
+    for(let i=0;i<S.subs.length;i++){ const s=S.subs[i]; const o={id:S.idBase+i,type:s[0],x:S.x+s[1],y:S.y+s[2],facing:s[3]}; if(dist(u,o)<=maxR) out.push(o); } }
+  for(const b of OBJS){ if(dist(u,b)>maxR || !visible(b)) continue; const o={id:b.id,type:b.type,x:b.x,y:b.y,facing:b.facing,col:b.col}; if(CODEBOOK[b.type]&&CODEBOOK[b.type].relay) o.relay=relays.find(R=>R.id===b.id); out.push(o); }
   for(const v of units){ if(v===u) continue; if(dist(u,v)<=maxR) out.push({id:200+v.id,type:v.alive?252:251,x:v.x,y:v.y,unit:v}); }
   for(const g of ground){ if(dist(u,g)<=maxR) out.push({id:g.id,type:33,x:g.x,y:g.y}); }
   for(const T of turrets){ if(!inT && dist(u,T)<=maxR) out.push({id:T.id,type:34,x:T.x,y:T.y,facing:T.ang,turret:T}); }
@@ -432,6 +432,7 @@ function nameOf(o){
   if(o.pack) return o.pack.act!=='sleep' ? 'существо, класс не определён' : 'объект, класс не определён';
   if(o.unit){ const v=o.unit, who=v.st===o.viewer.st?'':`, ${stOf(v).name}`; return v.alive ? `миссионер М${v.id}${who}` : `тело М${v.id}${who}`; }
   if(o.station) return o.station.k===o.viewer.st ? 'шлюз станции' : `шлюз ${o.station.name}`;
+  if(o.landmark) return o.name;
   if(o.type===28) return (contents[o.id]||[]).length ? 'резак на камне' : 'плоский камень';
   return (CODEBOOK[o.type]||CODEBOOK[250]).name;
 }
@@ -440,6 +441,7 @@ function examText(o){
     : `Двуногое${sz}. Кожа с тем же рисунком пор, что у миссионера. ${a==='flee'||a==='home'||a==='back'?'Уходит.':a==='attack'||a==='approach'?'Идёт сюда.':'Смотрит.'}`; }
   if(o.unit){ const v=o.unit; if(v.alive) return `${v.st===o.viewer.st?'Наш.':'Той же серии, платформа '+stOf(v).name+'.'} ${v.target?'Идёт.':'Стоит.'} Пульс на вид ${v.pulse<100?'ровный':'частый'}.`; return withContents(o,'Не двигается.'); }
   if(o.relay) return relayText(o.relay);
+  if(o.landmark&&!o.station) return o.text;   // указатель: текст места из карты
   const cb=CODEBOOK[o.type]||CODEBOOK[250]; return withContents(o,(cb.states||[])[stateOf(o.id)]||'');
 }
 function withContents(o,text){ if(!isContainer(o)||!containerOpen(o)) return text; const c=contentsOf(o); return text+(c.length?' Здесь: '+c.map(i=>ITEMS[i]).join(', ')+'.':' Пусто.'); }
@@ -470,7 +472,7 @@ function decorR(o){ return o.type==='post'?0.08:(DECOR_R[o.type]||0)*o.Hs; }
 function castRay(u,z0,ca,sa,tilt,objs){ const ch=Math.cos(tilt), sh=Math.sin(tilt), dx=ca*ch, dy=sa*ch; const hitZ=(t)=>z0+sh*t; let best=100;   // dx,dy — шаг по горизонтали на метр наклонной дальности
   for(const c of HULLS){ const t=rayHull(u.x,u.y,ca,sa,c)/ch; if(t<best && hitZ(t)<TER.H(c.x,c.y)+c.h) best=t; }
   for(let t=0.5;t<best;t+=0.5){ const px=u.x+dx*t, py=u.y+dy*t; if(hitZ(t)<=TER.H(px,py)){ let lo=t-0.5, hi=t; for(let k=0;k<5;k++){ const m=(lo+hi)/2; if(hitZ(m)<=TER.H(u.x+dx*m,u.y+dy*m)) hi=m; else lo=m; } best=hi; break; } }
-  for(const o of objs){ if(o.landmark) continue; const r=o.pack?0.5*o.pack.size:o.unit?0.5:o.decor?decorR(o):(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,ca,sa,{x:o.x,y:o.y,r})/ch; const oh=o.pack?(o.pack.act!=='sleep'?1.6:0.6)*o.pack.size:o.unit?(o.unit.alive?1.8:0.5):o.decor?o.Hs:(OBJ_H[o.type]||1);
+  for(const o of objs){ if(o.landmark||o.col||o.collider) continue; const r=o.pack?0.5*o.pack.size:o.unit?0.5:o.decor?decorR(o):(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,ca,sa,{x:o.x,y:o.y,r})/ch; const oh=o.pack?(o.pack.act!=='sleep'?1.6:0.6)*o.pack.size:o.unit?(o.unit.alive?1.8:0.5):o.decor?o.Hs:(OBJ_H[o.type]||1);
     if(t<best && hitZ(t)<TER.H(o.x,o.y)+oh && hitZ(t)>TER.H(o.x,o.y)-0.5) best=t; }
   return {t:best, x:u.x+dx*best, y:u.y+dy*best, z:hitZ(best)}; }
 function sonar(u, cls='cmd'){
@@ -488,7 +490,7 @@ function sonar(u, cls='cmd'){
 function camHeading(u){ return u.goal && dist(u,u.goal)>1.5 ? Math.atan2(u.goal.y-u.y,u.goal.x-u.x) : u.heading; }   // голова повёрнута к цели, если она задана
 // что попадает в кадр: объекты мира с подменой типа по состоянию (спит / идёт / тело), платформа, декорации
 function sceneObjects(u){ const out=[];
-  for(const o of objectsAround(u,140)){ if(o.landmark && !SPRITES[o.type]) continue; if(o.type===26) continue;
+  for(const o of objectsAround(u,140)){ if(o.landmark) continue;
     let type=o.type, Hs; if(o.pack){ const p=o.pack, ly=p.act==='sleep'||p.act==='dead'; type=ly?'sleep':250; Hs=(ly?0.6:1.6)*p.size; } if(o.unit) type=o.unit.alive?(o.unit.target?'walk':252):251;
     if(!SPRITES[type]) continue; const facing=o.unit?o.unit.heading:o.pack?(o.pack.target?o.pack.heading:Math.atan2(u.y-o.y,u.x-o.x)):o.facing;   // тела и идущие особи — по курсу, стоящая особь — на камеру, объекты — по уровню
     out.push({id:o.id,type,x:o.x,y:o.y,facing,Hs}); }
@@ -512,6 +514,11 @@ function imageDelta(u, level, cls='bg'){
 
 // ---------- изучить / взаимодействовать ----------
 // Обе команды — «подойди к объекту и сделай». Тело идёт к объекту; по прибытии выполняет и докладывает.
+// «Рядом» — одно число REACH: метр до поверхности (точка указателя, стенка коллайдера, центр предмета без коллайдера). Тело идёт к точке
+// в REACH от поверхности со своей стороны (у коллайдера — снаружи); прибытие — как у «идти», полметра до точки.
+const REACH=1.0;
+function reachDist(u,o){ return dist(u,o)-(o.col?o.col.r:0); }
+function reachPoint(u,o){ return outsideHulls(o.x,o.y,u,BODY_R+0.2); }   // у коллайдера (своего или чужого, как люк на кромке корпуса) — 0,8 м от стенки: внутри REACH, тело не упирается
 function findObj(u,id){ return objectsAround(u,100).find(o=>o.id===id); }
 function beginAction(u,kind,id,item){
   if(!u.alive) return;
@@ -521,9 +528,9 @@ function beginAction(u,kind,id,item){
     const g=dropBundle(u.x,u.y,item);
     const t=encText(`сбросил: ${ITEMS[item]}.`); emit('cmd','ACT',u.id,new Uint8Array([g.id,0,t.length>>8,t.length&255,...t])); emit('cmd','CONT',u.id,new Uint8Array([g.id,1,item])); return; }
   const o=findObj(u,id); if(!o){ evt(16,u.id,id); return; }
-  if(dist(u,o)>3 && beyondReturn(u,o)) return;
+  const near=reachDist(u,o)<=REACH; if(!near && beyondReturn(u,o)) return;
   u.pending={kind,id,item}; u.goal={x:o.x,y:o.y};
-  if(dist(u,o)>3){ u.target={x:o.x,y:o.y}; evt(8,u.id); } else doPending(u);
+  if(!near){ u.target=reachPoint(u,o); evt(8,u.id); } else doPending(u);
 }
 function doPending(u){
   const p=u.pending; u.pending=null; if(!p) return; const o=findObj(u,p.id); if(!o){ evt(16,u.id,p.id); return; }
@@ -666,7 +673,7 @@ function tick(){
       else { u.linkLostFor=0; u.autoDone=false; }
       u.lightOn=!(u.stealth && !u.reflex);
       const sp=speedFor(u);
-      if(u.target && sp>0){ const d=dist(u,u.target); if(d<(u.pending?2.5:0.5)){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3 && u.reflex!==6) evt(1,u.id); }
+      if(u.target && sp>0){ const d=dist(u,u.target); if(d<0.5){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3 && u.reflex!==6) evt(1,u.id); }
         else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
           // застревание — по продвижению: за 4 с не приблизился к цели на метр → стоп
           u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<1){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); note('unit',{unit:u.id,stuck:true,x:+u.x.toFixed(1),y:+u.y.toFixed(1),slope:+TER.slope(u.x,u.y).toFixed(2)}); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
@@ -713,5 +720,5 @@ function truth(){ return {
   ground:ground.map(g=>({id:g.id,x:g.x,y:g.y,items:contents[g.id]||[]})),
   cries:cries.filter(c=>t-c.t<4).map(c=>({x:c.x,y:c.y,word:c.word,age:+(t-c.t).toFixed(1)})) }; }
 // расщелина и ориентиры — один раз при старте
-postMessage({ t:'level', canyon:{pts:LEVEL.canyon.pts, branch:LEVEL.canyon.branch.pts}, pois:[...POIS,...SPOIS].map(p=>({id:p.id,x:p.x,y:p.y})), stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang})) });
+postMessage({ t:'level', canyon:{pts:LEVEL.terrain.canyon.pts, branch:LEVEL.terrain.canyon.branch.pts}, pois:[...POIS,...SPOIS].map(p=>({id:p.id,x:p.x,y:p.y})), stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang})) });
 let timer=null; function schedule(){ if(timer) clearInterval(timer); timer=setInterval(tick, DT*1000/speed); } schedule();

@@ -7,13 +7,13 @@ const TER = (()=>{
   function vnoise(x,y){ const ix=Math.floor(x), iy=Math.floor(y), fx=x-ix, fy=y-iy, sx=fx*fx*(3-2*fx), sy=fy*fy*(3-2*fy);
     const a=hash(ix,iy), b=hash(ix+1,iy), c=hash(ix,iy+1), d=hash(ix+1,iy+1); const t=a+(b-a)*sx; return t+((c+(d-c)*sx)-t)*sy; }
 
-  // ---- расщелина: ломаная с тупиковым отростком, ширина по коленам; начинается у входа (ориентир 6). Колена и ширины — LEVEL.canyon ----
+  // ---- расщелина: ломаная с тупиковым отростком, ширина по коленам; начинается у входа. Колена и ширины — LEVEL.terrain.canyon ----
   // Производные (направление входа, длина, хребет, сюжетные декорации) считаются в reload(); редактор зовёт его после правки уровня.
-  let CANYON, A0, D0, LEN, RIDGE, FIXED, CBOX;   // CBOX — прямоугольник, вне которого расщелина и подход не влияют
-  function reload(){ CANYON=LEVEL.canyon; A0=CANYON.pts[0]; { const q=CANYON.pts[1]; const dx=q.x-A0.x, dy=q.y-A0.y, L=Math.hypot(dx,dy)||1; D0={x:dx/L,y:dy/L}; }   // направление входа
+  let CANYON, A0, D0, LEN, RIDGE, FIXED, CBOX, BUMPS;   // CBOX — прямоугольник, вне которого расщелина и подход не влияют; BUMPS — пятна рельефа уровня
+  function reload(){ CANYON=LEVEL.terrain.canyon; BUMPS=(LEVEL.terrain.bumps||[]).filter(b=>b.r>0); A0=CANYON.pts[0]; { const q=CANYON.pts[1]; const dx=q.x-A0.x, dy=q.y-A0.y, L=Math.hypot(dx,dy)||1; D0={x:dx/L,y:dy/L}; }   // направление входа
     LEN=0; for(let i=0;i<CANYON.pts.length-1;i++) LEN+=Math.hypot(CANYON.pts[i+1].x-CANYON.pts[i].x,CANYON.pts[i+1].y-CANYON.pts[i].y);
     RIDGE={ c:{x:A0.x+D0.x*28, y:A0.y+D0.y*28}, d:{x:-D0.y,y:D0.x}, n:{x:D0.x,y:D0.y} };   // позвоночник в 28 м за входом, поперёк входа
-    FIXED=LEVEL.decor.map(o=>({id:o.id,type:o.type,x:o.x,y:o.y,facing:o.f*Math.PI/180,Hs:o.Hs,decor:true}));
+    FIXED=LEVEL.decor.map(o=>({id:o.id,type:o.type,x:o.x,y:o.y,facing:o.f*Math.PI/180,Hs:o.Hs,collider:o.collider&&o.collider.r>0?o.collider:null,decor:true}));
     const ps=[...CANYON.pts,...CANYON.branch.pts,{x:A0.x-D0.x*60,y:A0.y-D0.y*60}]; CBOX={x0:Math.min(...ps.map(p=>p.x))-16,x1:Math.max(...ps.map(p=>p.x))+16,y0:Math.min(...ps.map(p=>p.y))-16,y1:Math.max(...ps.map(p=>p.y))+16}; }
   function segInfo(p,q,x,y){ const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy); const t=Math.max(0,Math.min(1,((x-p.x)*dx+(y-p.y)*dy)/(L*L))); const px=p.x+dx*t, py=p.y+dy*t; return { d:Math.hypot(x-px,y-py), t, L, perp:(-(x-p.x)*dy+(y-p.y)*dx)/L, dir:{x:dx/L,y:dy/L} }; }
   // ближайшее колено: {d — до оси, w — ширина, along — путь от входа (м), perp, dir, branch}; перед входом along < 0
@@ -37,13 +37,14 @@ const TER = (()=>{
     return crest*k + (k>0.02? 1.5*(vnoise(x/6,y/6)-0.5)*k : 0); }
   function landing(x,y){ return 1-ss(45,110,Math.hypot(x,y)); }                                   // посадочное поле: пусто и плоско
   function hills(x,y){ return (2.4*vnoise(x/120+7,y/120+3)+1.0*vnoise(x/35,y/35)-1.7)*(1-0.7*landing(x,y)); }
+  function bumps(x,y){ let h=0; for(const b of BUMPS){ const d=Math.hypot(x-b.x,y-b.y); if(d<b.r) h+=b.h*(1-ss(0,1,d/b.r)); } return h; }   // пятна рельефа уровня (тирейн): купол радиуса r высотой h, яма при h < 0
   function dunes(x,y){ const u=-x*WIND.y+y*WIND.x; const ph=u/9+1.6*vnoise(x/45,y/45); const sh=Math.pow(1-Math.abs(Math.sin(ph)),1.7); const amp=1.1*(0.4+0.6*vnoise(x/90+2,y/90))*(1-landing(x,y)); return amp*sh; }
   function micro(x,y){ const u=-x*WIND.y+y*WIND.x; return 0.035*Math.sin(u/0.55+2*vnoise(x/3,y/3))+0.06*Math.max(0,vnoise(x/0.35,y/0.35)-0.6); }
   function rubble(a,p){ const r=0.5*Math.max(0,vnoise(a/4,p/4+9)-0.72)/0.28; const big=1.3*Math.max(0,1-Math.hypot((a-62)/6,(p-2.2)/2.6)); const fall=2.2*Math.max(0,(a-(LEN-7))/7)*(0.7+0.6*vnoise(a/1.5,p/1.5)); return r+big+fall+0.02*vnoise(a/0.3,p/0.3); }   // осыпь, обрушение, завал в конце
   function floorZ(a,p){ return 0.08*(vnoise(a/1.2,p/1.2)-0.5)+rubble(a,p); }
   // высота поверхности
   function H(x,y,lod=0){ const c=canyon(x,y); let r=ridgeH(x,y); if(c.along<0 && c.along>-60){ const strip=(1-ss(6,11,Math.abs(c.perp)))*ss(-50,-25,c.along); r*=1-strip; }   // подход через осыпь расчищен
-    const h=hills(x,y)+dunes(x,y)+(lod?0:micro(x,y))+r; if(c.d>c.w/2+4) return h;
+    const h=hills(x,y)+dunes(x,y)+bumps(x,y)+(lod?0:micro(x,y))+r; if(c.d>c.w/2+4) return h;
     if(c.along>-6 && c.along<1 && Math.abs(c.perp)<5.5){ const k=ss(-6,-2,c.along)*(1-ss(4,5.5,Math.abs(c.perp))); return h*(1-k)+floorZ(c.along,c.perp)*k; }
     const wall=c.w/2; const k=1-ss(wall,wall+1.6,c.d);   // стена начинается ровно на полуширине — там же, где явная стена для лидара и ходьбы
     if(k<=0) return h; return h*(1-k)+floorZ(c.along,c.perp)*k; }
@@ -63,14 +64,14 @@ const TER = (()=>{
   const DECAL = {
     27:(u,v)=>{ if(u<-1||u>6) return null; const f=Math.abs(Math.abs(v)-0.6); const a=Math.max(0,1-f/0.25)*(0.6+0.4*vnoise(u*2,v*3)); return a>0.05?{a,d:-30}:null; },            // борозды: две колеи
     12:(u,v)=>{ if(u<-1||u>8) return null; const k=Math.floor(u/0.7); const cx=k*0.7+0.35, cy=(k%2?0.18:-0.18); const r=Math.hypot(u-cx,v-cy); return r<0.16?{a:0.8,d:-22}:null; },   // следы: цепочка
-    25:(u,v)=>{ const r=Math.hypot(u,v); if(r>4.2) return null; const a=(1-ss(3.2,4.2,r))*(0.5+0.5*vnoise(Math.atan2(v,u)*4,r*1.5)); return {a,d:-55+25*ss(0,1.2,1.2-r)}; },       // гарь: круг, в центре зола
+    25:(u,v)=>{ const r=Math.hypot(u,v); if(r>7) return null; const a=(1-ss(5.5,7,r))*(0.5+0.5*vnoise(Math.atan2(v,u)*4,r*1.5)); return {a,d:-55+25*ss(0,1.2,1.2-r)}; },           // гарь: круг 7 м, в центре зола (под обломком r 5 — виден край)
     16:(u,v)=>{ if(u<-6||u>6) return null; const w=Math.abs(v-0.25*Math.sin(u*0.9)); return w<0.09?{a:0.9,d:-40}:null; },                                                        // кабель
     19:(u,v)=>{ if(u<-3||u>3) return null; const w=Math.abs(v-0.2*Math.sin(u*1.3)); return w<0.09?{a:0.9,d:-40}:null; },
     31:(u,v)=>{ const r=Math.hypot(u/3.2,v/2.2)*(1+0.25*(vnoise(u,v)-0.5)); if(r>1) return null; const spec=ss(0.85,1,vnoise(u*3+9,v*3)); return {a:0.9*(1-ss(0.8,1,r)),d:-45+70*spec}; },   // вода: пятно с бликами
   };
 
-  // ---- декорации: объекты кадра, но не объекты мира (не в описании, не на карте) ----
-  // сюжетные (FIXED, из LEVEL.decor): завал в конце расщелины, обломки вокруг корабля, пирамидки по тропе ящики → расщелина, столбики кабеля станция → мачта
+  // ---- декор: объекты кадра и лидара, но не объекты мира (не в описании, не на карте); с коллайдером — стена для ходьбы (world.js HULLS) ----
+  // из уровня (FIXED, LEVEL.decor): завал в конце расщелины, обломки вокруг корабля, пирамидки по тропе ящики → расщелина, столбики кабеля станция → мачта
   function decor(u,R){ const out=FIXED.filter(o=>Math.abs(o.x-u.x)<R&&Math.abs(o.y-u.y)<R); const cell=9; const i0=Math.floor((u.x-R)/cell), i1=Math.floor((u.x+R)/cell), j0=Math.floor((u.y-R)/cell), j1=Math.floor((u.y+R)/cell);
     for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const h=hash(i*31+7,j*17+3), h2=hash(i*13+1,j*29+5), h3=hash(i*7+11,j*3+13); const x=(i+0.15+0.7*h2)*cell, y=(j+0.15+0.7*h3)*cell;
       const rx=x-RIDGE.c.x, ry=y-RIDGE.c.y; const n=rx*RIDGE.n.x+ry*RIDGE.n.y; const c=corridor(x,y);
@@ -92,5 +93,5 @@ const TER = (()=>{
   function mountains(bearing){ const b=bearing*3; return { far: 0.02+0.10*Math.pow(Math.abs(vnoise(b*1.1+40,1)*2-1),0.8)+0.025*vnoise(b*4+9,2), near: 0.005+0.035*vnoise(b*2.5+77,5)+0.012*vnoise(b*9+3,6) }; }   // угол возвышения по пеленгу
 
   reload();
-  return { reload, ss, hash, vnoise, get CANYON(){ return CANYON; }, get LEN(){ return LEN; }, get RIDGE(){ return RIDGE; }, canyon, inside, corridor, canyonPoint, ridgeH, hills, dunes, landing, H, floorZ, slope, groundTone, rockTone, wallTone, DECAL, decor, SUN, mountains };
+  return { reload, ss, hash, vnoise, get CANYON(){ return CANYON; }, get LEN(){ return LEN; }, get RIDGE(){ return RIDGE; }, get FIXED(){ return FIXED; }, canyon, inside, corridor, canyonPoint, ridgeH, hills, dunes, bumps, landing, H, floorZ, slope, groundTone, rockTone, wallTone, DECAL, decor, SUN, mountains };
 })();

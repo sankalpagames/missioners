@@ -27,7 +27,7 @@ const known=new Map();          // ключ → объект с координа
 const journal=new Map();        // id объекта → [{t, unit, text}] — что узнали, изучив или взаимодействуя
 function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push({t:tNow,unit,text}); if($('.tabs button.on').dataset.tab==='journal') renderJournal(); }
 function jlast(id){ const j=journal.get(id); return j?j[j.length-1]:null; }
-function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:(id>=100&&id<200?'свёрток':'объект '+id); }
+function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:(id>=IDS.ground[0]&&id<=IDS.ground[1]?'свёрток':id>=IDS.poi[0]&&id<=IDS.poi[1]?'указатель '+id:'объект '+id); }
 // объект, который миссионер изучил или трогал, — знакомый ему: подсветить на карте, дать имя, если его ещё нет
 function markSeen(id,unit){ let o=[...known.values()].find(k=>k.id===id); const p=pos(unit);
   if(!o){ o={id,cls:0,x:p.x,y:p.y,at:tNow,unit,seenBy:new Set(),name:oname(id)}; known.set(id>=250?'c'+id:id>=200?'unit'+id:'o'+id,o); }
@@ -512,7 +512,7 @@ setInterval(()=>{
 },100);
 
 // ---------- сохранение: мир + знание консоли, хранилище браузера ----------
-const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:'')+(!ROOM&&MAP!=='act1'?':map:'+MAP:''), SAVE_VERSION=10;   // в сети — своё знание на каждую комнату и платформу; одиночная игра — свой сеанс на каждую карту (снимок мира годен только для своей карты)   // поднимать при несовместимых изменениях формата мира или консоли
+const SAVE_KEY='missioners.save'+(ROOM?':'+ROOM+':'+ST:'')+(!ROOM&&MAP!=='act1'?':map:'+MAP:''), SAVE_VERSION=11;   // в сети — своё знание на каждую комнату и платформу; одиночная игра — свой сеанс на каждую карту (снимок мира годен только для своей карты)   // поднимать при несовместимых изменениях формата мира или консоли
 let pendingWorld=null, lastSaveAt=0, prevSessionGap=null;
 function consoleSnapshot(){
   const us=[...units.values()].map(u=>({...u, hist:u.hist.slice(-600), img:undefined, sonarData:u.sonarData?[...u.sonarData]:null, sonarMask:u.sonarMask||null}));

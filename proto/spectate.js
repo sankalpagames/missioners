@@ -88,15 +88,15 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     for(let x=Math.ceil(iS(0)/g)*g;x<=iS(W);x+=g){ ctx.beginPath(); ctx.moveTo(S(x)+0.5,0); ctx.lineTo(S(x)+0.5,H); ctx.stroke(); ctx.fillText(x,S(x)+3,8); }
     for(let y=Math.ceil(iSy(0)/g)*g;y<=iSy(H);y+=g){ ctx.beginPath(); ctx.moveTo(0,Sy(y)+0.5); ctx.lineTo(W,Sy(y)+0.5); ctx.stroke(); ctx.fillText(y,3,Sy(y)-7); } }
   // расщелина
-  const C=LEVEL.canyon; const band=(pts,w,col,perSeg)=>{ for(let i=0;i<pts.length-1;i++){ const p=pts[i], q=pts[i+1]; const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L; const w0=(w[i]!==undefined?w[i]:w[w.length-1])/2, w1=perSeg?w0:(w[i+1]!==undefined?w[i+1]:w[w.length-1])/2;
+  const C=LEVEL.terrain.canyon; const band=(pts,w,col,perSeg)=>{ for(let i=0;i<pts.length-1;i++){ const p=pts[i], q=pts[i+1]; const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L; const w0=(w[i]!==undefined?w[i]:w[w.length-1])/2, w1=perSeg?w0:(w[i+1]!==undefined?w[i+1]:w[w.length-1])/2;
       ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(S(p.x+nx*w0),Sy(p.y+ny*w0)); ctx.lineTo(S(q.x+nx*w1),Sy(q.y+ny*w1)); ctx.lineTo(S(q.x-nx*w1),Sy(q.y-ny*w1)); ctx.lineTo(S(p.x-nx*w0),Sy(p.y-ny*w0)); ctx.closePath(); ctx.fill(); } };
   band(C.pts,C.w,'rgba(80,140,255,0.18)',false); band(C.branch.pts,C.branch.w,'rgba(80,140,255,0.12)',true);
-  if(LEVEL.bounds){ const b=LEVEL.bounds; ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(255,92,92,0.5)'; ctx.strokeRect(S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); ctx.setLineDash([]); }   // край уровня
+  if(LEVEL.terrain.bounds){ const b=LEVEL.terrain.bounds; ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(255,92,92,0.5)'; ctx.strokeRect(S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); ctx.setLineDash([]); }   // край уровня
   if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; const f0=frameAt(cur); for(const n of [...bases(), ...((f0&&f0.relays)||[]).filter(R=>R.linked.length)]){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),500*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }   // радиус возврата ПС-2: площадки и ретрансляторы-узлы из phys
   // платформы, корпуса, ориентиры, логово
   for(const B of bases()){ const X=S(B.x),Y=Sy(B.y); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,B.ang*Math.PI/180,0,7); ctx.stroke(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+B.k),X-14,Y-STATION.ry*sc-6); } }
-  for(const h of LEVEL.hulls){ ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(h.x),Sy(h.y),h.r*sc,0,7); ctx.stroke(); }
-  for(const p of LEVEL.pois){ const X=S(p.x),Y=Sy(p.y); ctx.fillStyle='rgba(127,224,127,0.6)'; ctx.beginPath(); ctx.moveTo(X,Y-4); ctx.lineTo(X+4,Y); ctx.lineTo(X,Y+4); ctx.lineTo(X-4,Y); ctx.closePath(); ctx.fill(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='rgba(127,224,127,0.6)'; ctx.fillText(CODEBOOK[p.id].name,X+7,Y-7); } }
+  for(const o of [...LEVEL.objects, ...LEVEL.decor]){ const c=o.type>0&&typeof o.type==='number'?objCollider(o):(o.collider&&o.collider.r>0?o.collider:null); if(!c) continue; ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),c.r*sc,0,7); ctx.stroke(); }   // коллайдеры объектов и декора
+  for(const p of LEVEL.pois){ const X=S(p.x),Y=Sy(p.y); ctx.fillStyle='rgba(127,224,127,0.6)'; ctx.beginPath(); ctx.moveTo(X,Y-4); ctx.lineTo(X+4,Y); ctx.lineTo(X,Y+4); ctx.lineTo(X-4,Y); ctx.closePath(); ctx.fill(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='rgba(127,224,127,0.6)'; ctx.fillText(p.name,X+7,Y-7); } }
   { const L=LEVEL.pack.lair; ctx.strokeStyle='#8a3a3a'; ctx.beginPath(); ctx.arc(S(L.x),Sy(L.y),Math.max(4,3*sc),0,7); ctx.stroke(); if(layers.labels&&sc>=1){ ctx.fillStyle='#8a3a3a'; ctx.fillText('логово',S(L.x)+7,Sy(L.y)); } }
   const f=frameAt(cur); if(!f){ return; }
   // турели: сектор и захват

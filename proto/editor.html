@@ -11,7 +11,9 @@ html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.35 ui-monospace,Menlo,monospace;display:flex;flex-direction:column;overflow:hidden}
 #top{display:flex;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel);white-space:nowrap}
 #top .t{font-size:11px;letter-spacing:.12em;color:var(--acc)}
-#app{display:grid;grid-template-columns:1fr 360px;flex:1;min-height:0}
+#bar{display:flex;gap:6px;align-items:center;padding:4px 10px;border-bottom:1px solid var(--line);background:var(--panel);white-space:nowrap;font-size:11px}
+#bar .sep{width:1px;height:16px;background:var(--line);margin:0 4px}
+#app{display:grid;grid-template-columns:1fr 380px;flex:1;min-height:0}
 #mapwrap{position:relative;min-width:0;min-height:0;background:#000}
 #map{position:absolute;inset:0;width:100%;height:100%;cursor:default}
 #map.place,#map.ruler{cursor:crosshair}
@@ -29,6 +31,8 @@ select,input,textarea{font:inherit;background:#000;color:var(--fg);border:1px so
 input[type=number]{width:72px}input[type=range]{width:120px;padding:0}
 .props{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;align-items:center;font-size:11px}
 .props label{color:var(--dim)}.props .wide{grid-column:1/3}
+.props textarea{width:100%;height:64px;resize:vertical;font-size:11px}
+.props input[type=text]{width:100%}
 #frame{width:100%;aspect-ratio:8/5;image-rendering:pixelated;background:#000;border:1px solid var(--line);display:block}
 #status{color:var(--dim)}#status.err{color:var(--red)}#status.ok{color:var(--grn)}
 #gate{margin:auto;max-width:520px;color:var(--dim);line-height:1.6}
@@ -36,6 +40,17 @@ input[type=number]{width:72px}input[type=range]{width:120px;padding:0}
 #text{width:100%;height:220px;font-size:11px;white-space:pre;resize:vertical}
 .hint{font-size:11px;color:var(--dim);line-height:1.5}
 kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--fg)}
+/* слои: вкладки активного слоя в панели, видимость — флажки в полосе над картой */
+#ltabs{display:flex;gap:2px;flex-wrap:wrap}
+#ltabs button{padding:3px 8px;border-radius:4px 4px 0 0}
+#ltabs button.on{background:#3a2f16;border-color:var(--acc)}
+#ltabs button.off{opacity:.45}
+.lay{display:none}.lay.on{display:block}
+.lay .rule{font-size:11px;color:var(--dim);line-height:1.5;margin:2px 0 4px}
+#rules{font-size:11px;line-height:1.5}
+#rules div{cursor:pointer;padding:1px 0}#rules div:hover{color:var(--fg)}
+#rules .warn{color:#e0a94a}#rules .info{color:var(--dim)}#rules .okk{color:var(--grn)}
+#bar label{display:inline-flex;gap:3px;align-items:center;cursor:pointer}
 </style>
 </head>
 <body>
@@ -55,37 +70,61 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
   <input type="file" id="file-import" accept=".js,text/javascript" hidden>
   <span id="status"></span>
   <span class="grow"></span>
-  <span class="dim small">слои</span>
-  <button class="on" data-layer="hm">высоты</button>
-  <button class="on" data-layer="iso">изогипсы</button>
-  <button class="on" data-layer="steep">непроходимое</button>
-  <button data-layer="decor">процедурные декорации</button>
-  <button class="on" data-layer="grid">сетка</button>
-  <button class="on" data-layer="ret">радиус возврата</button>
-  <button class="on" data-layer="labels">подписи</button>
+  <button id="btn-ruler" class="ghost" title="R: линейка — растянуть отрезок">линейка</button>
 </header>
+<div id="bar" hidden>
+  <span class="dim">слои</span>
+  <span id="lvis"></span>
+  <span class="sep"></span>
+  <span class="dim">показ</span>
+  <label><input type="checkbox" data-show="hm" checked> высоты</label>
+  <label><input type="checkbox" data-show="iso" checked> изогипсы</label>
+  <label><input type="checkbox" data-show="steep" checked> непроходимое</label>
+  <label><input type="checkbox" data-show="pdecor"> процедурный декор</label>
+  <label><input type="checkbox" data-show="grid" checked> сетка</label>
+  <label><input type="checkbox" data-show="ret" checked> радиус возврата</label>
+  <label><input type="checkbox" data-show="labels" checked> подписи</label>
+</div>
 <div id="app" hidden>
   <div id="mapwrap"><canvas id="map"></canvas></div>
   <aside id="side">
-    <h3>КУРСОР</h3>
-    <div class="kv" id="cur"></div>
-    <div class="row small"><label><input type="checkbox" id="relays-on"> все ретрансляторы в сети</label><span class="dim">SNR — тело в точке, линия к лучшему узлу (площадка или ретранслятор), как в игре (link.js); без флажка узлы — только включённые на старте</span></div>
+    <div id="ltabs"></div>
+    <!-- панель слоя: правило слоя и инструменты добавления; выбрать инструмент, затем клик по карте -->
+    <div class="lay" data-lay="terrain">
+      <div class="rule">Тирейн — грунт. Высота — формула (равнина, дюны, хребет) плюс расщелина и пятна рельефа. Стены не задаются: непроходимо там, где уклон круче 40° (красное). Край уровня — рамка.</div>
+      <div class="row"><button data-add="bump" title="Пятно рельефа: купол радиуса r высотой h (h < 0 — яма)">пятно рельефа</button><span class="dim small">колено расщелины — двойной клик по расщелине</span></div>
+    </div>
+    <div class="lay" data-lay="pois">
+      <div class="rule">Указатель — место с именем и текстом осмотра, на карте консоли — оранжевый ромб. Не объект: спрайта и действий нет, тело подходит и «изучает» — получает текст. Текст — про местность, без того, что может измениться.</div>
+      <div class="row"><button data-add="poi">указатель</button></div>
+    </div>
+    <div class="lay" data-lay="objects">
+      <div class="rule">Объект — с ним взаимодействуют: изучить, действие, положить, взять. Тип из кодовой книги даёт имя, состояния, действия, спрайт и коллайдер. Коллайдер — стена для ходьбы, отражатель лидара и преграда обзора; без него через объект проходят. Объект нельзя ставить внутрь чужого коллайдера или корпуса платформы.</div>
+      <div class="row"><button data-add="obj">объект</button><select id="add-obj-type"></select></div>
+    </div>
+    <div class="lay" data-lay="scenery">
+      <div class="rule">Примета — объект без функции (следы, кости, вода): в описании и на карте есть, изучить можно, действий нет. Отдельный слой только в редакторе — мир разницы не видит. Тип с действиями приметой быть не может.</div>
+      <div class="row"><button data-add="scenery">примета</button><select id="add-scenery-type"></select></div>
+    </div>
+    <div class="lay" data-lay="decor">
+      <div class="rule">Декор — спрайт в кадре и отражатель для лидара; в описании и на карте его нет, изучить нельзя. С коллайдером — не пройти (валуны-лабиринт). Массовые россыпи — процедурный декор тирейна (флажок «показ»).</div>
+      <div class="row"><button data-add="decor">декор</button><select id="add-decor-type"></select></div>
+    </div>
+    <div class="lay" data-lay="bases">
+      <div class="rule">База в уровне не лежит — только площадка (центр, курс) и раскладка по числу платформ. Штатный состав (BASE в codebook.js) показан призраком: его объекты тусклые и не правятся; сюжетные объекты у шлюза — сверх штатных, смещения в осях площадки. Турель — штатная или своя.</div>
+      <div class="row"><button data-add="sub" title="Сюжетный объект у шлюза ближайшей (или выбранной) площадки, сверх штатных">объект у шлюза</button><select id="add-sub-type"></select></div>
+    </div>
+    <div class="lay" data-lay="pack">
+      <div class="rule">Стая одичалых: логово и особи — лёжка и черты 0…1 (размер, храбрость, внимательность). Не больше 6 особей.</div>
+      <div class="row"><button data-add="wild">особь</button></div>
+    </div>
     <h3>ВЫБРАНО <span id="sel-title" class="dim"></span></h3>
     <div id="props" class="props"><span class="dim wide">клик по объекту на карте</span></div>
-    <h3>ДОБАВИТЬ <span class="dim">— выбрать, затем клик по карте</span></h3>
-    <div class="row">
-      <button data-add="sub" title="Подобъект к ближайшему (или выбранному) ориентиру или шлюзу площадки (сверх штатных)">объект</button>
-      <select id="add-sub-type"></select>
-    </div>
-    <div class="row">
-      <button data-add="poi" title="Новый ориентир: id = свободный тип 1…9 из кодовой книги">ориентир</button>
-      <select id="add-poi-type"></select>
-      <button data-add="decor">декорация</button>
-      <select id="add-decor-type"></select>
-      <button data-add="hull" title="Круглый корпус: непроходим, отражает лидар">корпус</button>
-      <button data-add="wild" title="Особь одичалых: лёжка и черты (размер, храбрость, внимательность)">особь</button>
-      <button id="btn-ruler" title="R: линейка — растянуть отрезок">линейка</button>
-    </div>
+    <h3>ПРАВИЛА КАРТЫ <span class="dim">— levelLint, клик выбирает</span></h3>
+    <div id="rules"></div>
+    <h3>КУРСОР</h3>
+    <div class="kv" id="cur"></div>
+    <div class="row small"><label><input type="checkbox" id="relays-on"> все ретрансляторы в сети</label><span class="dim">SNR — тело в точке, линия к лучшему узлу, как в игре (link.js); без флажка узлы — только включённые на старте</span></div>
     <h3>КАМЕРА <span id="cam-info" class="dim"></span></h3>
     <canvas id="frame" width="160" height="100"></canvas>
     <div class="props">
@@ -97,14 +136,14 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
     </div>
     <div class="hint">камера и её цель — на карте, перетаскиваются · <kbd>↑</kbd><kbd>↓</kbd> вперёд/назад 2 м (<kbd>⇧</kbd> 10) · <kbd>←</kbd><kbd>→</kbd> поворот 5° · <kbd>PgUp</kbd><kbd>PgDn</kbd> высота · кадр — тот же CAM.renderRaw, что в игре; фигура в точке старта — масштаб</div>
     <h3>КАРТА</h3>
-    <div class="hint">колёсико — масштаб · перетаскивание пустого места — сдвиг · перетаскивание объекта, колена, лёжки, корпуса, площадки, турели, камеры — переместить (<kbd>⇧</kbd> — шаг 1 м) · двойной клик по расщелине — новое колено · <kbd>Del</kbd> — удалить (турель площадки → штатная) · <kbd>Esc</kbd> — снять выбор · красное — склон круче 40°, тело не пройдёт · пунктир — радиус возврата ПС-2 · площадки — пунктирный эллипс: базы в уровне нет, штатный состав (BASE в codebook.js) показан призраком, его объекты тусклые и не правятся</div>
+    <div class="hint">колёсико — масштаб · перетаскивание пустого места — сдвиг · перетаскивание объекта — переместить (<kbd>⇧</kbd> — шаг 1 м) · клик выбирает только в видимых слоях и переключает панель на слой объекта · <kbd>Del</kbd> — удалить (турель площадки → штатная) · <kbd>Esc</kbd> — снять выбор · серые круги — коллайдеры · пустой кружок — объект без спрайта · пунктир — радиус возврата ПС-2</div>
     <div id="textwrap" hidden><textarea id="text" spellcheck="false"></textarea><div class="row"><button id="btn-copy">скопировать</button><button id="btn-text-close" class="ghost">закрыть</button></div></div>
   </aside>
 </div>
 <script>
 // только localhost: на опубликованном сайте страница показывает подсказку и ничего не грузит
 (function(){ if(!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)){ document.getElementById('gate').hidden=false; return; }
-  document.getElementById('top').hidden=false; document.getElementById('app').hidden=false;
+  for(const id of ['top','bar','app']) document.getElementById(id).hidden=false;
   const q=new URLSearchParams(location.search).get('map')||'act1'; window.__map=/^[a-z0-9_-]{1,32}$/.test(q)?q:'act1';   // карта: editor.html?map=ID → proto/maps/ID.js
   const v=Date.now(); window.__v=v; for(const f of ['maps/'+window.__map+'.js','codebook.js','terrain.js','camera.js','link.js','mapdraw.js','editor.js']) document.write(`<script src="${f}?v=${v}"><\/script>`); })();
 </script>
