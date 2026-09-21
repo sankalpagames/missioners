@@ -39,7 +39,7 @@ body{overflow:auto;background:#000;color:#9fb59f;font:15px/1.6 ui-monospace,Menl
 <div class="row">планеты по кэшированной таблице DSE:</div>
 <div id="rooms"><div class="dim">…</div></div>
 <div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> · карта <select id="map"></select> · платформ <select id="n"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select> · канал <select id="cap"><option value="512">512 бит/с</option><option value="1024">1024 бит/с</option><option value="2048">2048 бит/с</option><option value="4096">4096 бит/с</option></select> <button id="go">создать</button></div>
-<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Карта, число платформ и ёмкость дальней линии задаются при создании и потом не меняются; штатно — 512 бит/с. Планета появляется в списке, войти — «подключиться» у платформы. Мир идёт, пока хоть один оператор подключён; без операторов стоит. «Инструкция для агента» у платформы или стаи — ссылка со спекой роли и ключом входа для модели или скрипта; её видит и отдаёт создатель планеты (ключи хранятся в его браузере). «Конец игры» — остановить планету для всех.</div>
+<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Карта, число платформ и ёмкость дальней линии задаются при создании и потом не меняются; штатно — 512 бит/с. Планета появляется в списке, войти — «подключиться» у платформы. Мир идёт, пока хоть один оператор подключён; без операторов стоит. «Инструкция для агента» у платформы или стаи — ссылка со спекой роли и ключом входа для модели или скрипта; кто отдал ссылку, тот и посадил агента. Авторизации нет: код планеты и есть приглашение. «Конец игры» — остановить планету для всех.</div>
 <div class="row dim" id="err"></div>
 </div>
 <script>
@@ -57,7 +57,7 @@ fetch('maps').then(r=>r.json()).then(maps=>{ for(const x of maps) MAPS[x.id]=x.n
 function join(code,st=0){ code=code.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; } saveOp($('#op').value); location.href='index.html?room='+encodeURIComponent(code)+'&st='+st; }
 async function create(){ const code=$('#code').value.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; }
   try{ const r=await fetch('rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,map:$('#map').value,n:+$('#n').value,cap:+$('#cap').value})}); if(!r.ok) throw new Error(r.status);
-    const j=await r.json(); if(j.pack) localStorage.setItem('missioners.pack:'+code,j.pack); if(j.keys) localStorage.setItem('missioners.keys:'+code,JSON.stringify(j.keys)); }catch(e){ $('#err').textContent='сервер не ответил: '+e.message; return; }   // ключи ролей — создателю, хранятся в этом браузере
+    await r.json(); }catch(e){ $('#err').textContent='сервер не ответил: '+e.message; return; }
   $('#err').textContent=''; $('#code').value=genCode(); await refresh(); const el=document.getElementById('planet-'+code); if(el) el.scrollIntoView({block:'nearest'}); }   // в комнату не входим: планета в списке, вход — «подключиться»
 $('#go').onclick=create; $('#code').onkeydown=e=>{ if(e.key==='Enter') create(); };
 async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()); const box=$('#rooms'); box.innerHTML='';
@@ -76,11 +76,10 @@ async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()
       P.appendChild(G); box.appendChild(P); }
   }catch(e){ $('#rooms').innerHTML='<div class="dim">список недоступен</div>'; } }
 let MAPS={}; const mapName=id=>MAPS[id]||id||'';
-// Инструкция для агента: ссылка на спеку роли с ключом входа — всегда под рукой у создателя планеты (ключи хранятся в его браузере).
-// Человек отдаёт её своему агенту (модели, скрипту); проверки «человек или агент» на входе нет — кто с ключом или кодом, тот и оператор
-function keysOf(code){ try{ return JSON.parse(localStorage.getItem('missioners.keys:'+code))||null; }catch(e){ return null; } }
-function agentLink(r,role){ const span=document.createElement('span'); span.className='ag'; const K=keysOf(r.code); const key=K&&(role==='pack'?K.pack:K.ops[+role.slice(2)]);
-  if(!key){ span.className='ag dim'; span.textContent='инструкция — у создателя планеты'; span.title='Ссылку со спекой роли и ключом отдаёт тот, кто создал планету: ключи в его браузере'; return span; }
+// Инструкция для агента: ссылка на спеку роли с ключом входа. Ключи отдаёт сервер вместе со списком планет — они видны всем, как и код планеты:
+// авторизации в игре нет, к браузеру создателя ничего не привязано. Человек отдаёт ссылку своему агенту (модели, скрипту); проверки «человек или агент» на входе нет
+function agentLink(r,role){ const span=document.createElement('span'); span.className='ag'; const K=r.keys; const key=K&&(role==='pack'?K.pack:K.ops[+role.slice(2)]);
+  if(!key){ span.className='ag dim'; span.textContent='—'; return span; }
   const url=location.origin+location.pathname.replace(/[^/]*$/,'')+'agent/'+key;
   const a=document.createElement('a'); a.href='agent/'+encodeURIComponent(key); a.target='_blank'; a.textContent='инструкция для агента'; a.title='Спека роли и ключ входа — отдать модели или скрипту: '+key; span.appendChild(a);
   const c=document.createElement('button'); c.className='small'; c.textContent='⧉'; c.title='скопировать ссылку'; c.style.marginLeft='4px'; c.onclick=()=>{ navigator.clipboard.writeText(url); c.textContent='✓'; setTimeout(()=>{ c.textContent='⧉'; },1500); }; span.appendChild(c);
