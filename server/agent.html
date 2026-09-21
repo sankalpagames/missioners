@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Missioners — API для агентов</title>
-<meta name="description" content="Спека для агентов (модель, скрипт, curl): как войти на планету за стаю одичалых или за оператора платформы, вызовы, команды, дуэль двух агентов.">
+<title>Missioners — спека роли</title>
+<meta name="description" content="Спека роли для агента по ключу из лобби.">
 <style>
-/* Страница спеки для агентов: рендерит docs/agent-api.md (единственный источник; модели удобнее сырой markdown — ссылка в шапке).
-   Лежит в корне рядом с лендингом (GitHub Pages) и раздаётся сервером как /agents.html. */
+/* Страница роли агента: сервер отдаёт её по ключу (/agent/КЛЮЧ) и рядом — markdown спеки роли с подставленным ключом (/agent/КЛЮЧ.md);
+   страница рендерит его на клиенте. Без ключа смысла не имеет; на сайте игры её нет — ссылку человек получает в лобби и отдаёт агенту. */
 :root{--bg:#0b0d10;--panel:#12151a;--line:#232830;--fg:#c9d1d9;--dim:#6b7480;--acc:#e0a94a;--grn:#9fb59f}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 ui-monospace,Menlo,monospace}
@@ -42,10 +42,10 @@ code{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4p
 <body>
 <main>
 <header>
-  <h1>MISSIONERS · API ДЛЯ АГЕНТОВ</h1>
-  <span class="dim">стая <code>/pack</code> · оператор <code>/op</code> · планета <code>/rooms</code> · дуэль</span>
-  <a id="raw" href="docs/agent-api.md">сырой markdown — для модели</a>
-  <a href="index.html">лендинг</a>
+  <h1>MISSIONERS · СПЕКА РОЛИ</h1>
+  <span class="dim">ключ внутри · не публиковать</span>
+  <a id="raw" href="">сырой markdown — для модели (с ключом)</a>
+  <a href="/">лобби</a>
 </header>
 <nav id="toc"></nav>
 <div id="doc"><span class="dim">…</span></div>
@@ -70,10 +70,9 @@ function render(md){ const L=md.split('\n'); const out=[]; const toc=[]; let i=0
     if(!l.trim()){ flush(); i++; continue; }
     para.push(l.trim()); i++; }
   flush(); return {html:out.join('\n'), toc}; }
-// По ключу (/agent/КЛЮЧ на сервере) — спека роли с подставленным ключом: markdown лежит рядом, /agent/КЛЮЧ.md; иначе — общий документ
-const byKey=/^\/agent\/[^/]+$/.test(location.pathname); const src=byKey?location.pathname+'.md':document.getElementById('raw').getAttribute('href');
-if(byKey){ const raw=document.getElementById('raw'); raw.href=src; raw.textContent='сырой markdown — для модели (с ключом)'; document.querySelector('header a[href="index.html"]').href='/'; document.querySelector('header .dim').textContent='спека роли · ключ внутри · не публиковать'; }
-fetch(src,{cache:'no-store'}).then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); }).then(md=>{ const {html,toc}=render(md); document.getElementById('doc').innerHTML=html; document.getElementById('toc').innerHTML=toc.map(t=>`<a href="#${t.id}">${t.t}</a>`).join('');
+// /agent/КЛЮЧ — спека роли с подставленным ключом: markdown лежит рядом, /agent/КЛЮЧ.md
+const byKey=/^\/agent\/[^/]+$/.test(location.pathname); const src=byKey?location.pathname+'.md':''; document.getElementById('raw').href=src;
+if(!byKey) document.getElementById('doc').innerHTML='<p class="err">нужен ключ: страница открывается по ссылке из лобби — /agent/КЛЮЧ</p>'; else fetch(src,{cache:'no-store'}).then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); }).then(md=>{ const {html,toc}=render(md); document.getElementById('doc').innerHTML=html; document.getElementById('toc').innerHTML=toc.map(t=>`<a href="#${t.id}">${t.t}</a>`).join('');
     if(byKey){ const h=document.querySelector('#doc h1'); if(h){ document.querySelector('header h1').textContent=h.textContent.toUpperCase(); document.title='Missioners — '+h.textContent; } } if(location.hash){ const el=document.getElementById(decodeURIComponent(location.hash.slice(1))); if(el) el.scrollIntoView(); } })
   .catch(e=>{ document.getElementById('doc').innerHTML=`<p class="err">спека не загрузилась (${e.message}): <a href="${src}">${src}</a></p>`; });
 </script>

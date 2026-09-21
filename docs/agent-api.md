@@ -55,4 +55,4 @@ POST /rooms/КОД/stop  {"by":"Соколов"}               → конец и
 
 ## 6. Где что в коде
 
-`server/index.js`: `roomCfg` (секреты ролей `ops[]`, `pack`), `roleKey`/`parseKey`, `roleDoc` (подстановка в `docs/agent-*.md` и `docs/brief-КАРТА.md`), `Room.stop`, `opApi`, `packApi`; `server/opconsole.js` — виртуальная консоль оператора (`parse`, декодеры); `proto/lobby.html` — флажки, ссылки, «конец игры»; `agents.html` — страница спеки (рендер markdown на клиенте: без ключа — этот документ, с ключом — спека роли). Менять спеки ролей вместе с `intent`/`perceive` в `world.js` и `parse` в `opconsole.js`.
+`server/index.js`: `roomCfg` (секреты ролей `ops[]`, `pack`), `roleKey`/`parseKey`, `roleDoc` (подстановка в `docs/agent-*.md` и `docs/brief-КАРТА.md`), `Room.stop`, `opApi`, `packApi`; `server/opconsole.js` — виртуальная консоль оператора (`parse`, декодеры); `proto/lobby.html` — флажки, ссылки, «конец игры»; `server/agent.html` — страница спеки роли по ключу (рендер markdown на клиенте; на сайте игры её нет — только по ссылке из лобби). Менять спеки ролей вместе с `intent`/`perceive` в `world.js` и `parse` в `opconsole.js`.

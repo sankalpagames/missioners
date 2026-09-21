@@ -230,14 +230,12 @@ const server=http.createServer((req,res)=>{
         if(m[2]==='stop') r.stop(String(q.by||'человек из лобби').slice(0,40)); else { const role=String(q.role||''); if(/^(op\d|pack)$/.test(role)){ if(q.agent) r.agents[role]=true; else delete r.agents[role]; r.save(); } }
         res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.info())); }); return; } }
   { const m=/^\/agent\/([^\/]+?)(\.md)?$/.exec(f); if(m){ const k=parseKey(decodeURIComponent(m[1])); if(!k){ res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'}); res.end('ключ не подходит: нужен КОД.РОЛЬ.СЕКРЕТ из лобби'); return; }   // спека роли по ключу: страница или markdown с подставленными ключом и адресом
-      if(!m[2]){ res.writeHead(200,{'Content-Type':MIME['.html'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(ROOT,'agents.html'))); return; }
+      if(!m[2]){ res.writeHead(200,{'Content-Type':MIME['.html'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(__dirname,'agent.html'))); return; }
       res.writeHead(200,{'Content-Type':'text/markdown; charset=utf-8','Cache-Control':'no-store'}); res.end(roleDoc(k,req)); return; } }
   if(f.startsWith('/pack/')){ packApi(req,res,u,f.slice(6)); return; }
   if(f.startsWith('/op/')){ opApi(req,res,u,f.slice(4)); return; }
   if(f==='/rooms'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(listRooms())); return; }
   if(f==='/maps'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(mapsInfo())); return; }   // карты сервера: id, name, v, площадки (лобби); текст — GET /maps/ID.js
-  // спека для агентов — с того же адреса, где они играют: страница из корня репозитория и сырой markdown (docs/agent-api.md)
-  if(f==='/agents'||f==='/agents.html'){ res.writeHead(200,{'Content-Type':MIME['.html'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(ROOT,'agents.html'))); return; }
   { const m=/^\/docs\/([a-z0-9-]+\.md)$/.exec(f); if(m&&fs.existsSync(path.join(ROOT,'docs',m[1]))){ res.writeHead(200,{'Content-Type':'text/markdown; charset=utf-8','Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(ROOT,'docs',m[1]))); return; } }   // документы — как на Pages
   { const m=/^\/maps\/([a-z0-9_-]+)\.js$/.exec(f); if(m&&MAPS[m[1]]&&MAPS[m[1]].file!==P+'maps/'+m[1]+'.js'){ res.writeHead(200,{'Content-Type':MIME['.js'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(MAPS[m[1]].file)); return; } }   // карта из level=ФАЙЛ — тем же путём, что и из maps/ (спектатор)
   const fp=path.normalize(path.join(P,f)); if(!fp.startsWith(P)||/editor|serve\.py/.test(f)){ res.writeHead(404); res.end(); return; }   // редактор — только локально через serve.py
