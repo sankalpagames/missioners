@@ -39,7 +39,7 @@ body{overflow:auto;background:#000;color:#9fb59f;font:15px/1.6 ui-monospace,Menl
 <div class="row">планеты по кэшированной таблице DSE:</div>
 <div id="rooms"><div class="dim">…</div></div>
 <div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> · карта <select id="map"></select> · платформ <select id="n"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select> · канал <select id="cap"><option value="512">512 бит/с</option><option value="1024">1024 бит/с</option><option value="2048">2048 бит/с</option><option value="4096">4096 бит/с</option></select> <button id="go">создать</button></div>
-<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Карта, число платформ и ёмкость дальней линии задаются при создании и потом не меняются; штатно — 512 бит/с. Планета появляется в списке, войти — «подключиться» у платформы. Мир идёт, пока хоть один оператор подключён; без операторов стоит. «Агент» у платформы или стаи — за роль играет модель или скрипт: ссылку со спекой и ключом отдаёт создатель планеты (ключи хранятся в его браузере). «Конец игры» — остановить планету для всех.</div>
+<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Карта, число платформ и ёмкость дальней линии задаются при создании и потом не меняются; штатно — 512 бит/с. Планета появляется в списке, войти — «подключиться» у платформы. Мир идёт, пока хоть один оператор подключён; без операторов стоит. «Инструкция для агента» у платформы или стаи — ссылка со спекой роли и ключом входа для модели или скрипта; её видит и отдаёт создатель планеты (ключи хранятся в его браузере). «Конец игры» — остановить планету для всех.</div>
 <div class="row dim" id="err"></div>
 </div>
 <script>
@@ -51,7 +51,7 @@ const genCode=()=>'ark-'+[...crypto.getRandomValues(new Uint8Array(3))].map(b=>'
 $('#op').value=op().name||''; $('#code').value=genCode();
 $('#op').onchange=()=>saveOp($('#op').value);
 const fmtT=t=>{ const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; };
-const ago=ms=>{ const s=ms/1000; if(s<90) return `${s.toFixed(0)} с назад`; if(s<5400) return `${(s/60).toFixed(0)} мин назад`; if(s<172800) return `${(s/3600).toFixed(1)} ч назад`; return `${(s/86400).toFixed(1)} д назад`; };
+const ago=ms=>{ const s=Math.max(0,ms)/1000; if(s<5) return 'только что'; if(s<90) return `${s.toFixed(0)} с назад`; if(s<5400) return `${(s/60).toFixed(0)} мин назад`; if(s<172800) return `${(s/3600).toFixed(1)} ч назад`; return `${(s/86400).toFixed(1)} д назад`; };
 // карты сервера — в выбор; число платформ ограничено площадками карты
 fetch('maps').then(r=>r.json()).then(maps=>{ for(const x of maps) MAPS[x.id]=x.name; const m=$('#map'); m.innerHTML=maps.map(x=>`<option value="${x.id}" data-sites="${x.sites}">${x.name}</option>`).join(''); const fit=()=>{ const max=+m.selectedOptions[0].dataset.sites||4; for(const o of $('#n').options) o.disabled=+o.value>max; if(+$('#n').value>max) $('#n').value=String(Math.min(max,2)); }; m.onchange=fit; fit(); }).catch(()=>{});
 function join(code,st=0){ code=code.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; } saveOp($('#op').value); location.href='index.html?room='+encodeURIComponent(code)+'&st='+st; }
@@ -64,26 +64,26 @@ async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()
     if(!rooms.length) box.innerHTML='<div class="dim">планет нет — создать новую</div>';
     const el=(tag,cls,text)=>{ const e=document.createElement(tag); if(cls) e.className=cls; if(text!==undefined) e.textContent=text; return e; };
     for(const r of rooms){ const c=r.cfg||{cap:512}; const P=el('div','planet'); P.id='planet-'+r.code;
-      const state=r.stopped?`остановлена (${r.stopped.by})`:!r.running?'стоит'+(r.savedAt?' · '+ago(Date.now()-r.savedAt):''):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина');   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
+      const state=r.stopped?`остановлена · ${r.stopped.by}`:!r.running?'стоит · '+ago(Date.now()-r.savedAt):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина');   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
       const H=el('div','head'); H.appendChild(el('b','',r.code)); H.appendChild(el('span','dim',mapName(c.map))); H.appendChild(el('span','',state)); H.appendChild(el('span','dim',`часы мира ${fmtT(r.t)} · ${c.cap} бит/с`));
-      const A=el('div','act'); const w=el('a','','смотреть'); w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.href='spectate.html?room='+encodeURIComponent(r.code); w.target='_blank'; A.appendChild(w);
-      const x=el('button','small','конец игры'); x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — подключиться снова отсюда'; x.onclick=()=>stopRoom(r.code); A.appendChild(x); H.appendChild(A); P.appendChild(H);
+      const A=el('div','act'); const w=el('button','small','смотреть'); w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.onclick=()=>window.open('spectate.html?room='+encodeURIComponent(r.code),'_blank'); A.appendChild(w);
+      if(!r.stopped){ const x=el('button','small','конец игры'); x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — подключиться снова отсюда'; x.onclick=()=>stopRoom(r.code); A.appendChild(x); }
+      H.appendChild(A); P.appendChild(H);
       const G=el('div','grid');
       for(const s of r.stations){ G.appendChild(el('span','',s.name)); G.appendChild(el('span','ops '+(s.ops.length?'':'dim'),s.ops.length?s.ops.join(', '):'операторов нет')); G.appendChild(el('span','dim',`${s.alive} жив. из ${s.units}`));
-        const b=el('button','small',s.ops.length?'присоединиться':'подключиться'); b.onclick=()=>join(r.code,s.k); const bb=el('span'); bb.appendChild(b); G.appendChild(bb); G.appendChild(agentToggle(r,'op'+s.k)); }
-      G.appendChild(el('span','dim','стая')); G.appendChild(el('span','dim','в расщелине')); G.appendChild(el('span')); G.appendChild(el('span')); G.appendChild(agentToggle(r,'pack'));   // стая — своя строка: за неё тоже может сесть агент
+        const b=el('button','small',s.ops.length?'присоединиться':'подключиться'); b.onclick=()=>join(r.code,s.k); const bb=el('span'); bb.appendChild(b); G.appendChild(bb); G.appendChild(agentLink(r,'op'+s.k)); }
+      G.appendChild(el('span','dim','стая')); G.appendChild(el('span','dim','в расщелине')); G.appendChild(el('span')); G.appendChild(el('span')); G.appendChild(agentLink(r,'pack'));   // стая — своя строка: за неё тоже может сесть агент
       P.appendChild(G); box.appendChild(P); }
   }catch(e){ $('#rooms').innerHTML='<div class="dim">список недоступен</div>'; } }
 let MAPS={}; const mapName=id=>MAPS[id]||id||'';
-// Роль за агентом: флажок в лобби (хранится на сервере, видят все) и ссылка на спеку роли по ключу — ключи знает только создатель планеты (этот браузер).
-// Ссылку человек отдаёт своему агенту: по ней — документация роли и вход (docs/agent-api.md)
+// Инструкция для агента: ссылка на спеку роли с ключом входа — всегда под рукой у создателя планеты (ключи хранятся в его браузере).
+// Человек отдаёт её своему агенту (модели, скрипту); проверки «человек или агент» на входе нет — кто с ключом или кодом, тот и оператор
 function keysOf(code){ try{ return JSON.parse(localStorage.getItem('missioners.keys:'+code))||null; }catch(e){ return null; } }
-function agentToggle(r,role){ const span=document.createElement('span'); span.className='ag'; const lab=document.createElement('label'); lab.className='dim ag'; const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!(r.agents&&r.agents[role]); cb.title='За эту роль играет агент (модель, скрипт): показать ссылку на спеку роли с ключом входа';
-  cb.onchange=async()=>{ try{ await fetch('rooms/'+encodeURIComponent(r.code)+'/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role,agent:cb.checked})}); }catch(e){} refresh(); };
-  lab.appendChild(cb); lab.appendChild(document.createTextNode(' агент')); span.appendChild(lab);
-  if(cb.checked){ const K=keysOf(r.code); const key=K&&(role==='pack'?K.pack:K.ops[+role.slice(2)]); const a=document.createElement('a'); a.className='key';
-    if(key){ a.href='agent/'+encodeURIComponent(key); a.target='_blank'; a.textContent='ссылка'; a.title='Спека роли и ключ входа для агента: '+key; const c=document.createElement('button'); c.className='small'; c.textContent='⧉'; c.title='скопировать ссылку для агента'; c.style.marginLeft='4px'; c.onclick=()=>navigator.clipboard.writeText(location.origin+location.pathname.replace(/[^/]*$/,'')+'agent/'+key); span.appendChild(a); span.appendChild(c); }
-    else { a.textContent='ключ у создателя планеты'; a.className='key dim'; span.appendChild(a); } }
+function agentLink(r,role){ const span=document.createElement('span'); span.className='ag'; const K=keysOf(r.code); const key=K&&(role==='pack'?K.pack:K.ops[+role.slice(2)]);
+  if(!key){ span.className='ag dim'; span.textContent='инструкция — у создателя планеты'; span.title='Ссылку со спекой роли и ключом отдаёт тот, кто создал планету: ключи в его браузере'; return span; }
+  const url=location.origin+location.pathname.replace(/[^/]*$/,'')+'agent/'+key;
+  const a=document.createElement('a'); a.href='agent/'+encodeURIComponent(key); a.target='_blank'; a.textContent='инструкция для агента'; a.title='Спека роли и ключ входа — отдать модели или скрипту: '+key; span.appendChild(a);
+  const c=document.createElement('button'); c.className='small'; c.textContent='⧉'; c.title='скопировать ссылку'; c.style.marginLeft='4px'; c.onclick=()=>{ navigator.clipboard.writeText(url); c.textContent='✓'; setTimeout(()=>{ c.textContent='⧉'; },1500); }; span.appendChild(c);
   return span; }
 async function stopRoom(code){ if(!confirm(`Остановить планету ${code} для всех? Консоли отключатся, агенты потеряют сессии; мир сохранится`)) return; try{ await fetch('rooms/'+encodeURIComponent(code)+'/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
 refresh(); setInterval(refresh,5000);
