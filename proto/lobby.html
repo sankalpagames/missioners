@@ -12,23 +12,34 @@ body{overflow:auto;background:#000;color:#9fb59f;font:15px/1.6 ui-monospace,Menl
 #lobby input{background:#000;color:#cfe3cf;border:none;border-bottom:1px solid #3a4a3a;font:inherit;padding:0 4px;width:14ch;outline:none}
 #lobby select{background:#000;color:#cfe3cf;border:none;border-bottom:1px solid #3a4a3a;font:inherit;padding:0 2px;outline:none}
 #lobby input:focus{border-color:#9fb59f}
+#lobby input[type=checkbox]{width:auto;margin:0 4px 0 0;vertical-align:-1px}
 #lobby button{background:none;color:#9fb59f;border:1px solid #3a4a3a;font:inherit;padding:0 10px;cursor:pointer}
 #lobby button:hover{border-color:#9fb59f;color:#cfe3cf}
-#lobby table{border-collapse:collapse;margin:.5em 0 1em}
-#lobby td,#lobby th{padding:2px 18px 2px 0;text-align:left;font-weight:normal}
-#lobby th{color:#5f735f}
 #lobby .dim{color:#5f735f}
 #lobby .row{margin:.4em 0}
+/* планета — блок: шапка (код, карта, состояние, часы, действия), под ней строки платформ и стаи одной сеткой */
+#rooms{margin:.5em 0 1.2em}
+.planet{border:1px solid #2a352a;padding:8px 12px;margin:8px 0;max-width:820px}
+.planet .head{display:flex;flex-wrap:wrap;gap:4px 18px;align-items:baseline;margin-bottom:6px}
+.planet .head b{font-weight:normal;color:#cfe3cf}
+.planet .head .act{margin-left:auto;display:flex;gap:8px;align-items:baseline}
+.planet .grid{display:grid;grid-template-columns:9ch minmax(16ch,1fr) 13ch auto auto;gap:3px 14px;align-items:baseline}
+.planet .grid > span{white-space:nowrap}
+.planet .grid .ag{white-space:nowrap}
+.planet .grid .ops{white-space:normal}
+#lobby label.ag{cursor:pointer}
+#lobby button.small{padding:0 6px;font-size:13px}
+#lobby .key{margin-left:6px}
 </style>
 </head>
 <body>
 <div id="lobby">
 <h1>$ ares-tk --key ~/old/dse.key stations</h1>
 <div class="row">оператор: <input id="op" maxlength="24" spellcheck="false"> <span class="dim">имя видят другие операторы той же станции; хранится в этом браузере</span></div>
-<div class="row">станции по кэшированной таблице DSE:</div>
-<table><thead><tr><th>код</th><th>мир</th><th>платформа</th><th>операторы</th><th>миссионеры</th><th>часы мира</th><th>канал</th><th>время</th><th></th></tr></thead><tbody id="rooms"><tr><td class="dim" colspan="9">…</td></tr></tbody></table>
-<div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> · карта <select id="map"></select> · платформ <select id="n"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select> · канал <select id="cap"><option value="512">512 бит/с</option><option value="1024">1024 бит/с</option><option value="2048">2048 бит/с</option><option value="4096">4096 бит/с</option></select> · время <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select> · команды <input id="teams" maxlength="7" spellcheck="false" placeholder="0,1" style="width:7ch" title="Номер команды каждой платформы через запятую: 0,0,1,1 — первые две вместе против вторых двух. Пусто — каждая сама за себя"> · голос стаи <select id="voice" title="Радиус голоса стаи для её агента: кого он слышит и кому его слово доходит. Без предела — единый мозг"><option value="0">без предела</option><option value="300">300 м</option><option value="120">120 м</option><option value="60">60 м</option></select> <button id="go">создать</button></div>
-<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Число платформ, команды (свои тела и турели не стреляют по своим, ретранслятор своей команды — свой узел), ёмкость дальней линии, ускорение времени и радиус голоса стаи задаются при создании, одинаковы для всех платформ и потом не меняются; штатно — 512 бит/с, ×1, каждая платформа сама за себя, голос без предела. Мир идёт, пока хоть один оператор подключён; без операторов стоит</div>
+<div class="row">планеты по кэшированной таблице DSE:</div>
+<div id="rooms"><div class="dim">…</div></div>
+<div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> · карта <select id="map"></select> · платформ <select id="n"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select> · канал <select id="cap"><option value="512">512 бит/с</option><option value="1024">1024 бит/с</option><option value="2048">2048 бит/с</option><option value="4096">4096 бит/с</option></select> <button id="go">создать</button></div>
+<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Карта, число платформ и ёмкость дальней линии задаются при создании и потом не меняются; штатно — 512 бит/с. Планета появляется в списке, войти — «подключиться» у платформы. Мир идёт, пока хоть один оператор подключён; без операторов стоит. «Агент» у платформы или стаи — за роль играет модель или скрипт: ссылку со спекой и ключом отдаёт создатель планеты (ключи хранятся в его браузере). «Конец игры» — остановить планету для всех.</div>
 <div class="row dim" id="err"></div>
 </div>
 <script>
@@ -42,37 +53,37 @@ $('#op').onchange=()=>saveOp($('#op').value);
 const fmtT=t=>{ const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; };
 const ago=ms=>{ const s=ms/1000; if(s<90) return `${s.toFixed(0)} с назад`; if(s<5400) return `${(s/60).toFixed(0)} мин назад`; if(s<172800) return `${(s/3600).toFixed(1)} ч назад`; return `${(s/86400).toFixed(1)} д назад`; };
 // карты сервера — в выбор; число платформ ограничено площадками карты
-fetch('maps').then(r=>r.json()).then(maps=>{ const m=$('#map'); m.innerHTML=maps.map(x=>`<option value="${x.id}" data-sites="${x.sites}">${x.name}</option>`).join(''); const fit=()=>{ const max=+m.selectedOptions[0].dataset.sites||4; for(const o of $('#n').options) o.disabled=+o.value>max; if(+$('#n').value>max) $('#n').value=String(Math.min(max,2)); }; m.onchange=fit; fit(); }).catch(()=>{});
-$('#n').onchange=()=>{ $('#teams').placeholder=[...Array(+$('#n').value).keys()].join(','); };
+fetch('maps').then(r=>r.json()).then(maps=>{ for(const x of maps) MAPS[x.id]=x.name; const m=$('#map'); m.innerHTML=maps.map(x=>`<option value="${x.id}" data-sites="${x.sites}">${x.name}</option>`).join(''); const fit=()=>{ const max=+m.selectedOptions[0].dataset.sites||4; for(const o of $('#n').options) o.disabled=+o.value>max; if(+$('#n').value>max) $('#n').value=String(Math.min(max,2)); }; m.onchange=fit; fit(); }).catch(()=>{});
 function join(code,st=0){ code=code.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; } saveOp($('#op').value); location.href='index.html?room='+encodeURIComponent(code)+'&st='+st; }
 async function create(){ const code=$('#code').value.trim(); if(!/^[\w-]{1,32}$/.test(code)){ $('#err').textContent='код: латиница, цифры, дефис, до 32 знаков'; return; }
-  try{ const r=await fetch('rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,map:$('#map').value,n:+$('#n').value,cap:+$('#cap').value,speed:+$('#speed').value,teams:$('#teams').value.trim(),voice:+$('#voice').value})}); if(!r.ok) throw new Error(r.status);
+  try{ const r=await fetch('rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,map:$('#map').value,n:+$('#n').value,cap:+$('#cap').value})}); if(!r.ok) throw new Error(r.status);
     const j=await r.json(); if(j.pack) localStorage.setItem('missioners.pack:'+code,j.pack); if(j.keys) localStorage.setItem('missioners.keys:'+code,JSON.stringify(j.keys)); }catch(e){ $('#err').textContent='сервер не ответил: '+e.message; return; }   // ключи ролей — создателю, хранятся в этом браузере
-  join(code,0); }
+  $('#err').textContent=''; $('#code').value=genCode(); await refresh(); const el=document.getElementById('planet-'+code); if(el) el.scrollIntoView({block:'nearest'}); }   // в комнату не входим: планета в списке, вход — «подключиться»
 $('#go').onclick=create; $('#code').onkeydown=e=>{ if(e.key==='Enter') create(); };
-async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()); const tb=$('#rooms'); tb.innerHTML='';
-    if(!rooms.length) tb.innerHTML='<tr><td class="dim" colspan="9">планет нет — создать новую</td></tr>';
-    for(const r of rooms) r.stations.forEach((s,i)=>{ const tr=document.createElement('tr'); const c=r.cfg||{cap:512,speed:1};
-      const state=!r.running?'стоит'+(r.savedAt?' · '+ago(Date.now()-r.savedAt):''):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина');   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
-      const team=c.teams&&c.teams.length?' · К'+(c.teams[s.k]+1):'';   // команда платформы, если платформы разбиты на команды
-      const stopped=r.stopped?` · остановлена (${r.stopped.by})`:'';
-      const cells=[i?'':r.code+(c.map&&c.map!=='act1'?' · '+c.map:'')+(c.voice?' · голос '+c.voice+' м':''), i?'':state+stopped, s.name+team, s.ops.length?s.ops.join(', '):'—', `${s.alive} жив. из ${s.units}`, i?'':fmtT(r.t), i?'':c.cap+' бит/с', i?'':'×'+c.speed];
-      for(const c of cells){ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }
-      const td=document.createElement('td'); const b=document.createElement('button'); b.textContent=s.ops.length?'присоединиться':'подключиться'; b.onclick=()=>join(r.code,s.k); td.appendChild(b); td.appendChild(agentToggle(r,'op'+s.k));
-      if(!i){ const w=document.createElement('a'); w.textContent='смотреть'; w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.href='spectate.html?room='+encodeURIComponent(r.code); w.target='_blank'; w.style.marginLeft='8px'; td.appendChild(w);
-        const x=document.createElement('button'); x.textContent='конец игры'; x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — подключиться снова отсюда'; x.style.marginLeft='8px'; x.onclick=()=>stopRoom(r.code); td.appendChild(x); }
-      tr.appendChild(td); tb.appendChild(tr);
-      if(i===r.stations.length-1){ const t2=document.createElement('tr'); const c2=document.createElement('td'); c2.colSpan=8; c2.className='dim'; c2.textContent='стая одичалых'; t2.appendChild(c2); const c3=document.createElement('td'); c3.appendChild(agentToggle(r,'pack')); t2.appendChild(c3); tb.appendChild(t2); } });   // стая — своя строка: за неё тоже может сесть агент
-  }catch(e){ $('#rooms').innerHTML='<tr><td class="dim" colspan="9">список недоступен</td></tr>'; } }
+async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()); const box=$('#rooms'); box.innerHTML='';
+    if(!rooms.length) box.innerHTML='<div class="dim">планет нет — создать новую</div>';
+    const el=(tag,cls,text)=>{ const e=document.createElement(tag); if(cls) e.className=cls; if(text!==undefined) e.textContent=text; return e; };
+    for(const r of rooms){ const c=r.cfg||{cap:512}; const P=el('div','planet'); P.id='planet-'+r.code;
+      const state=r.stopped?`остановлена (${r.stopped.by})`:!r.running?'стоит'+(r.savedAt?' · '+ago(Date.now()-r.savedAt):''):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина');   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
+      const H=el('div','head'); H.appendChild(el('b','',r.code)); H.appendChild(el('span','dim',mapName(c.map))); H.appendChild(el('span','',state)); H.appendChild(el('span','dim',`часы мира ${fmtT(r.t)} · ${c.cap} бит/с`));
+      const A=el('div','act'); const w=el('a','','смотреть'); w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.href='spectate.html?room='+encodeURIComponent(r.code); w.target='_blank'; A.appendChild(w);
+      const x=el('button','small','конец игры'); x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — подключиться снова отсюда'; x.onclick=()=>stopRoom(r.code); A.appendChild(x); H.appendChild(A); P.appendChild(H);
+      const G=el('div','grid');
+      for(const s of r.stations){ G.appendChild(el('span','',s.name)); G.appendChild(el('span','ops '+(s.ops.length?'':'dim'),s.ops.length?s.ops.join(', '):'операторов нет')); G.appendChild(el('span','dim',`${s.alive} жив. из ${s.units}`));
+        const b=el('button','small',s.ops.length?'присоединиться':'подключиться'); b.onclick=()=>join(r.code,s.k); const bb=el('span'); bb.appendChild(b); G.appendChild(bb); G.appendChild(agentToggle(r,'op'+s.k)); }
+      G.appendChild(el('span','dim','стая')); G.appendChild(el('span','dim','в расщелине')); G.appendChild(el('span')); G.appendChild(el('span')); G.appendChild(agentToggle(r,'pack'));   // стая — своя строка: за неё тоже может сесть агент
+      P.appendChild(G); box.appendChild(P); }
+  }catch(e){ $('#rooms').innerHTML='<div class="dim">список недоступен</div>'; } }
+let MAPS={}; const mapName=id=>MAPS[id]||id||'';
 // Роль за агентом: флажок в лобби (хранится на сервере, видят все) и ссылка на спеку роли по ключу — ключи знает только создатель планеты (этот браузер).
 // Ссылку человек отдаёт своему агенту: по ней — документация роли и вход (docs/agent-api.md)
 function keysOf(code){ try{ return JSON.parse(localStorage.getItem('missioners.keys:'+code))||null; }catch(e){ return null; } }
-function agentToggle(r,role){ const span=document.createElement('span'); span.style.marginLeft='8px'; const lab=document.createElement('label'); lab.className='dim'; lab.style.cursor='pointer'; const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!(r.agents&&r.agents[role]); cb.title='За эту роль играет агент (модель, скрипт): показать ссылку на спеку роли с ключом входа';
+function agentToggle(r,role){ const span=document.createElement('span'); span.className='ag'; const lab=document.createElement('label'); lab.className='dim ag'; const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!(r.agents&&r.agents[role]); cb.title='За эту роль играет агент (модель, скрипт): показать ссылку на спеку роли с ключом входа';
   cb.onchange=async()=>{ try{ await fetch('rooms/'+encodeURIComponent(r.code)+'/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role,agent:cb.checked})}); }catch(e){} refresh(); };
   lab.appendChild(cb); lab.appendChild(document.createTextNode(' агент')); span.appendChild(lab);
-  if(cb.checked){ const K=keysOf(r.code); const key=K&&(role==='pack'?K.pack:K.ops[+role.slice(2)]); const a=document.createElement('a'); a.style.marginLeft='6px';
-    if(key){ a.href='agent/'+encodeURIComponent(key); a.target='_blank'; a.textContent='ссылка для агента'; a.title='Спека роли и ключ входа: '+key; const c=document.createElement('button'); c.textContent='⧉'; c.title='скопировать ссылку'; c.style.marginLeft='4px'; c.onclick=()=>navigator.clipboard.writeText(location.origin+location.pathname.replace(/[^/]*$/,'')+'agent/'+key); span.appendChild(a); span.appendChild(c); }
-    else { a.textContent='ключ у создателя планеты'; a.className='dim'; span.appendChild(a); } }
+  if(cb.checked){ const K=keysOf(r.code); const key=K&&(role==='pack'?K.pack:K.ops[+role.slice(2)]); const a=document.createElement('a'); a.className='key';
+    if(key){ a.href='agent/'+encodeURIComponent(key); a.target='_blank'; a.textContent='ссылка'; a.title='Спека роли и ключ входа для агента: '+key; const c=document.createElement('button'); c.className='small'; c.textContent='⧉'; c.title='скопировать ссылку для агента'; c.style.marginLeft='4px'; c.onclick=()=>navigator.clipboard.writeText(location.origin+location.pathname.replace(/[^/]*$/,'')+'agent/'+key); span.appendChild(a); span.appendChild(c); }
+    else { a.textContent='ключ у создателя планеты'; a.className='key dim'; span.appendChild(a); } }
   return span; }
 async function stopRoom(code){ if(!confirm(`Остановить планету ${code} для всех? Консоли отключатся, агенты потеряют сессии; мир сохранится`)) return; try{ await fetch('rooms/'+encodeURIComponent(code)+'/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
 refresh(); setInterval(refresh,5000);
