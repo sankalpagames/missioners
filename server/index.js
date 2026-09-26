@@ -104,7 +104,7 @@ class Room {
   flushLog(){ if(!this.logBuf.length) return; const s=this.logBuf.join('\n')+'\n'; this.logBuf=[]; try{ fs.appendFileSync(this.logFile,s); }catch(e){ log(`${this.code}: лог не записан: ${e.message}`); } }
   // зрители (spectate.html?room=КОД): не операторы — мир от них не идёт. При входе — хвост лога мира (файл до SPECT_TAIL байт + несброшенный буфер),
   // дальше каждая запись лога по мере появления; спектатор читает те же строки JSONL, что и из файла. Первая запись — live: число платформ, ускорение, идёт ли мир
-  watch(ws){ this.watchers.add(ws); const head=JSON.stringify({t:+this.st.links[0].link.t.toFixed(1), k:'live', code:this.code, n:this.cfg.n, map:this.st.meta, speed:this.st.speed, running:!!this.timer});
+  watch(ws){ this.watchers.add(ws); const head=JSON.stringify({t:+this.st.links[0].link.t.toFixed(1), k:'live', code:this.code, n:this.cfg.n, map:this.st.meta, speed:this.st.speed, running:!!this.timer, teams:this.cfg.teams, ops:this.st.links.map((_,k)=>this.ops(k))});   // ops — кто сейчас на платформах: хвост лога может не содержать их входа
     let tail=''; try{ const fd=fs.openSync(this.logFile,'r'); try{ const size=fs.fstatSync(fd).size, len=Math.min(size,SPECT_TAIL), b=Buffer.alloc(len); fs.readSync(fd,b,0,len,size-len); tail=b.toString('utf8'); if(len<size){ const i=tail.indexOf('\n'); tail=i<0?'':tail.slice(i+1); } } finally{ fs.closeSync(fd); } }catch(e){}
     ws.send([head, tail.trimEnd(), ...this.logBuf].filter(Boolean).join('\n')); }
   unwatch(ws){ this.watchers.delete(ws); }

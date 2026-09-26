@@ -19,13 +19,21 @@ function hmDirty(ms=80){ clearTimeout(hm.timer); hm.timer=setTimeout(()=>{ MAPDR
 // /ws?room=КОД&spectate=1 — хвост лога при входе, дальше каждая запись по мере появления; «сейчас» держится на секунду позади
 // последней записи phys, чтобы положения интерполировались, перемотки нет). Зритель — не оператор: мир от него не идёт.
 let frames=[], events=[], cries=[], t0=0, t1=0, cur=0, playing=false, speed=4, pinned=null, hover=null, feedIdx=-1;
+let teams=[], opLog=[];   // teams — команда каждой платформы (cfg.teams из start; нет — каждая сама за себя); opLog — входы и выходы операторов {t, st, name, on}
 let nSt=LEVEL.sites.length;   // сколько платформ было в сеансе — из записи start; базы рисуются по раскладке уровня (LEVEL.layouts), как их поднял хост
 const live={ on:false, code:null, ws:null, lastPhys:0, connected:false, first:true, centered:false };   // lastPhys — стенное время последней phys: мир идёт, если она недавняя
 const LIVE_KEEP=7200;   // живьём: сколько записей phys держать в памяти (2 ч мира); лента — 5000 строк
 const bases=()=>sitesFor(LEVEL,nSt).map((si,k)=>({k, ...baseAt(LEVEL.sites[si])}));
 const ACT_RU={sleep:'спит',idle:'стоит',freeze:'замерла',approach:'подходит',attack:'нападает',back:'отходит',flee:'бежит',home:'домой',rest:'передышка',goto:'идёт',stay:'ждёт',dead:'мертва'};
 function b64(s){ const b=atob(s); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
-function reset(){ frames=[]; events=[]; cries=[]; pinned=hover=null; feedIdx=-1; }
+function reset(){ frames=[]; events=[]; cries=[]; opLog=[]; teams=[]; pinned=hover=null; feedIdx=-1; }
+// кто сидит на платформе в момент t — по записям op (агенты /op — тоже операторы); одно имя может войти дважды — считаем сессии
+// живьём хвост лога может не содержать входа тех, кто сидит давно: первая запись сервера (live) несёт состав платформ — это точка отсчёта (reset)
+function opsAt(st,t){ let n={}; for(const e of opLog){ if(e.t>t) break; if(e.reset){ n={}; for(const k of e.reset[st]||[]) n[k]=(n[k]||0)+1; continue; } if(e.st!==st) continue; n[e.name]=(n[e.name]||0)+(e.on?1:-1); } return Object.keys(n).filter(k=>n[k]>0); }
+const teamOf=st=>teams.length>st?teams[st]:st;
+const TCOL=['#7fe07f','#5fd0ff','#e0a94a','#d98cff'];   // цвет — команда платформы: тела, подписи, база
+const stCol=st=>TCOL[teamOf(st)%TCOL.length];
+function noCarrier(c,X,Y){ c.save(); c.strokeStyle='#ff5c5c'; c.lineWidth=1.5; c.beginPath(); c.arc(X-9,Y-9,4,0,7); c.moveTo(X-12,Y-6); c.lineTo(X-6,Y-12); c.stroke(); c.restore(); }   // нет несущей: станция тело не слышит
 // одна запись лога → кадр phys, крик, строка ленты. Лента держится по времени: вставка с конца (записи идут почти по порядку)
 function ev(e){ let i=events.length; while(i>0&&events[i-1].t>e.t) i--; events.splice(i,0,e); if(live.on&&events.length>5000) events.splice(0,events.length-5000); }   // вставка по времени с конца: записи идут почти по порядку
 function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line); }catch(e){ return; } const t=+r.t||0;
@@ -40,9 +48,10 @@ function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line
     else { const {k,t:_,at,kind,...rest}=r; ev({t, cls:'note', text:`${kind}: ${Object.entries(rest).map(([a,b])=>a+'='+(typeof b==='object'?JSON.stringify(b):b)).join(' ')}`}); } return; }
   if(r.k==='pkt'&&r.kind==='EVT'){ const b=b64(r.b); ev({t:r.at??t, cls:'op', text:`ARK-04${1+(r.st||0)}: событие ${b[0]}${r.unit?' М'+r.unit:''} — ${EVENTS[b[0]]||'?'}${b[1]?' ('+b[1]+')':''}`}); return; }
   if(r.k==='up'){ ev({t, cls:'op', text:`ARK-04${1+(r.st||0)}: команда ${r.bytes[0]}${r.bytes[2]?' М'+r.bytes[2]:''} (${r.bytes[1]})`}); return; }
-  if(r.k==='op'){ ev({t, cls:'op', text:r.join?`оператор ${r.join} вошёл (ARK-04${1+(r.st||0)})`:`оператор ${r.leave} вышел`}); return; }
-  if(r.k==='start'){ const n=r.n||(r.cfg&&r.cfg.n); if(r.map) useMap(r.map,t); if(n) nSt=Math.max(1,Math.min(LEVEL.sites.length,n)); if(live.on&&r.cfg&&r.cfg.speed) speed=r.cfg.speed; ev({t, cls:'note', text:`начало: ${r.host}${r.code?' '+r.code:''}, платформ ${n||'?'}${r.map?`, карта ${r.map.id} v${r.map.v}`:''}${r.wall?', '+r.wall:''}`}); return; }
-  if(r.k==='live'){ if(r.map) useMap(r.map,t); if(r.n) nSt=Math.max(1,Math.min(LEVEL.sites.length,r.n)); if(r.speed) speed=r.speed; if(r.running) live.lastPhys=performance.now(); return; }   // первая запись от сервера зрителю
+  if(r.k==='op'){ const name=r.join||r.leave; if(name){ let i=opLog.length; while(i>0&&(opLog[i-1].t>t||opLog[i-1].reset&&opLog[i-1].t>=t)) i--; opLog.splice(i,0,{t, st:r.st||0, name, on:!!r.join}); }   // до отсчёта живьём — хвост лога: он уже учтён в составе
+    ev({t, cls:'op', text:r.join?`оператор ${r.join} вошёл (ARK-04${1+(r.st||0)})`:`оператор ${r.leave} вышел`}); return; }
+  if(r.k==='start'){ const n=r.n||(r.cfg&&r.cfg.n); if(r.cfg&&Array.isArray(r.cfg.teams)) teams=r.cfg.teams; if(r.map) useMap(r.map,t); if(n) nSt=Math.max(1,Math.min(LEVEL.sites.length,n)); if(live.on&&r.cfg&&r.cfg.speed) speed=r.cfg.speed; ev({t, cls:'note', text:`начало: ${r.host}${r.code?' '+r.code:''}, платформ ${n||'?'}${r.map?`, карта ${r.map.id} v${r.map.v}`:''}${r.wall?', '+r.wall:''}`}); return; }
+  if(r.k==='live'){ if(r.map) useMap(r.map,t); if(r.teams) teams=r.teams; if(r.ops) opLog.push({t, reset:r.ops}); if(r.n) nSt=Math.max(1,Math.min(LEVEL.sites.length,r.n)); if(r.speed) speed=r.speed; if(r.running) live.lastPhys=performance.now(); return; }   // первая запись от сервера зрителю
   if(r.k==='speed'){ if(live.on) speed=r.v; ev({t, cls:'note', text:`ускорение ×${r.v}`}); }
   if(r.k==='fault'){ ev({t, cls:'note', text:`СБОЙ ${r.where}: ${r.text}`}); } }
 // карта записи: другая, чем на странице, — подгрузить maps/ID.js и подменить LEVEL (рельеф пересчитать); та же, но другой ревизии — заметка в ленте
@@ -80,7 +89,6 @@ function frameAt(t){ if(!frames.length) return null; let lo=0, hi=frames.length-
 // ---------- рисование ----------
 // крест на месте гибели — размер не зависит от масштаба, чтобы труп не терялся при отдалении
 function cross(X,Y,col){ ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(X-4,Y-4); ctx.lineTo(X+4,Y+4); ctx.moveTo(X-4,Y+4); ctx.lineTo(X+4,Y-4); ctx.stroke(); ctx.lineWidth=1; }
-const UCOL=['#7fe07f','#5fd0ff','#e0a94a','#d98cff','#ff9f5f'];
 function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   if(hm.box){ const b=hm.box; ctx.drawImage(hm.cv,S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); }
   ctx.font='11px ui-monospace,Menlo,monospace'; ctx.textBaseline='middle'; ctx.lineWidth=1;
@@ -94,7 +102,7 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   if(LEVEL.terrain.bounds){ const b=LEVEL.terrain.bounds; ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(255,92,92,0.5)'; ctx.strokeRect(S(b.x0),Sy(b.y0),(b.x1-b.x0)*sc,(b.y1-b.y0)*sc); ctx.setLineDash([]); }   // край уровня
   if(layers.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; const f0=frameAt(cur); for(const n of [...bases(), ...((f0&&f0.relays)||[]).filter(R=>R.linked.length)]){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),500*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }   // радиус возврата ПС-2: площадки и ретрансляторы-узлы из phys
   // платформы, корпуса, ориентиры, логово
-  for(const B of bases()){ const X=S(B.x),Y=Sy(B.y); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,B.ang*Math.PI/180,0,7); ctx.stroke(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='#aaa'; ctx.fillText('ARK-04'+(1+B.k),X-14,Y-STATION.ry*sc-6); } }
+  for(const B of bases()){ const X=S(B.x),Y=Sy(B.y); ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,B.ang*Math.PI/180,0,7); ctx.stroke(); if(layers.labels&&sc>=0.5){ const ops=opsAt(B.k,cur); ctx.fillStyle=stCol(B.k); ctx.fillText('ARK-04'+(1+B.k)+(teams.length?' · команда '+(1+teamOf(B.k)):'')+(ops.length?' · '+ops.join(', '):''),X-14,Y-STATION.ry*sc-6); } }
   for(const o of [...LEVEL.objects, ...LEVEL.decor]){ const c=o.type>0&&typeof o.type==='number'?objCollider(o):(o.collider&&o.collider.r>0?o.collider:null); if(!c) continue; ctx.strokeStyle='#aaa'; ctx.beginPath(); ctx.arc(S(o.x),Sy(o.y),c.r*sc,0,7); ctx.stroke(); }   // коллайдеры объектов и декора
   for(const p of LEVEL.pois){ const X=S(p.x),Y=Sy(p.y); ctx.fillStyle='rgba(127,224,127,0.6)'; ctx.beginPath(); ctx.moveTo(X,Y-4); ctx.lineTo(X+4,Y); ctx.lineTo(X,Y+4); ctx.lineTo(X-4,Y); ctx.closePath(); ctx.fill(); if(layers.labels&&sc>=0.5){ ctx.fillStyle='rgba(127,224,127,0.6)'; ctx.fillText(p.name,X+7,Y-7); } }
   { const L=LEVEL.pack.lair; ctx.strokeStyle='#8a3a3a'; ctx.beginPath(); ctx.arc(S(L.x),Sy(L.y),Math.max(4,3*sc),0,7); ctx.stroke(); if(layers.labels&&sc>=1){ ctx.fillStyle='#8a3a3a'; ctx.fillText('логово',S(L.x)+7,Sy(L.y)); } }
@@ -114,11 +122,12 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   // крики: кольцо расходится 6 с
   for(const c of cries){ const age=cur-c.t; if(age<0||age>6) continue; const m=LEVEL.pack.members[c.who]||{size:1}; const R=120*(0.8+0.4*m.size)*age/6; ctx.strokeStyle=`rgba(255,92,92,${0.6*(1-age/6)})`; ctx.beginPath(); ctx.arc(S(c.x),Sy(c.y),R*sc,0,7); ctx.stroke(); if(age<3){ ctx.fillStyle='#ff5c5c'; ctx.fillText(`«${c.word}»`,S(c.x)+8,Sy(c.y)-10); } }
   // тела
-  for(const u of f.units){ const X=S(u.x),Y=Sy(u.y), col=u.alive?UCOL[(u.id-1)%UCOL.length]:'#666';
+  for(const u of f.units){ const X=S(u.x),Y=Sy(u.y), col=u.alive?stCol(u.st||0):'#666';
     if(layers.senses&&u.alive&&u.light){ ctx.fillStyle='rgba(255,255,200,0.05)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,25*sc,u.h-0.45,u.h+0.45); ctx.closePath(); ctx.fill(); }
     if(layers.targets&&u.tg){ ctx.setLineDash([3,4]); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(u.tg[0]),Sy(u.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
     if(u.alive){ ctx.fillStyle=col; ctx.fillRect(X-3,Y-3,7,7); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(u.h)*9,Y+Math.sin(u.h)*9); ctx.stroke(); } else cross(X,Y,'#b8bfc7');   // тело лежит, где упало: крест
-    if(layers.labels){ ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?(u.reflex===5?' бой':u.reflex===6?' бегство':u.stealth?' тихо':''):' †'}`,X+7,Y-8); } }
+    if(u.alive&&u.car===false) noCarrier(ctx,X,Y);
+    if(layers.labels){ const ops=opsAt(u.st||0,cur); ctx.fillStyle=col; ctx.fillText(`М${u.id}${ops.length?' · '+ops.join(', '):''}${u.alive?(u.reflex===5?' бой':u.reflex===6?' бегство':u.stealth?' тихо':'')+(u.car===false?' · нет несущей':''):' †'}`,X+7,Y-8); } }
   // особи
   for(const p of f.pack){ const X=S(p.x),Y=Sy(p.y); const dead=p.act==='dead', col=dead?'#c06060':'#ff5c5c', r=Math.max(3,0.8*p.size*sc);
     if(layers.targets&&p.tg&&!dead){ ctx.setLineDash([3,4]); ctx.strokeStyle='rgba(255,92,92,0.6)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(p.tg[0]),Sy(p.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
@@ -140,7 +149,7 @@ function hit(px,py){ const f=frameAt(cur); if(!f) return null; let best=null, bd
 function kv(rows){ return '<div class="kv">'+rows.filter(r=>r[1]!==undefined&&r[1]!==null&&r[1]!=='').map(([k,v])=>`<label>${k}</label><span>${v}</span>`).join('')+'</div>'; }
 function renderInfo(){ const sel=pinned||hover, P=$('#info'); if(!sel){ P.innerHTML='<span class="dim">Наведи на тело, особь, турель, ретранслятор или свёрток. Клик — закрепить.</span>'; return; }
   const f=frameAt(cur); const o=f&&findSel(f,sel); if(!o){ P.innerHTML='<span class="dim">нет в кадре</span>'; return; } const pin=pinned?' <span class="dim">(закреплено, клик по пустому — снять)</span>':'';
-  if(sel.kind==='unit') P.innerHTML=`<h3>М${o.id} · ARK-04${1+o.st}${pin}</h3>`+kv([['положение',`${o.x.toFixed(1)}, ${o.y.toFixed(1)}`],['состояние',o.alive?'жив':'мёртв'],['режим',MODES[o.mode]],['скрытность',o.stealth?'да':'нет'],['стойка',STANCES[o.stance]],['рефлекс',o.reflex===5?'бой':o.reflex===6?'бегство':'—'],['фонарь',o.light?'горит':'выключен'],['цель',o.tg?`${o.tg[0]}, ${o.tg[1]}`:'—'],['пульс',o.pulse],['кожа / кости',`${o.skin} / ${o.bone}`],['глюкоза / заряд',`${o.glu} / ${o.chg}`],['психика',o.psy],['страх',o.fear],['несущая',o.car?'есть':'нет'],['камера',o.cam?'на теле':'—'],['предметы',(o.items||[]).map(i=>ITEMS[i]).join(', ')||'—']]);
+  if(sel.kind==='unit') P.innerHTML=`<h3>М${o.id} · ARK-04${1+o.st}${pin}</h3>`+kv([['операторы',opsAt(o.st||0,cur).join(', ')||'—'],['команда',teams.length?1+teamOf(o.st||0):'каждая платформа сама за себя'],['положение',`${o.x.toFixed(1)}, ${o.y.toFixed(1)}`],['состояние',o.alive?'жив':'мёртв'],['режим',MODES[o.mode]],['скрытность',o.stealth?'да':'нет'],['стойка',STANCES[o.stance]],['рефлекс',o.reflex===5?'бой':o.reflex===6?'бегство':'—'],['фонарь',o.light?'горит':'выключен'],['цель',o.tg?`${o.tg[0]}, ${o.tg[1]}`:'—'],['пульс',o.pulse],['кожа / кости',`${o.skin} / ${o.bone}`],['глюкоза / заряд',`${o.glu} / ${o.chg}`],['психика',o.psy],['страх',o.fear],['несущая',o.car?'есть':'нет'],['камера',o.cam?'на теле':'—'],['предметы',(o.items||[]).map(i=>ITEMS[i]).join(', ')||'—']]);
   else if(sel.kind==='pack'){ const m=LEVEL.pack.members[o.i]||{}; P.innerHTML=`<h3>О${o.i+1}${pin}</h3>`+kv([['положение',`${o.x.toFixed(1)}, ${o.y.toFixed(1)}`],['действие',`${ACT_RU[o.act]||o.act} (${o.act})`],['почему',o.why],['размер / храбрость / внимание',`${m.size} / ${m.courage} / ${m.attention}`],['действующая храбрость',o.nerve],['раны',`${o.hp} из ${Math.max(1,Math.round(3*(m.size||1)))}`],['страх',o.fear],['усталость',o.tired],['чужой',o.foe?`${o.foe[0]}, ${o.foe[1]} (М${o.foe[2]})`:'—'],['цель',o.tg?`${o.tg[0]}, ${o.tg[1]}`:'—'],['слово агента',o.told||'—'],['ноша',o.item?ITEMS[o.item]:'—'],['луч турели',o.lit?'на ней':'—'],['передышка / реакция',`${o.rest} / ${o.hold}`]]); }
   else if(sel.kind==='turret') P.innerHTML=`<h3>турель ${o.id??''} · ARK-04${1+(o.st??sel.k)}${pin}</h3>`+kv([['положение',`${o.x}, ${o.y}`],['состояние',o.broken?'повреждена':o.powered===false?'без питания':o.on===false?'выключена':'включена'],['патроны',o.ammo],['режут',o.cut!=null?o.cut+' с':undefined],['лампа',(o.on!==false&&o.powered!==false&&!o.broken)?'горит':'не горит'],['сектор',`${(o.fov*180/Math.PI).toFixed(0)}° вокруг ${(o.ang*180/Math.PI).toFixed(0)}°`],['дальность',o.range+' м'],['цель',o.tgt?(o.tgt.p!==undefined?'О'+(o.tgt.p+1):'М'+o.tgt.u):'—'],['прицел',o.aim+' с'],['перезарядка',o.rel>0?o.rel+' с':'готова']]);
   else if(sel.kind==='relay') P.innerHTML=`<h3>ретранслятор ${o.id}${pin}</h3>`+kv([['положение',`${o.x}, ${o.y}`],['вид',o.kind],['питание',o.powered?'есть':'нет'],['состояние',o.on?'включён':'выключен'],['канал',o.freq||'не задан'],['дальность / усиление',`${o.range} м / ${o.gain>=0?'+':''}${o.gain} дБ`],['слышат',o.reach.length?o.reach.map(k=>'ARK-04'+(1+k)).join(', '):'—'],['узел для',o.linked.length?o.linked.map(k=>'ARK-04'+(1+k)).join(', '):'—']]);
