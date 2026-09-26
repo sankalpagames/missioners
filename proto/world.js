@@ -728,7 +728,7 @@ const r1=v=>+v.toFixed(1), r2=v=>+v.toFixed(2), xy=p=>p?[r1(p.x),r1(p.y)]:null;
 function truth(){ return {
   units:units.map(u=>({id:u.id,st:u.st,x:r1(u.x),y:r1(u.y),h:r2(u.heading),alive:u.alive,mode:u.mode,stealth:u.stealth,stance:u.stance,reflex:u.reflex,light:u.lightOn,tg:xy(u.target),
     pulse:Math.round(u.pulse),skin:Math.round(u.skin),bone:Math.round(u.bone),glu:Math.round(u.glucose),chg:Math.round(u.charge),psy:Math.round(u.psyche),fear:r2(u.fear),car:u.carrier,items:u.items,cam:u.sensors.camera})),
-  stations:stations.map(S=>({k:S.k,site:S.site,name:S.name,x:S.x,y:S.y,ang:S.ang,team:S.team,bio:S.bioStock,power:S.power})),
+  stations:stations.map(S=>({k:S.k,site:S.site,name:S.name,x:S.x,y:S.y,ang:S.ang,team:S.team,bio:S.bioStock,power:S.power,grow:S.growing?Math.ceil(S.growing.tLeft):null,growCam:S.growing?!!S.growing.sensors.camera:null,cam:S.camInv,store:S.store,task:S.taskOpen,closed:!!S.seriesClosed,freq:S.freq})),
   turrets:turrets.map(T=>({id:T.id,st:T.st,x:r1(T.x),y:r1(T.y),ang:r2(T.ang),fov:r2(T.fov),range:T.range,on:T.on,powered:T.powered,broken:T.broken,ammo:T.ammo,tgt:T.tgt,aim:r1(T.aimT),rel:r1(T.reloadT),cut:T.cut?r1(T.cut.t):null})),
   relays:relays.map(R=>({id:R.id,x:r1(R.x),y:r1(R.y),kind:relayKind(R),on:R.on,freq:R.freq,powered:R.powered,range:R.range,gain:R.gain,reach:stations.filter(S=>R.reach[S.k]).map(S=>S.k),linked:stations.filter(S=>R.linked[S.k]).map(S=>S.k)})),
   pack:pack.map(p=>({i:p.i,x:r1(p.x),y:r1(p.y),h:r2(p.heading),act:p.act,hp:p.hp,fear:r2(p.fear),tired:r2(p.tired),nerve:r2(nerve(p)),size:p.size,tg:xy(p.target),foe:p.foe&&foeOf(p)?[...xy(p.foe),p.foe.u]:null,told:p.told?p.told.v:null,item:p.item||null,lit:p.lit!==undefined&&t-p.lit<0.6,why:p.why,rest:r1(p.rest),hold:r1(p.hold)})),
