@@ -237,6 +237,13 @@ const server=http.createServer((req,res)=>{
   if(f.startsWith('/op/')){ opApi(req,res,u,f.slice(4)); return; }
   if(f==='/rooms'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(listRooms())); return; }
   if(f==='/maps'){ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(mapsInfo())); return; }   // карты сервера: id, name, v, площадки (лобби); текст — GET /maps/ID.js
+  // лог мира планеты целиком — для спектатора постфактум, с ползунком: spectate.html?log=/log/КОД.log. Правду о мире зритель и так видит живьём (?room=КОД),
+  // так что лог не секрет. Файл + ещё не сброшенный буфер живой комнаты; gzip, если клиент принимает (лог — десятки МБ JSONL, сжимается в 10–20 раз)
+  { const m=/^\/log\/([\w-]{1,32})\.log$/.exec(f); if(m){ const code=m[1], file=path.join(DATA,code+'.log'); const r=rooms.get(code);
+      if(!fs.existsSync(file)&&!(r&&r.logBuf.length)){ res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'}); res.end('лога нет: '+code); return; }
+      if(r) r.flushLog();
+      const gz=/\bgzip\b/.test(req.headers['accept-encoding']||''); res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`inline; filename="${code}.log"`,...(gz?{'Content-Encoding':'gzip'}:{})});
+      const src=fs.createReadStream(file); src.on('error',()=>res.end()); (gz?src.pipe(zlib.createGzip()):src).pipe(res); return; } }
   { const m=/^\/docs\/([a-z0-9-]+\.md)$/.exec(f); if(m&&fs.existsSync(path.join(ROOT,'docs',m[1]))){ res.writeHead(200,{'Content-Type':'text/markdown; charset=utf-8','Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(ROOT,'docs',m[1]))); return; } }   // документы — как на Pages
   { const m=/^\/maps\/([a-z0-9_-]+)\.js$/.exec(f); if(m&&MAPS[m[1]]&&MAPS[m[1]].file!==P+'maps/'+m[1]+'.js'){ res.writeHead(200,{'Content-Type':MIME['.js'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(MAPS[m[1]].file)); return; } }   // карта из level=ФАЙЛ — тем же путём, что и из maps/ (спектатор)
   const fp=path.normalize(path.join(P,f)); if(!fp.startsWith(P)||/editor|serve\.py/.test(f)){ res.writeHead(404); res.end(); return; }   // редактор — только локально через serve.py

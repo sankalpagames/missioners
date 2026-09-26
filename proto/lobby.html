@@ -67,6 +67,7 @@ async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()
       const state=r.stopped?`остановлена · ${r.stopped.by}`:!r.running?'стоит · '+ago(Date.now()-r.savedAt):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина');   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
       const H=el('div','head'); H.appendChild(el('b','',r.code)); H.appendChild(el('span','dim',mapName(c.map))); H.appendChild(el('span','',state)); H.appendChild(el('span','dim',`часы мира ${fmtT(r.t)} · ${c.cap} бит/с`));
       const A=el('div','act'); const w=el('button','small','смотреть'); w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.onclick=()=>window.open('spectate.html?room='+encodeURIComponent(r.code),'_blank'); A.appendChild(w);
+      const rec=el('button','small','запись'); rec.title='Спектатор постфактум: весь лог мира планеты, с ползунком'; rec.onclick=()=>window.open('spectate.html?log='+encodeURIComponent('/log/'+r.code+'.log'),'_blank'); A.appendChild(rec);
       if(!r.stopped){ const x=el('button','small','конец игры'); x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — подключиться снова отсюда'; x.onclick=()=>stopRoom(r.code); A.appendChild(x); }
       H.appendChild(A); P.appendChild(H);
       const G=el('div','grid');
