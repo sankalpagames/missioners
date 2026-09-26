@@ -423,7 +423,7 @@ $('#objcmds').onclick=e=>{ const b=e.target.closest('button[data-ocmd]'); if(!b|
   else if(c===8){ if(send([8,tg.id,active],`М${active} ${b.textContent.toLowerCase()}: ${tg.name}`)) setGoal(tg.name); }
   else if(c===22){ if(send([22,item,active,tg.id],`М${active} ${b.textContent.toLowerCase()} — ${tg.name}`)) setGoal(tg.name); }
   else if(c===23){ if(send([23,item,active,tg.id],`М${active} взять: ${tg.name}`)) setGoal(tg.name); } };
-$('#btn-desc').onclick=()=>{ send([1,0,active],`М${active} описание`); };   // и с мёртвого тела: описание — прибор, пока есть заряд
+$('#btn-desc').onclick=()=>{ const u=units.get(active); if(!u.alive) return log('М'+active+': тело мертво, описание недоступно','err'); send([1,0,active],`М${active} описание`); };
 $('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); moveTo(tg); };
 $('#btn-look').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); if(send([18,0,active,...coordBytes(tg)],`М${active} смотреть: ${tg.name}`)) setGoal(tg.name); };
 $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log('М'+active+': лидар не установлен','err'); const k=+$('#sonar-tilt').value; send([2,k+90,active],`М${active} лидар${k?` (наклон ${k>0?'+':''}${k}°)`:''}`); };

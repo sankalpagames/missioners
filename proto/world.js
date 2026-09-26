@@ -631,10 +631,10 @@ onmessage = e => {
   const u=unit===0&&(cmd===3||cmd===16) ? S.cam : units.find(u=>u.id===unit); if(!u || u.st!==S.k) return;   // чужим телом эта станция не управляет
   if(u!==S.cam){
     if(!u.carrier){ evt(25,u.id); return; }                                              // станция не слышит тело — команда не дойдёт
-    if(!u.alive && [6,7,8,17,18,19,20,21,22,23,24,25,26].includes(cmd)){ evt(24,u.id); return; }  // мёртвому — только приборы
+    if(!u.alive && [1,6,7,8,17,18,19,20,21,22,23,24,25,26].includes(cmd)){ evt(24,u.id); return; }  // мёртвому — только приборы
   }
   switch(cmd){
-    case 1: if(u.charge<=0) evt(26,u.id); else describe(u); break;   // описание — прибор, как лидар и камера: и с мёртвого тела, пока есть заряд
+    case 1: if(u.alive) describe(u); break;
     case 2: if(!u.sensors.sonar) evt(2,u.id); else if(u.charge<=0) evt(26,u.id); else { if(arg) u.sonarTilt=Math.max(-45,Math.min(45,arg-90)); sonar(u); } break;   // arg: наклон+90, 0 — горизонт (старый формат)
     case 3: if(u.sensors.camera && u.charge<=0) evt(26,u.id); else if(u.sensors.camera && u.charge>0){ if(m.bytes[3]) imageDelta(u,Math.min(3,arg),'cmd'); else imagePyramid(u,Math.min(3,arg),'cmd'); } break;
     case 16: if(u.sensors.camera){ u.sub.img={interval:arg,level:Math.min(3,m.bytes[3]),delta:!!m.bytes[4]}; u.subT.img=0; u.lastImg={}; } break;
@@ -712,6 +712,7 @@ function tick(){
       u.charge=Math.max(0,Math.min(100,u.charge+(u.gen-u.cons)*dt*0.01));   // ходьба с фонарём: ~3 ч; стоя — почти ровно; отдых восстанавливает
       if(LAB){ u.glucose=u.electro=u.charge=100; }
       if(u.skin<=0||u.bone<=0||u.glucose<=0||u.charge<=0){ u.alive=false; u.target=null; u.diedAt=t; if(u.sub.tlm && u.sub.tlm<30) u.sub.tlm=30; evt(5,u.id); note('unit',{unit:u.id,dead:u.skin<=0?'skin':u.bone<=0?'bone':u.glucose<=0?'glucose':'charge',skin:+u.skin.toFixed(0),bone:+u.bone.toFixed(0),glucose:+u.glucose.toFixed(0),charge:+u.charge.toFixed(0),psyche:+u.psyche.toFixed(0),x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); }
+      if(u.sub.desc){ u.subT.desc+=dt; if(u.subT.desc>=u.sub.desc){ u.subT.desc=0; describe(u,'bg'); } }
     } else {
       // сердце после смерти: всплеск до ~200 за секунды (боль, кровопотеря), затем остановка за ~20 с — телеметрия это показывает, датчики на теле живут на остатке заряда
       const since=u.diedAt===undefined?1e9:t-u.diedAt; const pt=since<5?200:0; u.pulse+=(pt-u.pulse)*dt/(since<5?1:5); if(u.pulse<3) u.pulse=0; u.pain=Math.max(0,u.pain-dt/8);
@@ -719,7 +720,6 @@ function tick(){
       u.charge=Math.max(0,u.charge-dt*(u.sub.img.interval?0.03:0.004));   // приборы на теле сидят на остатке заряда
     }
     if(u.sub.tlm && u.charge>0){ u.tlmTimer+=dt; if(u.tlmTimer>=u.sub.tlm){ u.tlmTimer=0; emit('bg','TLM',u.id,telemetry(u)); } }   // телеметрия — датчик, как лидар и камера: идёт и с мёртвого тела, пока есть заряд
-    if(u.sub.desc && u.charge>0){ u.subT.desc+=dt; if(u.subT.desc>=u.sub.desc){ u.subT.desc=0; describe(u,'bg'); } }
     if(u.sub.sonar && u.sensors.sonar && u.charge>0){ u.subT.sonar+=dt; if(u.subT.sonar>=u.sub.sonar){ u.subT.sonar=0; sonar(u,'bg'); } }
     if(u.sub.img.interval && u.sensors.camera && u.charge>0){ u.subT.img+=dt; if(u.subT.img>=u.sub.img.interval){ u.subT.img=0; if(u.sub.img.delta) imageDelta(u,u.sub.img.level); else imagePyramid(u,u.sub.img.level,'bg'); } }
   }
