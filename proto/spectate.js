@@ -33,7 +33,7 @@ function opsAt(st,t){ let n={}; for(const e of opLog){ if(e.t>t) break; if(e.res
 const teamOf=st=>teams.length>st?teams[st]:st;
 const TCOL=['#7fe07f','#5fd0ff','#e0a94a','#d98cff'];   // цвет — команда платформы: тела, подписи, база
 const stCol=st=>TCOL[teamOf(st)%TCOL.length];
-function noCarrier(c,X,Y){ c.save(); c.strokeStyle='#ff5c5c'; c.lineWidth=1.5; c.beginPath(); c.arc(X-9,Y-9,4,0,7); c.moveTo(X-12,Y-6); c.lineTo(X-6,Y-12); c.stroke(); c.restore(); }   // нет несущей: станция тело не слышит
+function noCarrier(c,X,Y,col){ c.save(); c.strokeStyle=col; c.lineWidth=1.5; c.beginPath(); c.arc(X-9,Y-9,4,0,7); c.moveTo(X-12,Y-6); c.lineTo(X-6,Y-12); c.stroke(); c.restore(); }   // нет несущей: станция тело не слышит
 // одна запись лога → кадр phys, крик, строка ленты. Лента держится по времени: вставка с конца (записи идут почти по порядку)
 function ev(e){ let i=events.length; while(i>0&&events[i-1].t>e.t) i--; events.splice(i,0,e); if(live.on&&events.length>5000) events.splice(0,events.length-5000); }   // вставка по времени с конца: записи идут почти по порядку
 function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line); }catch(e){ return; } const t=+r.t||0;
@@ -126,8 +126,8 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     if(layers.senses&&u.alive&&u.light){ ctx.fillStyle='rgba(255,255,200,0.05)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,25*sc,u.h-0.45,u.h+0.45); ctx.closePath(); ctx.fill(); }
     if(layers.targets&&u.tg){ ctx.setLineDash([3,4]); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(u.tg[0]),Sy(u.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
     if(u.alive){ ctx.fillStyle=col; ctx.fillRect(X-3,Y-3,7,7); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(u.h)*9,Y+Math.sin(u.h)*9); ctx.stroke(); } else cross(X,Y,'#b8bfc7');   // тело лежит, где упало: крест
-    if(u.alive&&u.car===false) noCarrier(ctx,X,Y);
-    if(layers.labels){ const ops=opsAt(u.st||0,cur); ctx.fillStyle=col; ctx.fillText(`М${u.id}${ops.length?' · '+ops.join(', '):''}${u.alive?(u.reflex===5?' бой':u.reflex===6?' бегство':u.stealth?' тихо':'')+(u.car===false?' · нет несущей':''):' †'}`,X+7,Y-8); } }
+    if(u.alive&&u.car===false) noCarrier(ctx,X,Y,col);
+    if(layers.labels){ const ops=opsAt(u.st||0,cur); ctx.fillStyle=col; ctx.fillText(`М${u.id}${ops.length?' · '+ops.join(', '):''}${u.alive?(u.reflex===5?' бой':u.reflex===6?' бегство':u.stealth?' тихо':''):' †'}`,X+7,Y-8); } }
   // особи
   for(const p of f.pack){ const X=S(p.x),Y=Sy(p.y); const dead=p.act==='dead', col=dead?'#c06060':'#ff5c5c', r=Math.max(3,0.8*p.size*sc);
     if(layers.targets&&p.tg&&!dead){ ctx.setLineDash([3,4]); ctx.strokeStyle='rgba(255,92,92,0.6)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(p.tg[0]),Sy(p.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
