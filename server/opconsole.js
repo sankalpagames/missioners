@@ -48,21 +48,25 @@ class OpConsole {
     }
   }
   assemble(p){ if(p.total===1) return p.bytes; const a=this.asm[p.msgId]=this.asm[p.msgId]||{parts:{},total:p.total}; a.parts[p.seq]=p.bytes; if(Object.keys(a.parts).length<a.total) return null; const out=[]; for(let i=0;i<a.total;i++) out.push(...a.parts[i]); delete this.asm[p.msgId]; return new Uint8Array(out); }
+  // своё тело — объект 200+номер там, где его последний раз видела телеметрия: «идти к М5», «взять планшет из М5» без чужого описания
+  ownKnown(u){ const p=u.tlm; if(!p) return; const id=200+u.id, prev=this.known.get(id); this.known.set(id,{...(prev||{}),id,cls:u.alive?4:3,type:0,state:0,name:(u.alive?'миссионер М':'тело М')+u.id,x:p.x,y:p.y,range:0,at:this.tNow,unit:u.id,own:true}); }
   oname(id){ const k=this.known.get(id); return k?`${k.name} (${id})`:`объект ${id}`; }
   // телеметрия: строка не на каждый пакет, а на перемену — иначе агент тонет в цифрах (полная картина — в state)
   tlm(p,replay){ const b=p.bytes, u=this.unit(p.unit);
     const T={pulse:b[0],electro:b[1],glucose:b[2],toxin:b[3],skin:b[4],bone:b[5],psyche:b[6],danger:b[7]&1,autonomy:(b[7]>>1)&3,cons:b[8]/50,charge:b[9]/2.55,gen:b[10]/50,...pos(b,11),mode:b[15]&7,stealth:!!(b[15]&8),stance:(b[15]>>4)&3,reflex:b[15]&64?5:b[15]&128?6:0};
-    const L=u.tlmLine; u.tlm=T; u.tlmAt=this.tNow; if(replay) return;
+    const L=u.tlmLine; u.tlm=T; u.tlmAt=this.tNow; this.ownKnown(u); if(replay) return;
     const band=v=>v<55?0:v<100?1:v<150?2:v<220?3:4;
     const why=!L?'первая':T.danger!==L.danger?'опасность':T.mode!==L.mode||T.reflex!==L.reflex?'режим':band(T.pulse)!==band(L.pulse)?'пульс':['skin','bone','psyche','glucose','electro'].some(k=>L[k]-T[k]>=5)?'падение':T.charge<L.charge-5?'заряд':Math.hypot(T.x-L.x,T.y-L.y)>=5?'положение':this.tNow-u.tlmLineAt>=30?'срок':null;
     if(!why) return; u.tlmLine={...T}; u.tlmLineAt=this.tNow; this.say(this.tlmText(u)); }
   tlmText(u){ const T=u.tlm; if(!T) return `М${u.id}: телеметрии нет`; const pc=T.pulse<55?'замедленный':T.pulse<100?'нормальный':T.pulse<150?'ускоренный':T.pulse<220?'интенсивный':'экстремальный';
     return `М${u.id} телеметрия: пульс ${T.pulse} (${pc}), электролиты ${T.electro}, глюкоза ${T.glucose}, токсины ${T.toxin}, кожа ${T.skin}, кости ${T.bone}, психика ${T.psyche}, заряд ${T.charge.toFixed(0)}%, опасность ${T.danger?'ДА':'нет'}, режим ${T.reflex?MODES[T.reflex]+' (рефлекс)':MODES[T.mode]||T.mode}${T.stealth?', скрытность':''}, стойка ${STANCES[T.stance]}, без несущей: ${AUTONOMY[T.autonomy]}, позиция ${f1(T.x)}, ${f1(T.y)}`; }
-  hb(b,replay){ const S=this.station; const was=JSON.stringify([S.bio,S.cam,S.grow,S.brik,S.cut]); Object.assign(S,{bio:b[0],cam:b[1],grow:b[2]===255?null:b[2],brik:b[3],cut:b[4],at:this.tNow}); const n=b[5]; const changes=[];
+  // пульс; паспорт станции — на перемену, отсчёт выращивания — в минутах (иначе строка на каждый пульс)
+  hb(b,replay){ const S=this.station; const key=()=>JSON.stringify([S.bio,S.cam,S.grow==null?null:Math.ceil(S.grow/60),S.brik,S.cut]); const was=key(); Object.assign(S,{bio:b[0],cam:b[1],grow:b[2]===255?null:b[2],brik:b[3],cut:b[4],at:this.tNow}); const n=b[5]; const changes=[];
     const listed=new Set(); for(let i=0;i<n;i++){ const id=b[6+i*9], f=b[7+i*9], ch=b[8+i*9]/2.55, it=b[9+i*9], snr=b[10+i*9]-30, im=b[14+i*9]; listed.add(id); const u=this.unit(id); const was={alive:u.alive,carrier:u.carrier,camera:u.camera,sonar:u.sonar,atAirlock:u.atAirlock,hb:u.hbAt!==undefined};
       // подписки и передатчик — настройки тела, которые держит станция (общие для всех консолей платформы): в state, не в ленту
       Object.assign(u,{alive:!!(f&1),carrier:!!(f&2),camera:!!(f&4),sonar:!!(f&8),streaming:!!(f&16),atAirlock:!!(f&32),charge:ch,snr,hbAt:this.tNow,items:[...Array(it&3).fill(40),...(it&4?[41]:[]),...(it&8?[43]:[]),...(it&64?[44]:[])],
         subs:{tlm:b[11+i*9],sonar:b[12+i*9],desc:b[13+i*9],img:im&31,delta:!!(im&32),level:im>>6,tx:[-10,0,10,null][(it>>4)&3]}});
+      this.ownKnown(u);
       if(!was.hb) changes.push(`М${id}: ${u.alive?'жив':'мёртв'}, несущая ${u.carrier?(snr>0?'+':'')+snr+' дБ':'нет'}, ${[u.camera?'камера':'',u.sonar?'лидар':''].filter(Boolean).join(', ')||'без датчиков'}, заряд ${ch.toFixed(0)}%`);
       else { if(was.alive&&!u.alive) changes.push(`М${id}: жизненные функции прекращены`); if(was.carrier!==u.carrier) changes.push(`М${id}: несущая ${u.carrier?'восстановлена':'не принимается'}`); if(was.camera!==u.camera) changes.push(`М${id}: камера ${u.camera?'на теле':'снята'}`); if(was.atAirlock!==u.atAirlock&&u.alive) changes.push(`М${id}: ${u.atAirlock?'у шлюза':'отошёл от шлюза'}`); } }
     for(const [id,u] of this.units) if(!listed.has(id)&&u.hbAt===undefined) this.units.delete(id);
@@ -72,7 +76,7 @@ class OpConsole {
       const o2=o+1+nt*3, nr=b[o2]??0; const prevR=S.relays||[]; S.relays=[]; for(let j=0;j<nr;j++){ const id=b[o2+1+j*2], f=b[o2+2+j*2]; const R={id,on:!!(f&1),mobile:!!(f&2)}; S.relays.push(R); const w=prevR.find(x=>x.id===id); if(!w||w.on!==R.on) changes.push(`ретранслятор ${id}: ${R.mobile?'переносной, ':''}${R.on?'включён — узел связи':'выключен'}`); }
       for(const w of prevR) if(!S.relays.find(x=>x.id===w.id)) changes.push(`ретранслятор ${w.id}: вне сети`);
       const o3=o2+1+nr*2; if(b.length>o3) S.camSub={img:b[o3]&31,delta:!!(b[o3]&32),level:b[o3]>>6}; }   // автосъёмка камеры шлюза
-    const now=JSON.stringify([S.bio,S.cam,S.grow,S.brik,S.cut]); if(was!==now&&was!=='[null,null,null,null,null]') changes.push(this.stationText());
+    const now=key(); if(was!==now&&was!=='[null,null,null,null,null]') changes.push(this.stationText());
     if(!replay) for(const c of changes) this.say(c); }
   subsText(s){ const iv=v=>v?`каждые ${v} с`:'выкл'; return `телеметрия ${iv(s.tlm)}, лидар ${iv(s.sonar)}, описание ${iv(s.desc)}, автосъёмка ${s.img?`${iv(s.img)} (${[8,16,32,64][s.level]}px${s.delta?', дельта':''})`:'выкл'}, передатчик ${s.tx==null?'?':(s.tx>0?'+':'')+s.tx+' дБм'}`; }
   turretText(T){ return `турель ${T.id}: ${T.broken?'повреждена':!T.powered?'без питания, данных нет':T.on?(T.tracking?'ведёт цель':T.reloading?'перезарядка':'включена'):'выключена'}${T.ammo==null?'':', патронов '+T.ammo}`; }
@@ -87,7 +91,7 @@ class OpConsole {
   cmdsText(id,short){ const k=this.known.get(id); if(!k||k.cls!==0) return ''; const own=k.type===34?(this.station.turrets||[]).some(T=>T.id===id):undefined; const c=objCmds(k.type||0,k.state||0,{own}).filter(c=>!c.afterExam||k.examined).map(c=>c.label+(c.needs?' (нужен '+ITEMS[c.needs]+')':'')); return c.length?(short?'; ':' Команды: ')+c.join(', '):''; }
   evt(p,replay){ const b=p.bytes, code=b[0], arg=b[1], un=p.unit?`М${p.unit} `:''; const txt=EVENTS[code]||('событие '+code); let s;
     if(code===7) s=`${un}${txt}: ${MODES[arg]}`; else if(code===32) s=`${un}${txt}: ${arg?'включена':'выключена'}`; else if(code===33) s=`${un}${txt}: ${STANCES[arg]}`; else if(code===35) s=`${un}${txt}: ${AUTONOMY[arg]}`; else if(code===13) s=`${un}${txt} М${arg}`; else if(code===16) s=`${un}${txt} (id ${arg}); нужно новое описание`; else if(code===19||code===20) s=`${un}${txt}: ${ITEMS[arg]||arg}`; else if(code===28) s=`${un}${txt} (${arg*10} м от ближайшего узла${this.station.returnR?', предел '+this.station.returnR+' м':''})`; else if(code===3||code===41) s=`${txt}: ${arg}`; else if(code===42) s=`${txt}: ${arg>>1} ${arg&1?'включён':'выключен'}`; else s=`${un}${txt}`;
-    if(code===5) this.unit(p.unit).alive=false; if(code===6) this.unit(p.unit);
+    if(code===5){ const u=this.unit(p.unit); u.alive=false; this.ownKnown(u); } if(code===6) this.unit(p.unit);
     if(!replay) this.say(s); }
   sonar(p,replay){ const b=p.bytes, at=pos(b,0); const o=b.length>=79?3:b.length>=78?2:b.length>=77?1:0; const tilt=o?b[4]-90:0; const mask=[...b.slice(4+o,12+o)], rays=b.slice(12+o); if(replay) return;
     const R=i=>rays[i]/255*100; let near=1e9, ni=0, far=0; const solid=[]; for(let i=0;i<64;i++){ const r=R(i); if(r<near){ near=r; ni=i; } if(rays[i]>=255) far++; if(mask[i>>3]&(1<<(i&7))) solid.push(i); }
@@ -138,10 +142,11 @@ class OpConsole {
     if(/^смотр/.test(v)){ const t=tgt(); if(!t) return {error:'смотреть: точка или объект из описания'}; return {bytes:[18,0,unit,...coordBytes(t)], label:`М${unit} смотреть`}; }
     if(/^изуч/.test(v)){ const o=obj(); if(!o) return {error:'изучить: объект из описания (имя или id)'}; return {bytes:[19,o.id,unit], label:`М${unit} изучить ${o.name}`}; }
     if(/^(взаимодейств|действ|открой|включи)/.test(v)){ const o=obj(); if(!o) return {error:'взаимодействовать: объект из описания'}; return {bytes:[8,o.id,unit], label:`М${unit} взаимодействовать ${o.name}`}; }
-    if(/^взять|^возьми/.test(v)){ const it=itemOf(v); if(!it) return {error:'взять: брикет / резак / камеру / патроны / планшет'}; if(/со склад/.test(v)) return {bytes:[21,it,unit,1], label:`М${unit} взять со склада ${ITEMS[it]}`}; let o=/\sиз\s/.test(v)?this.findKnown(v.replace(/^.*?\sиз\s/,'')):null;
+    if(/^взять|^возьми/.test(v)){ const it=itemOf(v); if(!it) return {error:'взять: брикет / резак / камеру / патроны / планшет'}; if(/со склад/.test(v)) return {bytes:[21,it,unit,1], label:`М${unit} взять со склада ${ITEMS[it]}`}; const from=/\sиз\s/.test(v)?v.replace(/^.*?\sиз\s/,'').trim():''; let o=from?this.findKnown(from):null;
+      if(from&&!o) return {error:`контейнер «${from}» не известен (нет в описаниях${/[мm]\s*\d/.test(from)?' и в телеметрии':''})`};
       if(!o){ const k=this.findKnown(rest); if(k&&(CB.CODEBOOK[k.type]||{}).pickup===it) o=k; }   // объект-предмет: «взять планшет» — сам объект из описания
       if(!o) return {error:'взять X из <контейнер> | взять X со склада'}; /* \b в JS не знает кириллицы — границы по пробелам */ return {bytes:[23,it,unit,o.id], label:`М${unit} взять ${ITEMS[it]} из ${o.name}`}; }
-    if(/^(полож|сдать|сдай|брос)/.test(v)){ const it=itemOf(v); if(!it) return {error:'положить: брикет / резак / камеру / патроны'}; if(/^сда|на склад/.test(v)) return {bytes:[21,it,unit,0], label:`М${unit} сдать на склад ${ITEMS[it]}`}; if(/на грунт|^брос/.test(v)) return {bytes:[22,it,unit,0], label:`М${unit} сбросить ${ITEMS[it]}`}; const o=/\sв\s/.test(v)?this.findKnown(v.replace(/^.*?\sв\s/,'')):null; if(!o) return {error:'положить X в <контейнер> | на грунт | сдать X (склад)'}; return {bytes:[22,it,unit,o.id], label:`М${unit} положить ${ITEMS[it]} в ${o.name}`}; }
+    if(/^(полож|сдать|сдай|брос)/.test(v)){ const it=itemOf(v); if(!it) return {error:'положить: брикет / резак / камеру / патроны'}; if(/^сда|на склад/.test(v)) return {bytes:[21,it,unit,0], label:`М${unit} сдать на склад ${ITEMS[it]}`}; if(/на грунт|^брос/.test(v)) return {bytes:[22,it,unit,0], label:`М${unit} сбросить ${ITEMS[it]}`}; const into=/\sв\s/.test(v)?v.replace(/^.*?\sв\s/,'').trim():''; const o=into?this.findKnown(into):null; if(into&&!o) return {error:`контейнер «${into}» не известен (нет в описаниях)`}; if(!o) return {error:'положить X в <контейнер> | на грунт | сдать X (склад)'}; return {bytes:[22,it,unit,o.id], label:`М${unit} положить ${ITEMS[it]} в ${o.name}`}; }
     if(/^(съесть|съешь|ешь)/.test(v)) return {bytes:[20,40,unit], label:`М${unit} съесть брикет`};
     if(/^режим/.test(v)){ const mode=/исслед/.test(v)?1:/отступ/.test(v)?3:/отдых/.test(v)?4:null; if(!mode) return {error:'режим: исследование | отступление | отдых'}; return {bytes:[7,mode,unit], label:`М${unit} режим ${MODES[mode]}`}; }
     if(/^стойк|^при контакте/.test(v)){ const st=/пассив/.test(v)?0:/бег/.test(v)?1:/бой/.test(v)?2:null; if(st==null) return {error:'стойка: пассивно | бегство | бой'}; return {bytes:[25,st,unit], label:`М${unit} стойка ${STANCES[st]}`}; }
@@ -162,7 +167,10 @@ class OpConsole {
     return {error:'не понял; знаю: описание, лидар [наклон N], кадр [8|16|32|64] [дельта], идти X Y | идти к <объект>, смотреть …, изучить <объект>, взаимодействовать <объект>, взять <вещь> из <контейнер> | со склада, положить <вещь> в <контейнер> | на грунт, сдать <вещь>, съесть брикет, режим …, стойка …, скрытность вкл|выкл, при потере несущей …, передатчик -10|0|10, телеметрия|лидар|описание каждые N|выкл, автосъёмка каждые N [32] [дельта]|выкл, стоп'};
   }
   level(v){ const r=/\b(8|16|32|64)\b/.exec(v); return r?[8,16,32,64].indexOf(+r[1]):2; }
-  findKnown(v){ const id=/\[?\b(\d{1,3})\]?\s*$/.exec(v.trim()); if(id&&this.known.has(+id[1])) return this.known.get(+id[1]);
+  // ссылка на объект: «М5» / «миссионер М5» — тело 200+5; номер отдельным словом («205», «[205]») — id; иначе по словам имени.
+  // Названный номер, которого нет в описаниях, — null, а не похожее имя (\b в JS не знает кириллицы: в «м5» номер — не отдельное слово)
+  findKnown(v){ const s=v.trim(); const mu=/(?:^|[\s\[])[мm]\s*(\d{1,3})\]?$/i.exec(s); if(mu) return this.known.get(200+ +mu[1])||null;
+    const id=/(?:^|[\s\[])(\d{1,3})\]?$/.exec(s); if(id) return this.known.get(+id[1])||null;
     const words=v.trim().replace(/^(к|на|в)\s+/,'').split(/[\s,]+/).filter(w=>w.length>2); if(!words.length) return null;
     const ws=words.map(stem); let best=null, bs=0;   // сколько слов фразы нашлось в имени; все слова имени покрыты — плюс: «ящик» раньше «штабеля ящиков», «вскрытый ящик» — по двум словам
     for(const k of this.known.values()){ const nw=k.name.split(' ').map(stem); const hit=(a,b)=>a.startsWith(b)||b.startsWith(a); const matched=ws.filter(w=>nw.some(n=>hit(n,w))).length; if(!matched) continue;

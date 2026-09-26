@@ -68,7 +68,8 @@ async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()
       const H=el('div','head'); H.appendChild(el('b','',r.code)); H.appendChild(el('span','dim',mapName(c.map))); H.appendChild(el('span','',state)); H.appendChild(el('span','dim',`часы мира ${fmtT(r.t)} · ${c.cap} бит/с`));
       const A=el('div','act'); const w=el('button','small','смотреть'); w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.onclick=()=>window.open('spectate.html?room='+encodeURIComponent(r.code),'_blank'); A.appendChild(w);
       const rec=el('button','small','запись'); rec.title='Спектатор постфактум: весь лог мира планеты, с ползунком'; rec.onclick=()=>window.open('spectate.html?log='+encodeURIComponent('/log/'+r.code+'.log'),'_blank'); A.appendChild(rec);
-      if(!r.stopped){ const x=el('button','small','конец игры'); x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — подключиться снова отсюда'; x.onclick=()=>stopRoom(r.code); A.appendChild(x); }
+      if(!r.stopped){ const x=el('button','small','конец игры'); x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — кнопка «продолжить» или подключение отсюда'; x.onclick=()=>stopRoom(r.code); A.appendChild(x); }
+      else { const x=el('button','small','продолжить'); x.title='Снять остановку: агенты снова могут войти по своим ключам. Подключение консоли отсюда тоже снимает её'; x.onclick=()=>resumeRoom(r.code); A.appendChild(x); }
       H.appendChild(A); P.appendChild(H);
       const G=el('div','grid');
       for(const s of r.stations){ G.appendChild(el('span','',s.name)); G.appendChild(el('span','ops '+(s.ops.length?'':'dim'),s.ops.length?s.ops.join(', '):'операторов нет')); G.appendChild(el('span','dim',`${s.alive} жив. из ${s.units}`));
@@ -86,6 +87,7 @@ function agentLink(r,role){ const span=document.createElement('span'); span.clas
   const c=document.createElement('button'); c.className='small'; c.textContent='⧉'; c.title='скопировать ссылку'; c.style.marginLeft='4px'; c.onclick=()=>{ navigator.clipboard.writeText(url); c.textContent='✓'; setTimeout(()=>{ c.textContent='⧉'; },1500); }; span.appendChild(c);
   return span; }
 async function stopRoom(code){ if(!confirm(`Остановить планету ${code} для всех? Консоли отключатся, агенты потеряют сессии; мир сохранится`)) return; try{ await fetch('rooms/'+encodeURIComponent(code)+'/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
+async function resumeRoom(code){ try{ await fetch('rooms/'+encodeURIComponent(code)+'/resume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
 refresh(); setInterval(refresh,5000);
 </script>
 </body>

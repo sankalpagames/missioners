@@ -236,6 +236,7 @@ const EVENTS = {
   40:'турель переключена',
   41:'станция: ретранслятор вне сети',
   42:'ретранслятор переключён',
+  43:'контакт: цель не двигается',
 };
 
 if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, ITEM_PROPS, objCmds, MODES, STANCES, AUTONOMY, EVENTS, STATION, BASE, SPRITES, LEVEL_FORMAT, IDS, levelCheck, levelLint, levelText, objCollider, sitesFor, baseAt, encText, decText };

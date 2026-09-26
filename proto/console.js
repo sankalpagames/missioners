@@ -29,6 +29,8 @@ function jadd(id,unit,text){ (journal.get(id)||journal.set(id,[]).get(id)).push(
 function jlast(id){ const j=journal.get(id); return j?j[j.length-1]:null; }
 function oname(id){ const o=[...known.values()].find(k=>k.id===id); return o?o.name:(id>=IDS.ground[0]&&id<=IDS.ground[1]?'свёрток':id>=IDS.poi[0]&&id<=IDS.poi[1]?'указатель '+id:'объект '+id); }
 // объект, который миссионер изучил или трогал, — знакомый ему: подсветить на карте, дать имя, если его ещё нет
+// своё мёртвое тело — объект (контейнер, id 200+номер), где его последний раз видела телеметрия: взять из него можно и без чужого описания
+function ownBody(u){ const key='o'+(200+u.id), p=u.tlm||u.track[u.track.length-1]; if(!p||known.has(key)&&known.get(key).cls===3) return; known.set(key,{id:200+u.id,cls:3,type:0,state:0,x:p.x,y:p.y,range:0,at:tNow,unit:u.id,seenBy:new Set([u.id]),name:'тело М'+u.id}); }
 function markSeen(id,unit,state,examined){ let o=[...known.values()].find(k=>k.id===id); const p=pos(unit);
   if(!o){ o={id,cls:0,x:p.x,y:p.y,at:tNow,unit,seenBy:new Set(),name:oname(id)}; known.set(id>=250?'c'+id:id>=200?'unit'+id:'o'+id,o); }
   o.seenBy.add(unit); o.at=tNow; if(state!==undefined) o.state=state; if(examined) o.examined=true; renderCmds(); }
@@ -143,7 +145,7 @@ function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.c
   for(let i=0;i<n;i++){ const id=b[6+i*9], f=b[7+i*9], ch=b[8+i*9]/2.55, it=b[9+i*9], snr=b[10+i*9]-30; const u=U(id); const wasAlive=u.alive, wasCarrier=u.carrier; u.items=[...Array(it&3).fill(40), ...(it&4?[41]:[]), ...(it&8?[43]:[]), ...(it&64?[44]:[])];
     u.alive=!!(f&1); u.carrier=!!(f&2); u.camera=!!(f&4); u.sonar=!!(f&8); u.streaming=!!(f&16); u.atAirlock=!!(f&32); u.charge=ch; u.snr=snr; u.hbAt=tNow;
     syncSubs(u,'М'+id,{tlm:b[11+i*9], sonar:b[12+i*9], desc:b[13+i*9], img:b[14+i*9]&31, delta:!!(b[14+i*9]&32), level:b[14+i*9]>>6, tx:[-10,0,10][(it>>4)&3]??u.subs.tx});
-    if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err');
+    if(wasAlive&&!u.alive) log(`станция: М${id} — жизненные функции прекращены`,'err'); if(!u.alive) ownBody(u);
     { const was=u.snrState||'ok', now=!u.carrier?'lost':snr<5?'weak':'ok'; if(u.alive&&now!==was&&u.hbAt>-1e8){ if(now==='weak') log(`станция: несущая М${id} слабеет, ${snr>0?'+':''}${snr} дБ`,'err'); if(now==='ok'&&was!=='ok'&&u.carrier) log(`станция: несущая М${id} уверенная, +${snr} дБ`,'sys'); } u.snrState=now; }
     if(wasCarrier&&!u.carrier) log(`станция: несущая М${id} не принимается`,'err');
     if(!wasCarrier&&u.carrier) log(`станция: несущая М${id} восстановлена`,'sys'); }
@@ -167,7 +169,7 @@ function decodeExam(pkt){ const b=pkt.bytes, id=b[0], st=b[2], len=(b[3]<<8)|b[4
 function decodeAct(pkt){ const b=pkt.bytes, id=b[0], code=b[1], st=b[2], len=(b[3]<<8)|b[4], text=decText(b.slice(5,5+len)); markSeen(id,pkt.unit,st,false); jadd(id,pkt.unit,text); log(`М${pkt.unit} · ${oname(id)}: ${text}`,code===0?'evt':'err'); renderDesc(); }
 function decodeEvt(pkt){ const b=pkt.bytes, code=b[0], arg=b[1], un=pkt.unit?`М${pkt.unit} `:''; const txt=EVENTS[code]||('событие '+code);
   if(code===7) log(`${un}${txt}: ${MODES[arg]}`,'evt'); else if(code===32) log(`${un}${txt}: ${arg?'включена':'выключена'}`,'evt'); else if(code===33) log(`${un}${txt}: ${STANCES[arg]}`,'evt'); else if(code===35) log(`${un}${txt}: ${AUTONOMY[arg]}`,'evt'); else if(code===13) log(`${un}${txt} М${arg}`,'evt'); else if(code===16) log(`${un}${txt} (id ${arg}); требуется новое описание`,'err'); else if(code===19||code===20) log(`${un}${txt}: ${ITEMS[arg]||arg}`,'evt'); else if(code===28) log(`${un}${txt} (${arg*10} м от ближайшего узла${station.returnR?', предел '+station.returnR+' м':''})`,'err'); else if(code===3||code===41) log(`${txt}: ${arg}${code===3?' — маяк на канале станции; в пульсе':' — маяка нет: питание, канал или дальность'}`,code===3?'sys':'warn'); else if(code===42) log(`${txt}: ${arg>>1} ${arg&1?'включён':'выключен'}`,'evt'); else log(`${un}${txt}`,'evt');
-  if(code===5){ const u=U(pkt.unit); u.alive=false; renderUnits(); }
+  if(code===5){ const u=U(pkt.unit); u.alive=false; ownBody(u); renderUnits(); }
   if(code===6){ U(pkt.unit); renderUnits(); }
   if(code===28){ const u=U(pkt.unit); if(u.prevGoal){ u.goalName=u.prevGoal.name; u.goalPos=u.prevGoal.pos; } $('#img-look').textContent=`смотрит: ${u.goalName?'на «'+u.goalName+'»':'вперёд'}`; }   // цель не принята — голова там же, где была
   if(code===27){ $('#fin-title').textContent='СЕРИЯ 1 ИСЧЕРПАНА'; $('#fin-text').textContent=`Живых миссионеров нет, биоматериала нет. Станция закрыла серию 1 и продолжает работу по протоколу.\n\nПС-7 остаётся открытой. Кто-то не вернулся тридцать девять лет назад; теперь — ещё ${[...units.values()].length}.\n\nПриборы на телах отвечают, пока есть заряд. Новый сеанс — в терминале при подключении: [n].`; $('#finale').hidden=false; }
@@ -421,7 +423,7 @@ $('#objcmds').onclick=e=>{ const b=e.target.closest('button[data-ocmd]'); if(!b|
   else if(c===8){ if(send([8,tg.id,active],`М${active} ${b.textContent.toLowerCase()}: ${tg.name}`)) setGoal(tg.name); }
   else if(c===22){ if(send([22,item,active,tg.id],`М${active} ${b.textContent.toLowerCase()} — ${tg.name}`)) setGoal(tg.name); }
   else if(c===23){ if(send([23,item,active,tg.id],`М${active} взять: ${tg.name}`)) setGoal(tg.name); } };
-$('#btn-desc').onclick=()=>{ const u=units.get(active); if(!u.alive) return log('М'+active+': тело мертво, описание недоступно','err'); send([1,0,active],`М${active} описание`); };
+$('#btn-desc').onclick=()=>{ send([1,0,active],`М${active} описание`); };   // и с мёртвого тела: описание — прибор, пока есть заряд
 $('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); moveTo(tg); };
 $('#btn-look').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); if(send([18,0,active,...coordBytes(tg)],`М${active} смотреть: ${tg.name}`)) setGoal(tg.name); };
 $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log('М'+active+': лидар не установлен','err'); const k=+$('#sonar-tilt').value; send([2,k+90,active],`М${active} лидар${k?` (наклон ${k>0?'+':''}${k}°)`:''}`); };

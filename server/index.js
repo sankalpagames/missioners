@@ -64,6 +64,7 @@ class Room {
     if(d&&d.cfg&&d.cfg.map&&d.cfg.map!==this.cfg.map) log(`${code}: карты «${d.cfg.map}» на сервере нет, планета поднята на «${this.cfg.map}» — снимок мира может не сойтись с картой`);
     if(d&&d.map&&d.map.id===this.cfg.map&&d.map.v!==MAPS[this.cfg.map].v) log(`${code}: карта ${d.map.id} v${d.map.v} → v${MAPS[this.cfg.map].v}, снимок мира может не сойтись с картой`);
     this.pack={ lines:[], waiters:[], last:0, capture:null };   // сторона стаи: лента восприятия с курсором n, ожидающие долгого опроса, время последнего запроса, перехват ответов мира
+    this.agents=d&&d.agents||{};   // сессии агентов-операторов из сохранения (id → имя, платформа, курсор журнала): поднимаются по первому запросу с этим id (opApi)
     this.stopped=d&&d.stopped||null; this.savedAt=d&&d.savedAt||Date.now();   // stopped: «конец игры» — кто и когда, до входа человека через лобби; savedAt — когда последний раз записана (лобби: «стоит · N назад»)
     this.st=makeStation({ worldSrc:MAPS[this.cfg.map].worldSrc, search:worldSearch(this.cfg), debug:DEBUG, out:m=>this.out(m), agent:m=>this.onAgent(m), log:r=>{ const s=JSON.stringify(r); this.logBuf.push(s); for(const w of this.watchers) if(w.readyState===1) w.send(s); } }); this.rings=this.st.links.map(()=>[]);
     // атлас — после того, как отвергнутый fetch в CAM.load отработает (иначе он обнулит атлас)
@@ -93,10 +94,11 @@ class Room {
   stationsInfo(){ const u=this.st.snapshot().units; return this.st.links.map((L,k)=>({k, name:'ARK-04'+(1+k), ops:this.ops(k), units:u.filter(x=>x.st===k).length, alive:u.filter(x=>x.st===k&&x.alive).length})); }
   info(){ const u=this.st.snapshot().units; return {code:this.code, cfg:pubCfg(this.cfg), running:!!this.timer, lastCmd:this.lastCmd||0, ops:this.ops(), t:this.st.links[0].link.t, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:this.timer?Date.now():this.savedAt, stations:this.stationsInfo(), stopped:this.stopped, keys:roleKeys(this.code,this.cfg)}; }
   // «конец игры, меня мама позвала домой»: любой человек (лобби) или агент останавливает комнату для всех — консоли отключаются и не переподключаются,
-  // сессии агентов закрываются, мир стоит и сохраняется. Снимает остановку вход человека через лобби (hello) — так повторный вход агентов идёт по согласованию с людьми
+  // сессии агентов закрываются, мир стоит и сохраняется. Снимает остановку человек: кнопка «продолжить» в лобби или вход консоли (hello) — так повторный вход агентов идёт по согласованию с людьми
+  resume(by){ if(!this.stopped) return; log(`${this.code}: остановка снята — ${by}`); this.st.log({k:'resume', by}); this.stopped=null; this.save(); }   // «продолжить» в лобби или вход консоли человека
   stop(by){ this.stopped={by:String(by||'кто-то').slice(0,40), wall:new Date().toISOString(), t:+this.st.links[0].link.t.toFixed(1)}; this.st.log({k:'stop', by:this.stopped.by, wall:this.stopped.wall});
     const s=enc({t:'stopped', by:this.stopped.by}); for(const c of [...this.clients]){ if(c.live) c.send(s); if(c.close) c.close(); else this.leave(c); }
-    for(const [id,S] of opSessions) if(S.room===this){ opSessions.delete(id); stoppedSessions.set(id,this.stopped); }
+    for(const [id,S] of opSessions) if(S.room===this){ opSessions.delete(id); stoppedSessions.set(id,{room:this, stopped:this.stopped}); } this.agents={};
     for(const w of this.pack.waiters.splice(0)) w(); this.save(); log(`${this.code}: остановлена — ${this.stopped.by}`); }
   sendOps(){ const st=this.stationsInfo(); for(const c of this.clients) if(c.live) c.send(enc({t:'ops', ops:this.ops(c.st), stations:st})); }
   join(ws){ this.clients.add(ws); if(!this.timer){ this.schedule(); this.saveTimer=setInterval(()=>{ this.save(); this.flushLog(); },SAVE_EVERY); log(`${this.code}: мир идёт`); } }
@@ -111,14 +113,14 @@ class Room {
   leave(ws){ this.clients.delete(ws); if(ws.live) this.st.log({k:'op', leave:ws.op.name, st:ws.st, wall:new Date().toISOString()}); this.sendOps(); if(!this.clients.size){ clearInterval(this.timer); clearInterval(this.saveTimer); this.timer=this.saveTimer=null; this.save(); this.flushLog(); log(`${this.code}: операторов нет, мир стоит`); } }
   schedule(){ if(this.timer) clearInterval(this.timer); this.timer=setInterval(()=>this.st.tick(), 100/this.st.speed); }
   hello(ws,since,op,st){   // выбор платформы, досылка пропущенного, потом — живой поток
-    ws.op={ name:String(op&&op.name||'').replace(/[^\p{L}\p{N} _.-]/gu,'').trim().slice(0,24)||'оператор', token:String(op&&op.token||'').slice(0,32) };
+    ws.op={ name:opName(op&&op.name), token:String(op&&op.token||'').slice(0,32) };
     ws.st=Math.max(0,Math.min(this.st.links.length-1,st|0));
     if(ws.op.token) this.seen[ws.op.token]={name:ws.op.name, st:ws.st};
     const miss=this.rings[ws.st].filter(p=>p.n>since);
     ws.send(enc({t:'welcome', st:ws.st, name:'ARK-04'+(1+ws.st), operators:this.ops(ws.st).length+1, replay:miss.length, at:this.st.links[ws.st].link.t, speed:this.st.speed}));
     for(const p of miss) ws.send(enc({...p,replay:true}));
     ws.send(enc(this.st.modem(ws.st))); ws.live=true; this.sendOps(); this.st.log({k:'op', join:ws.op.name, st:ws.st, since, wall:new Date().toISOString()});
-    if(this.stopped&&ws.close){ log(`${this.code}: остановка снята — вошёл ${ws.op.name}`); this.st.log({k:'resume', by:ws.op.name}); this.stopped=null; }   // человек через лобби — остановка снята, агентов снова пускают
+    if(this.stopped&&ws.close) this.resume(ws.op.name);   // консоль человека — остановка снята, агентов снова пускают
   }
   handle(ws,m){
     if(m.t==='hello'){ this.hello(ws,+m.since||0,m.op,+m.st||0); return; }
@@ -130,9 +132,13 @@ class Room {
       return; }
     if(DEBUG&&(m.t==='cfg'||m.t==='tp'||m.t==='peek')) this.st.handle(m);   // speed/load/save от клиентов не принимаются: ускорение — настройка комнаты, мир — у сервера
   }
-  save(){ this.savedAt=Date.now(); const d={v:4, savedAt:this.savedAt, map:this.st.meta, world:this.st.snapshot(), n:this.st.rxN(), cfg:this.cfg, seen:this.seen, stopped:this.stopped, rings:this.rings.map(r=>r.slice(-TAIL))};
+  save(){ this.savedAt=Date.now();
+    const agents={}; for(const [id,a] of Object.entries(this.agents)) if(this.savedAt-a.last<OP_TTL) agents[id]=a;   // ещё не вернувшиеся после перезапуска
+    for(const [id,S] of opSessions) if(S.room===this) agents[id]={name:S.client.op.name, st:S.client.st, n:S.client.oc.n, last:S.client.last};
+    const d={v:4, savedAt:this.savedAt, map:this.st.meta, world:this.st.snapshot(), n:this.st.rxN(), cfg:this.cfg, seen:this.seen, stopped:this.stopped, agents, rings:this.rings.map(r=>r.slice(-TAIL))};
     try{ fs.writeFileSync(this.file+'.tmp',enc(d)); fs.renameSync(this.file+'.tmp',this.file); }catch(e){ log(`${this.code}: сохранение не удалось: ${e.message}`); } }
 }
+const opName=s=>String(s||'').replace(/[^\p{L}\p{N} _.-]/gu,'').trim().slice(0,24)||'оператор';
 const rooms=new Map(); const room=(code,cfg)=>{ if(!rooms.has(code)) rooms.set(code,new Room(code,cfg)); return rooms.get(code); };
 // список станций для лобби: живые — из памяти, остальные — по файлам (читаются заново, только если файл изменился)
 const diskInfo={};
@@ -151,23 +157,34 @@ const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);
 const OP_TTL=10*60*1000, OP_MIN_MS=200; const opSessions=new Map();
 class OpClient { constructor(){ this.oc=new OpConsole(); this.live=false; this.st=0; this.op={name:'агент',token:''}; this.waiters=[]; this.last=Date.now(); this.oc.onLine=()=>{ for(const w of this.waiters.splice(0)) w(); }; }
   send(s){ let m; try{ m=JSON.parse(s); }catch(e){ return; } this.oc.onMsg(m); } }
-const stoppedSessions=new Map();   // id закрытой остановкой сессии → stopped: чтобы агент понял, почему сессии нет
-const stoppedFor=id=>stoppedSessions.get(id)||null;
-setInterval(()=>{ const now=Date.now(); for(const [id,S] of opSessions) if(now-S.client.last>OP_TTL){ S.room.leave(S.client); opSessions.delete(id); log(`${S.room.code}: агент-оператор ${S.client.op.name} вышел по тишине`); } },60000);
+const stoppedSessions=new Map();   // id закрытой остановкой сессии → {room, stopped}: чтобы агент понял, почему сессии нет
+const STOP_HINT='вход — когда человек снимет остановку: «продолжить» у планеты в лобби или вход консоли планеты';
+// Сессия — id вида КОД.hex: после перезапуска сервера комната поднимает её из сохранения (Room.agents) по первому же запросу — тот же id, тот же
+// курсор журнала; строки за секунды до перезапуска могут пропасть. Пропавшая или устаревшая — 404, повторный /op/join
+function opSession(id){ const S=opSessions.get(id); if(S) return S; const m=/^([\w-]{1,32})\.[0-9a-f]{16}$/.exec(id); if(!m||!rooms.has(m[1])&&!fs.existsSync(path.join(DATA,m[1]+'.json'))) return null;
+  const r=room(m[1]), a=r.agents[id]; if(!a||r.stopped) return null; delete r.agents[id]; if(Date.now()-a.last>OP_TTL) return null;
+  const c=new OpClient(); c.last=0; c.oc.n=a.n|0; opSessions.set(id,{room:r,client:c}); r.join(c); r.hello(c,0,{name:a.name,token:''},a.st);
+  c.oc.say('сессия восстановлена после перезапуска сервера; строки журнала перед перезапуском могли пропасть, картина сейчас — /op/state'); log(`${r.code}: агент-оператор ${c.op.name} восстановлен на платформе ${c.st}`); return opSessions.get(id); }
+setInterval(()=>{ const now=Date.now(); for(const [id,S] of opSessions) if(now-S.client.last>OP_TTL){ opSessions.delete(id); S.room.leave(S.client); log(`${S.room.code}: агент-оператор ${S.client.op.name} вышел по тишине`); } },60000);
 function opApi(req,res,u,op){
   const wantText=u.searchParams.get('text')==='1'||/^text\/plain/.test(req.headers.accept||'');
   const send=(code,obj,text)=>{ if(wantText&&text!==undefined){ res.writeHead(code,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}); res.end(text); } else { res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(obj)); } };
   const withBody=cb=>{ let body=''; req.on('data',c=>{ body+=c; if(body.length>2e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){ q={}; } cb(q); }); };
-  const sess=q=>{ const id=String(q.id||u.searchParams.get('id')||''); const S=opSessions.get(id); if(!S){ const st=stoppedFor(id); send(st?423:404, st?{error:`игра остановлена (${st.by}); повторный вход — по согласованию с людьми`, stopped:st}:{error:'сессии нет: сначала /op/join'}, st?'игра остановлена — вход по согласованию':'сессии нет'); return null; }
+  const sess=q=>{ const id=String(q.id||u.searchParams.get('id')||''); const S=opSession(id); if(!S){ const x=stoppedSessions.get(id), st=x&&x.room.stopped;
+      if(st) send(423,{error:`игра остановлена (${st.by}); ${STOP_HINT}`, stopped:st},'игра остановлена — '+STOP_HINT);
+      else send(404,{error:x?'сессия закрыта остановкой игры; остановка снята — войти заново: /op/join':'сессии нет: /op/join (тот же ключ и имя вернут живую сессию)'},x?'сессия закрыта остановкой, войти заново':'сессии нет'); return null; }
     const now=Date.now(); if(now-S.client.last<OP_MIN_MS){ send(429,{error:'не чаще '+OP_MIN_MS+' мс'},'слишком часто'); return null; } S.client.last=now; return S; };
   const header=S=>{ const M=S.client.oc.modem; return M?`${M.up?'связь':'НЕТ СВЯЗИ'} · ${(M.cap/8).toFixed(0)} Б/с · в очереди ${M.qcmd+M.qbg} Б`:'модем: нет показаний'; };
   if(op==='join'&&req.method==='POST'){ withBody(q=>{ let r, st=+q.st||0;
       if(q.key){ const k=parseKey(q.key); if(!k||k.role==='pack'){ send(401,{error:'ключ не подходит (нужен ключ платформы: КОД.opN.секрет)'},'ключ не подходит'); return; } r=k.room; st=k.st; }
       else { const code=String(q.room||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ send(400,{error:'нужен ключ платформы (key) или код планеты (room)'},'нужен ключ или код планеты'); return; } r=room(code); }
-      if(r.stopped){ send(423,{error:`игра остановлена (${r.stopped.by}, ${r.stopped.wall}); повторный вход — по согласованию: когда человек снова войдёт через лобби`, stopped:r.stopped},'игра остановлена — вход по согласованию'); return; }
-      const c=new OpClient(); const id=crypto.randomBytes(8).toString('hex'); opSessions.set(id,{room:r,client:c});
-      r.join(c); r.hello(c, 0, {name:String(q.name||'агент').slice(0,24), token:''}, st); log(`${r.code}: агент-оператор ${c.op.name} на платформе ${c.st}`); const code=r.code;
-      const pic=c.oc.state(); send(200,{ok:true, id, room:code, st:c.st, name:c.oc.name, n:c.oc.n, replay:c.oc.replay, speed:r.st.speed, lines:pic, text:pic.join('\n')}, `сессия ${id}\n`+pic.join('\n')+`\n— ${header({client:c})}, n=${c.oc.n}, досыл ${c.oc.replay} пакетов`); }); return; }
+      if(r.stopped){ send(423,{error:`игра остановлена (${r.stopped.by}, ${r.stopped.wall}); ${STOP_HINT}`, stopped:r.stopped},'игра остановлена — '+STOP_HINT); return; }
+      // тот же агент (платформа и имя) после обрыва — та же сессия, а не новая рядом: в списке операторов нет дублей, курсор журнала цел
+      const name=opName(q.name||'агент'); let id=null, S=null; for(const [i,s] of opSessions) if(s.room===r&&s.client.st===st&&s.client.op.name===name){ id=i; S=s; break; }
+      if(!id) for(const i of Object.keys(r.agents)) if(r.agents[i].st===st&&r.agents[i].name===name&&(S=opSession(i))){ id=i; break; }   // из сохранения — после перезапуска
+      const resumed=!!S; if(S) S.client.last=Date.now();
+      else { const c=new OpClient(); id=r.code+'.'+crypto.randomBytes(8).toString('hex'); S={room:r,client:c}; opSessions.set(id,S); r.join(c); r.hello(c, 0, {name, token:''}, st); log(`${r.code}: агент-оператор ${c.op.name} на платформе ${c.st}`); r.save(); }
+      const c=S.client, code=r.code, pic=c.oc.state(); send(200,{ok:true, id, resumed, room:code, st:c.st, name:c.oc.name, n:c.oc.n, replay:c.oc.replay, speed:r.st.speed, lines:pic, text:pic.join('\n')}, `сессия ${id}${resumed?' (прежняя: журнал — с курсора, perceive?since=)':''}\n`+pic.join('\n')+`\n— ${header({client:c})}, n=${c.oc.n}, досыл ${c.oc.replay} пакетов`); }); return; }
   if(op==='perceive'&&req.method==='GET'){ const S=sess({}); if(!S) return; const c=S.client, since=+u.searchParams.get('since')||0, wait=Math.max(0,Math.min(PACK_WAIT_MAX,+u.searchParams.get('wait')||0));
     const reply=()=>{ const lines=c.oc.lines.filter(l=>l.n>since); const n=lines.length?lines[lines.length-1].n:c.oc.n; const M=c.oc.modem;
       send(200,{n, at:+c.oc.tNow.toFixed(1), speed:S.room.st.speed, modem:M?{up:M.up,cap:M.cap,queue:M.qcmd+M.qbg,eta:M.queue.map(g=>({id:g.id,kind:g.kind,unit:g.unit,eta:g.eta}))}:null, lines, text:lines.map(l=>`${mmss(l.at)} ${l.text}`).join('\n')}, lines.map(l=>`${mmss(l.at)} ${l.text}`).join('\n')+(lines.length?'\n':'')+`— ${header(S)}, n=${n}`); };
@@ -178,7 +195,7 @@ function opApi(req,res,u,op){
         S.room.handle(c,{t:'up',bytes:p.bytes}); c.oc.say('→ '+p.label); results.push({line, ok:true, sent:p.label, bytes:p.bytes}); }
       send(200,{results}, results.map(x=>`${x.ok?'отправлено':'отказ'} — ${x.line}${x.why?' ('+x.why+')':''}${x.sent?' → '+x.sent:''}`).join('\n')); }); return; }
   if(op==='state'&&req.method==='GET'){ const S=sess({}); if(!S) return; const st=S.client.oc.state(); send(200,{n:S.client.oc.n, lines:st, text:st.join('\n')}, st.join('\n')+`\n— ${header(S)}, n=${S.client.oc.n}`); return; }
-  if(op==='leave'&&req.method==='POST'){ withBody(q=>{ const id=String(q.id||''); const S=opSessions.get(id); if(S){ S.room.leave(S.client); opSessions.delete(id); } send(200,{ok:true},'вышел'); }); return; }
+  if(op==='leave'&&req.method==='POST'){ withBody(q=>{ const id=String(q.id||''); const S=opSessions.get(id); if(S){ opSessions.delete(id); S.room.leave(S.client); } send(200,{ok:true},'вышел'); }); return; }
   if(op==='stop'&&req.method==='POST'){ withBody(q=>{ const S=opSessions.get(String(q.id||'')); if(!S){ send(404,{error:'сессии нет'},'сессии нет'); return; } S.room.stop(`агент ${S.client.op.name} (${S.client.oc.name})`); send(200,{ok:true, stopped:S.room.stopped},'игра остановлена для всех'); }); return; }
   send(404,{error:'нет такого: /op/join (POST), /op/perceive (GET), /op/act (POST), /op/state (GET), /op/leave (POST), /op/stop (POST)'},'нет такого');
 }
@@ -195,7 +212,7 @@ function packApi(req,res,u,op){
     else { const code=String(q.room||u.searchParams.get('room')||'').trim(), token=String(q.token||u.searchParams.get('token')||'').trim();
       if(!/^[\w-]{1,32}$/.test(code)||!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ send(404,{error:'планеты нет: '+code},'планеты нет'); return null; }
       r=room(code); if(token!==r.cfg.pack){ send(401,{error:'токен стаи не подходит'},'токен стаи не подходит'); return null; } }
-    if(r.stopped&&!quiet){ send(423,{error:`игра остановлена (${r.stopped.by}, ${r.stopped.wall}); повторный вход — по согласованию: когда человек снова войдёт через лобби`, stopped:r.stopped},'игра остановлена — вход по согласованию'); return null; }
+    if(r.stopped&&!quiet){ send(423,{error:`игра остановлена (${r.stopped.by}, ${r.stopped.wall}); ${STOP_HINT}`, stopped:r.stopped},'игра остановлена — '+STOP_HINT); return null; }
     const now=Date.now(); if(now-r.pack.last<PACK_MIN_MS){ send(429,{error:'не чаще '+PACK_MIN_MS+' мс'},'слишком часто'); return null; } r.pack.last=now; return r; };
   if(op==='join'&&req.method==='POST'){ withBody(q=>{ const r=auth(q); if(!r) return; const s=r.packState(); r.st.log({k:'pack', join:true, wall:new Date().toISOString()});
       send(200,{ok:true, room:r.code, ...s, text:s.lines.join('\n')}, s.lines.join('\n')+`\n— часы мира ${mmss(s.at)}, ${s.asleep?'стая спит: операторов нет':'мир идёт'}, n=${s.n}`); }); return; }
@@ -225,10 +242,10 @@ const server=http.createServer((req,res)=>{
     let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body); }catch(e){}
       const code=String(q.code||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ res.writeHead(400); res.end('bad code'); return; }
       const r=room(code,q); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({...r.info(), pack:r.cfg.pack})); }); return; }   // ключи ролей — в info(), как и в списке планет: они не секрет
-  { const m=/^\/rooms\/([\w-]{1,32})\/(stop)$/.exec(f); if(m&&req.method==='POST'){   // stop — «конец игры» для всех (лобби, любой человек)
+  { const m=/^\/rooms\/([\w-]{1,32})\/(stop|resume)$/.exec(f); if(m&&req.method==='POST'){   // stop — «конец игры» для всех (лобби, любой человек); resume — снять остановку, агентов снова пускают
       let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){}
         const code=m[1]; if(!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ res.writeHead(404); res.end('нет планеты'); return; } const r=room(code);
-        r.stop(String(q.by||'человек из лобби').slice(0,40));
+        const by=String(q.by||'человек из лобби').slice(0,40); if(m[2]==='stop') r.stop(by); else r.resume(by);
         res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.info())); }); return; } }
   { const m=/^\/agent\/([^\/]+?)(\.md)?$/.exec(f); if(m){ const k=parseKey(decodeURIComponent(m[1])); if(!k){ res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'}); res.end('ключ не подходит: нужен КОД.РОЛЬ.СЕКРЕТ из лобби'); return; }   // спека роли по ключу: страница или markdown с подставленными ключом и адресом
       if(!m[2]){ res.writeHead(200,{'Content-Type':MIME['.html'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(__dirname,'agent.html'))); return; }
