@@ -39,7 +39,7 @@ body{overflow:auto;background:#000;color:#9fb59f;font:15px/1.6 ui-monospace,Menl
 <div class="row">планеты по кэшированной таблице DSE:</div>
 <div id="rooms"><div class="dim">…</div></div>
 <div class="row">новая планета: <input id="code" maxlength="32" spellcheck="false" pattern="[\w-]+"> · карта <select id="map"></select> · платформ <select id="n"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select> · канал <select id="cap"><option value="512">512 бит/с</option><option value="1024">1024 бит/с</option><option value="2048">2048 бит/с</option><option value="4096">4096 бит/с</option></select> <button id="go">создать</button></div>
-<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Карта, число платформ и ёмкость дальней линии задаются при создании и потом не меняются; штатно — 512 бит/с. Планета появляется в списке, войти — «подключиться» у платформы. Мир идёт, пока хоть один оператор подключён; без операторов стоит. «Инструкция для агента» у платформы или стаи — ссылка со спекой роли и ключом входа для модели или скрипта; кто отдал ссылку, тот и посадил агента. Авторизации нет: код планеты и есть приглашение. «Конец игры» — остановить планету для всех.</div>
+<div class="row dim">На планете от двух до четырёх платформ, ARK-041…044; у каждой свои миссионеры, запасы и канал. Карта, число платформ и ёмкость дальней линии задаются при создании и потом не меняются; штатно — 512 бит/с. Планета появляется в списке, войти — «подключиться» у платформы. Мир идёт, пока хоть один оператор подключён; без операторов стоит. «Инструкция для агента» у платформы или стаи — ссылка со спекой роли и ключом входа для модели или скрипта; кто отдал ссылку, тот и посадил агента. Одна платформа или стая — один игрок: занятая показана с именем, войти за неё нельзя. Авторизации нет: код планеты и есть приглашение. «Пауза» — остановить планету для всех; «возобновить» — продолжить (после объявленной победы — оспорить её).</div>
 <div class="row dim" id="err"></div>
 </div>
 <script>
@@ -64,17 +64,19 @@ async function refresh(){ try{ const rooms=await fetch('rooms').then(r=>r.json()
     if(!rooms.length) box.innerHTML='<div class="dim">планет нет — создать новую</div>';
     const el=(tag,cls,text)=>{ const e=document.createElement(tag); if(cls) e.className=cls; if(text!==undefined) e.textContent=text; return e; };
     for(const r of rooms){ const c=r.cfg||{cap:512}; const P=el('div','planet'); P.id='planet-'+r.code;
-      const state=r.stopped?`остановлена · ${r.stopped.by}`:!r.running?'стоит · '+ago(Date.now()-r.savedAt):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина');   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
-      const H=el('div','head'); H.appendChild(el('b','',r.code)); H.appendChild(el('span','dim',mapName(c.map))); H.appendChild(el('span','',state)); H.appendChild(el('span','dim',`часы мира ${fmtT(r.t)} · ${c.cap} бит/с`));
+      const win=w=>`победа: ${w.side} (${w.name}) — ${w.note||w.fact||'без пояснения'} · ${w.confirmed?'подтверждена миром':'заявлена'}`;
+      const state=r.stopped?(r.winner&&r.stopped.reason==='win'?win(r.winner):`пауза · ${r.stopped.by}`):!r.running?'стоит · '+ago(Date.now()-r.savedAt):(Date.now()-r.lastCmd<60000?'идёт · команды':'идёт · тишина'); const disp=!r.stopped&&r.disputed?' · партия продолжена после заявления победы':'';   // стоит — операторов нет; идёт — мир считается; команды — за последнюю минуту кто-то что-то делал
+      const H=el('div','head'); H.appendChild(el('b','',r.code)); H.appendChild(el('span','dim',mapName(c.map))); H.appendChild(el('span','',state+disp)); H.appendChild(el('span','dim',`часы мира ${fmtT(r.t)} · ${c.cap} бит/с`));
       const A=el('div','act'); const w=el('button','small','смотреть'); w.title='Спектатор живьём: правда о мире целиком, мир не запускает'; w.onclick=()=>window.open('spectate.html?room='+encodeURIComponent(r.code),'_blank'); A.appendChild(w);
       const rec=el('button','small','запись'); rec.title='Спектатор постфактум: весь лог мира планеты, с ползунком'; rec.onclick=()=>window.open('spectate.html?log='+encodeURIComponent('/log/'+r.code+'.log'),'_blank'); A.appendChild(rec);
-      if(!r.stopped){ const x=el('button','small','конец игры'); x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Продолжить — кнопка «продолжить» или подключение отсюда'; x.onclick=()=>stopRoom(r.code); A.appendChild(x); }
-      else { const x=el('button','small','продолжить'); x.title='Снять остановку: агенты снова могут войти по своим ключам. Подключение консоли отсюда тоже снимает её'; x.onclick=()=>resumeRoom(r.code); A.appendChild(x); }
+      if(!r.stopped){ const x=el('button','small','пауза'); x.title='«Конец игры, меня мама позвала домой»: остановить планету для всех — консоли отключаются, сессии агентов закрываются, мир сохранён. Дальше — «возобновить» или подключение отсюда'; x.onclick=()=>stopRoom(r.code); A.appendChild(x); }
+      else { const x=el('button','small','возобновить'); x.title='Снять остановку: агенты снова могут войти по своим ключам. Подключение консоли отсюда тоже снимает её. После объявленной победы — оспаривает её'; x.onclick=()=>resumeRoom(r.code,r.winner); A.appendChild(x); }
       H.appendChild(A); P.appendChild(H);
       const G=el('div','grid');
-      for(const s of r.stations){ G.appendChild(el('span','',s.name)); G.appendChild(el('span','ops '+(s.ops.length?'':'dim'),s.ops.length?s.ops.join(', '):'операторов нет')); G.appendChild(el('span','dim',`${s.alive} жив. из ${s.units}`));
-        const b=el('button','small',s.ops.length?'присоединиться':'подключиться'); b.onclick=()=>join(r.code,s.k); const bb=el('span'); bb.appendChild(b); G.appendChild(bb); G.appendChild(agentLink(r,'op'+s.k)); }
-      G.appendChild(el('span','dim','стая')); G.appendChild(el('span','dim','в расщелине')); G.appendChild(el('span')); G.appendChild(el('span')); G.appendChild(agentLink(r,'pack'));   // стая — своя строка: за неё тоже может сесть агент
+      // одна роль — один игрок: занятая станция — с именем того, кто держит, без кнопки входа
+      for(const s of r.stations){ const h=s.holder; G.appendChild(el('span','',s.name)); G.appendChild(el('span','ops '+(h?'':'dim'),h?h.name:'свободна')); G.appendChild(el('span','dim',`${s.alive} жив. из ${s.units}`));
+        const bb=el('span'); if(h){ bb.className='dim'; bb.textContent='занята'; bb.title='с '+new Date(h.since).toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'})+'; свободна после выхода или 10 мин тишины'; } else { const b=el('button','small','подключиться'); b.onclick=()=>join(r.code,s.k); bb.appendChild(b); } G.appendChild(bb); G.appendChild(agentLink(r,'op'+s.k)); }
+      G.appendChild(el('span','dim','стая')); G.appendChild(el('span',r.pack?'ops':'dim',r.pack?r.pack.name:'свободна')); G.appendChild(el('span')); G.appendChild(el('span')); G.appendChild(agentLink(r,'pack'));   // стая — своя строка: за неё тоже может сесть агент
       P.appendChild(G); box.appendChild(P); }
   }catch(e){ $('#rooms').innerHTML='<div class="dim">список недоступен</div>'; } }
 let MAPS={}; const mapName=id=>MAPS[id]||id||'';
@@ -86,8 +88,8 @@ function agentLink(r,role){ const span=document.createElement('span'); span.clas
   const a=document.createElement('a'); a.href='agent/'+encodeURIComponent(key); a.target='_blank'; a.textContent='инструкция для агента'; a.title='Спека роли и ключ входа — отдать модели или скрипту: '+key; span.appendChild(a);
   const c=document.createElement('button'); c.className='small'; c.textContent='⧉'; c.title='скопировать ссылку'; c.style.marginLeft='4px'; c.onclick=()=>{ navigator.clipboard.writeText(url); c.textContent='✓'; setTimeout(()=>{ c.textContent='⧉'; },1500); }; span.appendChild(c);
   return span; }
-async function stopRoom(code){ if(!confirm(`Остановить планету ${code} для всех? Консоли отключатся, агенты потеряют сессии; мир сохранится`)) return; try{ await fetch('rooms/'+encodeURIComponent(code)+'/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
-async function resumeRoom(code){ try{ await fetch('rooms/'+encodeURIComponent(code)+'/resume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
+async function stopRoom(code){ if(!confirm(`Пауза на планете ${code} для всех? Консоли отключатся, агенты потеряют сессии; мир сохранится`)) return; try{ await fetch('rooms/'+encodeURIComponent(code)+'/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
+async function resumeRoom(code,winner){ if(winner&&!confirm(`Возобновить ${code}? Объявленная победа (${winner.side}, ${winner.name}) будет оспорена и уйдёт в историю планеты`)) return; try{ await fetch('rooms/'+encodeURIComponent(code)+'/resume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({by:(op().name||'человек')+' из лобби'})}); }catch(e){} refresh(); }
 refresh(); setInterval(refresh,5000);
 </script>
 </body>

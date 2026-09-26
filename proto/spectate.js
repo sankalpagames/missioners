@@ -53,6 +53,11 @@ function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line
   if(r.k==='start'){ const n=r.n||(r.cfg&&r.cfg.n); if(r.cfg&&Array.isArray(r.cfg.teams)) teams=r.cfg.teams; if(r.map) useMap(r.map,t); if(n) nSt=Math.max(1,Math.min(LEVEL.sites.length,n)); if(live.on&&r.cfg&&r.cfg.speed) speed=r.cfg.speed; ev({t, cls:'note', text:`начало: ${r.host}${r.code?' '+r.code:''}, платформ ${n||'?'}${r.map?`, карта ${r.map.id} v${r.map.v}`:''}${r.wall?', '+r.wall:''}`}); return; }
   if(r.k==='live'){ if(r.map) useMap(r.map,t); if(r.teams) teams=r.teams; if(r.ops) opLog.push({t, reset:r.ops}); if(r.n) nSt=Math.max(1,Math.min(LEVEL.sites.length,r.n)); if(r.speed) speed=r.speed; if(r.running) live.lastPhys=performance.now(); return; }   // первая запись от сервера зрителю
   if(r.k==='speed'){ if(live.on) speed=r.v; ev({t, cls:'note', text:`ускорение ×${r.v}`}); }
+  // завершения комнаты (сервер): пауза (старые логи — stop), объявленная победа, возобновление, оспоренная возобновлением победа
+  if(r.k==='pause'||r.k==='stop'){ ev({t, cls:'note', text:`пауза — ${r.by}`}); return; }
+  if(r.k==='win'){ const w=r.winner||{}; ev({t, cls:'note', text:`победа: ${w.side} (${w.name})${w.note?' — '+w.note:''}; ${w.confirmed?'подтверждена миром: '+w.fact:'заявлена'}`}); return; }
+  if(r.k==='resume'){ ev({t, cls:'note', text:`возобновлено — ${r.by}`}); return; }
+  if(r.k==='disputed'){ const w=r.winner||{}; ev({t, cls:'note', text:`победа ${w.side} (${w.name}) оспорена возобновлением — ${r.by}`}); return; }
   if(r.k==='fault'){ ev({t, cls:'note', text:`СБОЙ ${r.where}: ${r.text}`}); } }
 // карта записи: другая, чем на странице, — подгрузить maps/ID.js и подменить LEVEL (рельеф пересчитать); та же, но другой ревизии — заметка в ленте
 let mapWanted=null;

@@ -48,9 +48,12 @@ function makeStation(opts){
     const L=links[k], link=L.link, cap=link.deepCapBps(), capB=cap/8||1e-9, groups={};
     for(const p of [...link.queues.cmd, ...Object.values(link.queues.bg).flat().filter(p=>/^IM/.test(p.kind))]){ const g=groups[p.msgId]=groups[p.msgId]||{id:p.msgId,kind:p.kind,unit:p.unit,n:0,bytes:0,total:p.total,cls:p.cls}; g.n++; g.bytes+=p.size; }
     const queue=Object.values(groups).map(g=>({...g, eta:g.cls==='cmd'?link.etaFor(g.id):g.bytes/capB}));
+    // чья очередь: байты по телу и виду — все пакеты, и командные, и фон (кадры — одним видом IMG); видно, кто забил линию
+    const lm={}; for(const p of [...link.queues.cmd, ...Object.values(link.queues.bg).flat()]){ const kind=/^IM/.test(p.kind)?'IMG':p.kind, key=p.unit+':'+kind; (lm[key]=lm[key]||{unit:p.unit,kind,bytes:0}).bytes+=p.size; }
+    const load=Object.values(lm).sort((a,b)=>b.bytes-a.bytes);
     const m={ t:'modem', st:k, at:link.t, speed, up:link.up(), cap, orbit:link.cfg.orbit?link.orbit().tLeft:null,
       qbg:link.queueBytes('bg'), qcmd:link.queueBytes('cmd'), ncmd:link.queues.cmd.length, retry:link.retry.length,
-      sec:link.stats.hist[link.stats.hist.length-1]||null, cnt:{delivered:link.stats.delivered,dropped:link.stats.dropped,retrans:link.stats.retrans}, queue };
+      sec:link.stats.hist[link.stats.hist.length-1]||null, cnt:{delivered:link.stats.delivered,dropped:link.stats.dropped,retrans:link.stats.retrans}, queue, load };
     if(opts.debug){ const units={}; for(const id in link.phys.units) units[id]={dist:link.phys.units[id].dist, fspl:link.fsplDb(+id), obst:link.phys.units[id].obstDb, gain:link.phys.units[id].gain||0, node:link.phys.units[id].node||0, snr:link.snrDb(+id), local:link.localCapBps(+id), ber:link.ber(+id), per:link.per(+id,72)};
       m.dbg={ world:dbg, link:{units}, cfg:{...link.cfg} }; }
     return m;

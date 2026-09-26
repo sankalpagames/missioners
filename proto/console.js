@@ -75,7 +75,8 @@ function onMessage(m){
   else if(m.t==='welcome') boot.onWelcome&&boot.onWelcome(m);
   else if(m.t==='ops') showOps(m.ops,m.stations); else if(m.t==='echo') onEcho(m);
   else if(m.t==='fault') fault(m.where,{message:m.text,stack:m.stack},'хост мира');   // исключение в станции (такт, команда) или воркере — та же панель, другая подпись
-  else if(m.t==='stopped') onStopped(m.by);
+  else if(m.t==='stopped') onStopped(m);
+  else if(m.t==='busy') onBusy(m);
 }
 // операторы на станции: терминалы, подключённые к той же комнате (не пакеты — знание своего инструментария)
 let opsNow=null; const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -129,8 +130,13 @@ function syncSubControls(){ const u=units.get(active); if(u){ $('#sub-tlm').valu
   $('#st-sub-img').value=stcam.subs.img; $('#st-img-level').value=stcam.subs.level; $('#st-img-delta').checked=stcam.subs.delta; }
 // «конец игры, меня мама позвала домой» (tech.md §9): кто-то остановил комнату для всех — сервер закрыл соединение, консоль не переподключается.
 // Терминал поверх консоли; вернуться — через лобби, мир сохранён и продолжится с того же места
-function onStopped(by){ transport.stopped=true; requestSave(); log(`терминал: игра остановлена — ${by}. Консоли всех операторов отключены; продолжить — через лобби`,'err');
-  const el=$('#boot-text'); el.textContent=`$ ares-tk --key ~/old/dse.key ping ${ROOM}\nsession closed by peer: ${by}\n\nигра остановлена для всех: «конец игры» — ${by}\nмир стоит и сохранён; продолжить — через лобби\n\n`; const a=document.createElement('a'); a.href='/'; a.textContent='$ ares-tk stations'; a.style.color='#cfe3cf'; el.appendChild(a); $('#boot').classList.remove('off'); }
+// Причина — пауза или объявленная победа (чья, подтверждена ли миром)
+function onStopped(m){ const by=m.by, w=m.reason==='win'&&m.winner; const why=w?`победа: ${w.side} (${w.name})${w.note?' — '+w.note:''}; ${w.confirmed?'подтверждена миром: '+w.fact:'заявлена'}`:`пауза — ${by}`;
+  transport.stopped=true; requestSave(); log(`терминал: игра остановлена, ${why}. Консоли всех операторов отключены; возобновить — через лобби`,'err');
+  terminal(`session closed by peer: ${by}\n\nигра остановлена для всех: ${why}\nмир стоит и сохранён; возобновить — через лобби${w?' (возобновление оспаривает победу)':''}`); }
+// Одна станция — один игрок: станцию держит другой клиент (консоль или агент) — вход закрыт, консоль не переподключается
+function onBusy(m){ transport.stopped=true; log(`терминал: ${m.text}`,'err'); terminal(`connection refused: station busy\n\n${'ARK-04'+(1+(m.st||0))} — ${m.text}\nнаблюдать можно спектатором; войти — когда станция освободится`); }
+function terminal(text){ boot.dead=true; const el=$('#boot-text'); el.textContent=`$ ares-tk --key ~/old/dse.key ping ${ROOM}\n${text}\n\n`; const a=document.createElement('a'); a.href='/'; a.textContent='$ ares-tk stations'; a.style.color='#cfe3cf'; el.appendChild(a); $('#boot').classList.remove('off'); }
 // нет несущей: перечёркнутый кружок цвета тела после имени (центр X, Y), как † у мёртвого — тот же знак, что в спектаторе; по пульсу станции (флаг «несущая»)
 function noCarrier(c,X,Y,col){ c.save(); c.strokeStyle=col; c.lineWidth=1.5; c.beginPath(); c.arc(X,Y,4,0,7); c.moveTo(X-3,Y+3); c.lineTo(X+3,Y-3); c.stroke(); c.restore(); }
 function decodeHb(b){ if(boot.onHb){ boot.onHb(b); } station.bio=b[0]; station.cam=b[1]; station.grow=b[2]===255?null:b[2]; station.brik=b[3]; station.cut=b[4]; station.at=tNow; const n=b[5];
@@ -544,7 +550,9 @@ setInterval(()=>{
   if(tab==='channel'){ drawChartCh(); const ct=$('#ch-table tbody'); ct.innerHTML=''; for(const k of ['TLM','HB','SONAR','DESC','IMG','EVT']) ct.insertAdjacentHTML('beforeend',`<tr><td><i class="k-${k}" style="display:inline-block;width:8px;height:8px;margin-right:6px"></i>${KIND_RU[k]}</td><td>${bwRate(k).toFixed(0)}</td><td>${totals[k]||0}</td></tr>`);
     const qb=$('#queue tbody'); qb.innerHTML='';
     for(const g of modem.queue){ const eta=g.eta; qb.insertAdjacentHTML('beforeend',`<tr><td>${KIND_RU[kindOf(g.kind)]}${/^IM/.test(g.kind)?' '+[8,16,32,64][+g.kind[3]]+'px'+(g.kind[2]==='D'?' Δ':''):''}</td><td>М${g.unit}</td><td>${g.total-g.n}/${g.total}</td><td>${g.bytes}</td><td>${isFinite(eta)?eta.toFixed(1)+' с':'∞ (нет несущей)'}</td><td><button class="mini" data-cancel="${g.id}">✕</button></td></tr>`); }
-    qb.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{ const g=modem.queue.find(x=>x.id===+b.dataset.cancel); if(g) cancelReq(g); }); }
+    qb.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{ const g=modem.queue.find(x=>x.id===+b.dataset.cancel); if(g) cancelReq(g); });
+    { const L=modem.load||[], tot=L.reduce((a,x)=>a+x.bytes,0); let html=L.map(x=>`<tr><td>${x.unit?'М'+x.unit:'станция'}</td><td>${KIND_RU[x.kind]||x.kind}</td><td>${x.bytes}</td><td>${(100*x.bytes/tot).toFixed(0)}%</td></tr>`).join('')||'<tr><td colspan="4" class="dim">пусто</td></tr>';
+      const lb=$('#qload tbody'); if(lb.dataset.html!==html){ lb.innerHTML=html; lb.dataset.html=html; } } }
   // отладка
   if(!$('#drawer').hidden&&modem.dbg){ const id=active, L=modem.dbg.link.units[id]||{dist:0,fspl:999,obst:0,snr:-99,local:0,ber:0.5,per:1}; $('#i-dist').textContent=L.dist.toFixed(0)+' м'; $('#i-fspl').textContent=L.fspl.toFixed(1)+' дБ'; $('#i-obst').textContent=L.obst.toFixed(1)+' дБ'; $('#i-snr').textContent=L.snr.toFixed(1)+' дБ'+(L.gain?' (+'+L.gain+')':''); $('#i-dist').textContent+=L.node?' · ретр. '+L.node:''; $('#i-local').textContent=(L.local/1000).toFixed(2)+' кбит/с'; $('#i-ber').textContent=L.ber.toExponential(1); $('#i-per').textContent=(L.per*100).toFixed(1)+'%'; $('#i-deep').textContent=(modem.cap/1000).toFixed(2)+' кбит/с = '+(modem.cap/8).toFixed(0)+' Б/с'; $('#i-cnt').textContent=`${modem.cnt.delivered}/${modem.cnt.dropped}/${modem.cnt.retrans}`;
     if((tNow*10|0)%10===0) transport.send({t:'peek',unit:active});
@@ -589,8 +597,8 @@ const boot={onInfo:null,onHb:null,onTlm:null,onWelcome:null};
   const el=$('#boot-text'); const sl=ms=>new Promise(r=>setTimeout(r,ms));
   const type=async s=>{ for(const ch of s){ el.textContent+=ch; await sl(12); } };
   const line=(s)=>{ el.textContent+=s+'\n'; };
-  // вращающийся индикатор ожидания: -\|/ на конце последней строки, пока обещание не разрешится
-  const spin=async p=>{ const f=['-','\\','|','/']; let i=0; el.textContent+=' '; const t=setInterval(()=>{ el.textContent=el.textContent.slice(0,-1)+f[i++%4]; },120); try{ return await p; } finally{ clearInterval(t); el.textContent=el.textContent.slice(0,-1)+'\n'; } };
+  // вращающийся индикатор ожидания: -\|/ на конце последней строки, пока обещание не разрешится; boot.dead — поверх терминал отказа, не трогать
+  const spin=async p=>{ const f=['-','\\','|','/']; let i=0; el.textContent+=' '; const t=setInterval(()=>{ if(boot.dead){ clearInterval(t); return; } el.textContent=el.textContent.slice(0,-1)+f[i++%4]; },120); try{ return await p; } finally{ clearInterval(t); el.textContent=el.textContent.slice(0,-1)+'\n'; } };
   selectUnit(); drawSonar(null);
   el.textContent='$ '; await sl(200); await type('ares-tk --key ~/old/dse.key ping '+(ROOM?'ARK-04'+(1+ST):'ARK-041')); el.textContent+='\n';
   line('resolve ARK-041 via DSE routing table… corp endpoint unreachable, using cached route');

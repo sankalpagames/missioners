@@ -285,7 +285,8 @@ function perceive(p){ const first=!p.per; const per=p.per=p.per||{seen:{}}; cons
     for(const u of units){ if(u.alive) continue; const k='body'+u.id; const s=dist(p,u)<40 && losFrac(p,u)<0.34; if(s && !per.seen[k]) out.push(`тело двуногого лежит, ${farWord(dist(p,u))}, на ${rumb(p,u)}`); per.seen[k]=s; } }
   if(!first) for(const s of out) say(p,s); }
 // полная картина сейчас — для входа агента: по особи строка состояния, чужой, что видит вокруг
-function agentState(){ return pack.map(p=>{ const w=stateWords(p); const parts=[`${pname(p)}: ${w.place}, ${w.act}, ${w.fear}, ${w.hp}${w.tired?', '+w.tired:''}`];
+function agentState(){ return pack.map(p=>{ const w=stateWords(p); if(p.rest>0 && p.act==='rest') w.act=`передышка ${Math.ceil(p.rest)} с`;   // в картине — со сроком; в ленте — «отдыхаю у логова» (строка на смену класса, не на секунду)
+  const parts=[`${pname(p)}: ${w.place}, ${w.act}, ${w.fear}, ${w.hp}${w.tired?', '+w.tired:''}`];
   const foe=foeText(p); if(foe) parts.push(foe); if(p.act!=='sleep') for(const L of landmarks()) if(seesLandmark(p,L)) parts.push(`вижу: ${L.name}, ${farWord(dist(p,L))}, на ${rumb(p,L)}`);
   if(p.item) parts.push('несу: '+ITEMS[p.item]); if(p.told) parts.push('делаю, как сказано'); return parts.join('; '); }); }
 // намерение — строка «О2: к обломкам». Ложится в те же target/act, что рефлексы; принято ≠ выполнено: что особь сделала — в ленте
@@ -296,7 +297,7 @@ function intent(line){
   const no=why=>({ok:false, who:p.i+1, why});
   if(p.act==='dead') return no('мёртв');
   if(p.act==='sleep') wake(p,'слово');   // голос в голове будит
-  if(p.rest>0) return no('на передышке у логова, не выйдет');
+  if(p.rest>0) return no(`на передышке у логова, не выйдет, ещё ${Math.ceil(p.rest)} с`);
   if(p.rage>0 && p.act==='attack') return no('дерётся');
   const left=(p.intentCd||INTENT_CD)-(t-(p.intentAt??-1e9)); if(left>0) return no(`не слушает, ещё ${Math.ceil(left)} с`);
   const accept=(cd)=>{ p.intentAt=t; p.intentCd=cd; return {ok:true, who:p.i+1}; };
