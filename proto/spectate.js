@@ -123,10 +123,10 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
   // крики: кольцо расходится 6 с
   for(const c of cries){ const age=cur-c.t; if(age<0||age>6) continue; const m=LEVEL.pack.members[c.who]||{size:1}; const R=120*(0.8+0.4*m.size)*age/6; ctx.strokeStyle=`rgba(255,92,92,${0.6*(1-age/6)})`; ctx.beginPath(); ctx.arc(S(c.x),Sy(c.y),R*sc,0,7); ctx.stroke(); if(age<3){ ctx.fillStyle='#ff5c5c'; ctx.fillText(`«${c.word}»`,S(c.x)+8,Sy(c.y)-10); } }
   // тела
-  for(const u of f.units){ const X=S(u.x),Y=Sy(u.y), col=u.alive?stCol(u.st||0):'#666';
+  for(const u of f.units){ const X=S(u.x),Y=Sy(u.y), col=stCol(u.st||0);   // мёртвое — тем же цветом команды: крест вместо квадрата, серое терялось на карте высот
     if(layers.senses&&u.alive&&u.light){ ctx.fillStyle='rgba(255,255,200,0.05)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,25*sc,u.h-0.45,u.h+0.45); ctx.closePath(); ctx.fill(); }
     if(layers.targets&&u.tg){ ctx.setLineDash([3,4]); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(u.tg[0]),Sy(u.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
-    if(u.alive){ ctx.fillStyle=col; ctx.fillRect(X-3,Y-3,7,7); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(u.h)*9,Y+Math.sin(u.h)*9); ctx.stroke(); } else cross(X,Y,'#b8bfc7');   // тело лежит, где упало: крест
+    if(u.alive){ ctx.fillStyle=col; ctx.fillRect(X-3,Y-3,7,7); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(u.h)*9,Y+Math.sin(u.h)*9); ctx.stroke(); } else { ctx.save(); ctx.lineWidth=2.5; ctx.strokeStyle='rgba(0,0,0,0.7)'; ctx.beginPath(); ctx.moveTo(X-4,Y-4); ctx.lineTo(X+4,Y+4); ctx.moveTo(X-4,Y+4); ctx.lineTo(X+4,Y-4); ctx.stroke(); ctx.restore(); cross(X,Y,col); }   // тёмная подложка — крест виден и на светлом склоне   // тело лежит, где упало: крест
     if(u.alive&&u.car===false) noCarrier(ctx,X,Y,col);
     if(layers.labels){ const ops=opsAt(u.st||0,cur); ctx.fillStyle=col; ctx.fillText(`М${u.id}${ops.length?' · '+ops.join(', '):''}${u.alive?(u.reflex===5?' бой':u.reflex===6?' бегство':u.stealth?' тихо':''):' †'}`,X+7,Y-8); } }
   // особи
