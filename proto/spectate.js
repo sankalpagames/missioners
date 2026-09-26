@@ -64,10 +64,11 @@ function useMap(m,t){ if(!m||!m.id||!/^[a-z0-9_-]{1,32}$/.test(m.id)) return; co
     .catch(e=>{ ev({t, cls:'note', text:`карта ${m.id} не загружена (${e.message}) — подложка от ${cur.id}`}); draw(); }); }
 function span(){ t0=frames.length?frames[0].t:0; t1=frames.length?frames[frames.length-1].t:(events.length?events[events.length-1].t:0); }
 function center(){ if(frames.length){ const f=frames[0]; const pts=[...f.units,...f.pack]; if(pts.length){ cx=pts.reduce((a,p)=>a+p.x,0)/pts.length; cy=pts.reduce((a,p)=>a+p.y,0)/pts.length; } } }
-function load(text){
+function load(text,name){
+  if(name){ $('#fname').textContent=name; $('#fname').title='Загруженный лог мира: '+name; }   // имя файла или адреса — в шапке и в заголовке вкладки
   reset(); for(const line of text.split('\n')) parseLine(line);
   events.sort((a,b)=>a.t-b.t); cries.sort((a,b)=>a.t-b.t); span(); cur=t0;
-  $('#seek').min=t0; $('#seek').max=t1; $('#drop').hidden=true; document.title=`спектатор · ${Math.round(t1-t0)} с`;
+  $('#seek').min=t0; $('#seek').max=t1; $('#drop').hidden=true; document.title=`спектатор · ${$('#fname').textContent} · ${Math.round(t1-t0)} с`;
   center(); hmDirty(0); renderFeed(true); setPlaying(false); }
 // живьём: строки от сервера — в те же структуры; первая порция (хвост лога) — как файл, дальше «сейчас» догоняет t1 в loop
 function liveConnect(code){ live.on=true; live.code=code; live.first=true; reset(); document.body.classList.add('live'); $('#drop').hidden=true; document.title=`спектатор · ${code} · живьём`; liveStatus();
@@ -174,10 +175,11 @@ document.addEventListener('keydown',e=>{ if(live.on||e.target.tagName==='INPUT'&
 $$('[data-layer]').forEach(b=>b.onclick=()=>{ layers[b.dataset.layer]=!layers[b.dataset.layer]; b.classList.toggle('on',layers[b.dataset.layer]); if(b.dataset.layer==='hm'||b.dataset.layer==='iso') hmDirty(0); else draw(); });
 $$('[data-f]').forEach(c=>c.onchange=()=>{ filters[c.dataset.f]=c.checked; renderFeed(true); });
 // файл: выбор или перетаскивание; ?log=URL — загрузить по адресу
-$('#file').onchange=e=>{ const f=e.target.files[0]; if(f) f.text().then(load); };
-document.addEventListener('dragover',e=>e.preventDefault()); document.addEventListener('drop',e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) f.text().then(load); });
+$('#fopen').onclick=()=>$('#file').click();
+$('#file').onchange=e=>{ const f=e.target.files[0]; if(f) f.text().then(t=>load(t,f.name)); };
+document.addEventListener('dragover',e=>e.preventDefault()); document.addEventListener('drop',e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) f.text().then(t=>load(t,f.name)); });
 const qs=new URLSearchParams(location.search), qlog=qs.get('log'), qroom=(qs.get('room')||'').trim();
-if(/^[\w-]{1,32}$/.test(qroom)) liveConnect(qroom); else if(qlog) fetch(qlog).then(r=>r.text()).then(load).catch(()=>{});   // ?room=КОД — живьём с сервера; ?log=URL — файл
+if(/^[\w-]{1,32}$/.test(qroom)) liveConnect(qroom); else if(qlog){ const nm=decodeURIComponent(qlog.split('?')[0].split('/').pop()||qlog); $('#fname').textContent=nm+' — загрузка…'; fetch(qlog).then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); }).then(t=>load(t,nm)).catch(e=>{ $('#fname').textContent=`${nm} — не загрузился (${e.message})`; }); }   // ?room=КОД — живьём с сервера; ?log=URL — файл
 // карта: сдвиг, масштаб, наведение, закрепление
 let drag=null;
 cv.addEventListener('mousedown',e=>{ drag={x:e.clientX,y:e.clientY,cx,cy,moved:false}; });

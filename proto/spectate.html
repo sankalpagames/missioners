@@ -11,6 +11,7 @@ html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.35 ui-monospace,Menlo,monospace;display:flex;flex-direction:column;overflow:hidden}
 #top{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel);white-space:nowrap}
 #top .t{font-size:11px;letter-spacing:.12em;color:var(--acc)}
+#fname{color:var(--fg)}
 #app{display:grid;grid-template-columns:1fr 400px;flex:1;min-height:0}
 #mapwrap{position:relative;min-width:0;min-height:0;background:#000}
 #map{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
@@ -39,7 +40,7 @@ label.cb{cursor:pointer;user-select:none}
 <body>
 <header id="top">
   <span class="t">СПЕКТАТОР · <span class="when-file">лог мира</span><span class="when-live">живьём</span></span>
-  <input type="file" id="file" class="when-file" accept=".log,.jsonl,.txt" title="Файл лога: data/КОД.log с сервера, data/play-*.log с площадки или «лог мира» из шторки">
+  <span class="when-file"><span id="fname" title="Загруженный лог мира">файл не выбран</span> <button id="fopen" title="Файл лога: data/КОД.log с сервера, data/play-*.log с площадки или «лог мира» из шторки; можно перетащить на карту">открыть…</button><input type="file" id="file" accept=".log,.jsonl,.txt" hidden></span>
   <button id="play" class="when-file" title="Пробел">▶</button>
   <select id="speed" class="when-file" title="Скорость проигрывания"><option value="1">×1</option><option value="4" selected>×4</option><option value="16">×16</option><option value="64">×64</option></select>
   <span id="livest" class="when-live dim" title="Мир идёт, пока в комнате есть операторы; зритель его не запускает"></span>
