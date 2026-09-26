@@ -33,7 +33,7 @@ function opsAt(st,t){ let n={}; for(const e of opLog){ if(e.t>t) break; if(e.res
 const teamOf=st=>teams.length>st?teams[st]:st;
 const SCOL=['#7fe07f','#5fd0ff','#e0a94a','#d98cff'];   // цвет — станция: корпус, подпись, её тела; операторы — в карточках
 const stCol=st=>SCOL[st%SCOL.length];
-function noCarrier(c,X,Y,col){ c.save(); c.strokeStyle=col; c.lineWidth=1.5; c.beginPath(); c.arc(X-9,Y-9,4,0,7); c.moveTo(X-12,Y-6); c.lineTo(X-6,Y-12); c.stroke(); c.restore(); }   // нет несущей: станция тело не слышит
+function noCarrier(c,X,Y,col){ c.save(); c.strokeStyle=col; c.lineWidth=1.5; c.beginPath(); c.arc(X,Y,4,0,7); c.moveTo(X-3,Y+3); c.lineTo(X+3,Y-3); c.stroke(); c.restore(); }   // нет несущей (центр знака X, Y): после имени тела, как † у мёртвого; станция тело не слышит
 // одна запись лога → кадр phys, крик, строка ленты. Лента держится по времени: вставка с конца (записи идут почти по порядку)
 function ev(e){ let i=events.length; while(i>0&&events[i-1].t>e.t) i--; events.splice(i,0,e); if(live.on&&events.length>5000) events.splice(0,events.length-5000); }   // вставка по времени с конца: записи идут почти по порядку
 function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line); }catch(e){ return; } const t=+r.t||0;
@@ -127,8 +127,8 @@ function draw(){ ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     if(layers.senses&&u.alive&&u.light){ ctx.fillStyle='rgba(255,255,200,0.05)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.arc(X,Y,25*sc,u.h-0.45,u.h+0.45); ctx.closePath(); ctx.fill(); }
     if(layers.targets&&u.tg){ ctx.setLineDash([3,4]); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(u.tg[0]),Sy(u.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
     if(u.alive){ ctx.fillStyle=col; ctx.fillRect(X-3,Y-3,7,7); ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+Math.cos(u.h)*9,Y+Math.sin(u.h)*9); ctx.stroke(); } else { ctx.save(); ctx.lineWidth=2.5; ctx.strokeStyle='rgba(0,0,0,0.7)'; ctx.beginPath(); ctx.moveTo(X-4,Y-4); ctx.lineTo(X+4,Y+4); ctx.moveTo(X-4,Y+4); ctx.lineTo(X+4,Y-4); ctx.stroke(); ctx.restore(); cross(X,Y,col); }   // тёмная подложка — крест виден и на светлом склоне   // тело лежит, где упало: крест
-    if(u.alive&&u.car===false) noCarrier(ctx,X,Y,col);
-    if(layers.labels){ ctx.fillStyle=col; ctx.fillText(`М${u.id}${u.alive?(u.reflex===5?' бой':u.reflex===6?' бегство':u.stealth?' тихо':''):' †'}`,X+7,Y-8); } }
+    const lab=`М${u.id}${u.alive?(u.reflex===5?' бой':u.reflex===6?' бегство':u.stealth?' тихо':''):' †'}`; if(layers.labels){ ctx.fillStyle=col; ctx.fillText(lab,X+7,Y-8); }
+    if(u.alive&&u.car===false) noCarrier(ctx,layers.labels?X+7+ctx.measureText(lab).width+7:X+10,Y-8,col); }   // статус — после имени: † мёртв, ⊘ нет несущей
   // особи
   for(const p of f.pack){ const X=S(p.x),Y=Sy(p.y); const dead=p.act==='dead', col=dead?'#c06060':'#ff5c5c', r=Math.max(3,0.8*p.size*sc);
     if(layers.targets&&p.tg&&!dead){ ctx.setLineDash([3,4]); ctx.strokeStyle='rgba(255,92,92,0.6)'; ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(S(p.tg[0]),Sy(p.tg[1])); ctx.stroke(); ctx.setLineDash([]); }
