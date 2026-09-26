@@ -147,7 +147,7 @@ function airlocks(){ return LEVEL.sites.map((site,i)=>{ const base=baseAt(site);
 function toLocal(site,x,y){ const a=(site.ang||0)*Math.PI/180, c=Math.cos(a), s=Math.sin(a); return {dx:Math.round((x*c+y*s)*100)/100, dy:Math.round((-x*s+y*c)*100)/100}; }   // мировое смещение → оси площадки
 function layoutsOf(i){ const L=LEVEL.layouts||{}; const ns=Object.keys(L).filter(n=>L[n].includes(i)); return ns.length?ns.map(n=>`${n}: ARK-04${1+L[n].indexOf(i)}`).join(', '):'не занята'; }   // при каких n площадка занята и какой платформой
 function moveTo(h,x,y){ switch(h.kind){
-  case 'station': h.ref.x=x; h.ref.y=y; break;   // база едет за площадкой сама — всё в ней задано смещениями
+  case 'station': h.ref.x=x; h.ref.y=y; if(h.ref===LEVEL.sites[0]){ TER.reload(); hmDirty(150); } break;   // база едет за площадкой сама — всё в ней задано смещениями; под площадкой 1 — посадочное поле
   case 'turret': { const st=h.ref; const l=toLocal(st,x-st.x,y-st.y); st.turret={...(st.turret||{f:0}), ...l}; break; }   // перетащенная штатная турель становится турелью площадки
   case 'sub': { const l=toLocal(h.poi.site,x-h.poi.x,y-h.poi.y); h.ref.dx=l.dx; h.ref.dy=l.dy; break; }
   case 'ksub': return;   // штатный объект базы — из кодовой книги, не двигается

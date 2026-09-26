@@ -20,7 +20,7 @@
 //              collider {r, h} — если через него нельзя пройти. Процедурный декор (россыпи) — свойство тирейна в terrain.js.
 //   pack     — одичалые: lair — логово, members — особи: лёжка x/y и черты 0…1 — size, courage, attention. Не больше 6 (id 250 + i).
 const LEVEL = {
-  meta: { id:'act1', name:'Первый акт', v:4, format:2 },
+  meta: { id:'act1', name:'Первый акт', v:5, format:2 },
   terrain: {
     canyon: {
       pts: [{x:260,y:150}, {x:284,y:158}, {x:300,y:184}, {x:321,y:191}, {x:326,y:213}, {x:341,y:219}],
@@ -99,14 +99,17 @@ const LEVEL = {
     {id:7204, type:'cairn', x:178.97, y:105.37, f:201, Hs:1},
     {id:7205, type:'cairn', x:211.36, y:123.26, f:106, Hs:0.9},
     {id:7206, type:'cairn', x:265.2, y:118.7, f:240, Hs:0.9},
-    {id:7300, type:'post', x:10, y:-8, f:-33, Hs:1.5},
-    {id:7301, type:'post', x:23.38, y:-16.62, f:-33, Hs:1.5},
-    {id:7302, type:'post', x:36.75, y:-25.25, f:-33, Hs:1.5},
-    {id:7303, type:'post', x:50.13, y:-33.87, f:-33, Hs:1.5},
-    {id:7304, type:'post', x:63.5, y:-42.5, f:-33, Hs:1.5},
-    {id:7305, type:'post', x:76.88, y:-51.12, f:-33, Hs:1.5},
-    {id:7306, type:'post', x:91, y:-59.9, f:-33, Hs:1.5},
-    {id:7307, type:'post', x:103.63, y:-68.37, f:-33, Hs:1.5},
+    {id:7300, type:'post', x:-64, y:-75, f:-2, Hs:1.5},
+    {id:7301, type:'post', x:-47.2, y:-75.6, f:-2, Hs:1.5},
+    {id:7302, type:'post', x:-30.4, y:-76.2, f:-2, Hs:1.5},
+    {id:7303, type:'post', x:-13.6, y:-76.8, f:-2, Hs:1.5},
+    {id:7304, type:'post', x:3.2, y:-77.4, f:-2, Hs:1.5},
+    {id:7305, type:'post', x:20, y:-78, f:-2, Hs:1.5},
+    {id:7306, type:'post', x:36.8, y:-78.6, f:-2, Hs:1.5},
+    {id:7307, type:'post', x:53.6, y:-79.2, f:-2, Hs:1.5},
+    {id:7309, type:'post', x:70.4, y:-79.8, f:-2, Hs:1.5},
+    {id:7310, type:'post', x:87.2, y:-80.4, f:-2, Hs:1.5},
+    {id:7311, type:'post', x:104, y:-81, f:-2, Hs:1.5},
     {id:7308, type:'boulder', x:90.8, y:-184.2, f:0, Hs:5, collider:{r:1.3, h:5}},
   ],
   pack: { lair:{x:341.5,y:219.5}, members:[
