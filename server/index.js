@@ -178,7 +178,9 @@ function listRooms(){ const out=[]; const codes=new Set(rooms.keys());
       const d=JSON.parse(fs.readFileSync(path.join(DATA,f),'utf8')); if(d.v!==4) continue; const u=d.world.units; const info={code, cfg:pubCfg(roomCfg(d.cfg||{})), ops:[], t:d.world.t||0, units:u.length, alive:u.filter(x=>x.alive).length, savedAt:d.savedAt,
         running:false, lastCmd:0, stations:(d.world.stations||[]).map(S=>({k:S.k, name:S.name, ops:[], holder:(a=>a&&{name:a.name, since:a.since||a.last})(Object.values(d.agents||{}).find(a=>a.st===S.k&&Date.now()-a.last<OP_TTL)), units:u.filter(x=>x.st===S.k).length, alive:u.filter(x=>x.st===S.k&&x.alive).length})),
         pack:d.packHold&&Date.now()-d.packHold.last<OP_TTL?{name:d.packHold.name, since:d.packHold.since}:null, stopped:d.stopped||null, archived:d.archived||null, winner:d.winner||null, disputed:!d.winner&&(d.history||[]).length?d.history[d.history.length-1]:null, keys:roleKeys(code,roomCfg(d.cfg||{}))}; diskInfo[code]={mtime:st.mtimeMs,info}; out.push(info); }catch(e){} }
-  for(const r of rooms.values()) out.push(r.info());
+  for(const [code,r] of rooms){   // файл удалён руками (Kudu), а в комнате никого — выгрузить, иначе следующее сохранение её воскресит
+    if(!fs.existsSync(r.file)&&!r.clients.size&&!r.watchers.size&&!r.pack.waiters.length&&!r.packHolder()&&![...opSessions.values()].some(S=>S.room===r)){ r.logBuf=[]; rooms.delete(code); delete diskInfo[code]; log(`${code}: файла нет, комната выгружена`); continue; }
+    out.push(r.info()); }
   return out.sort((a,b)=>(b.ops.length-a.ops.length)||(b.savedAt-a.savedAt)); }
 const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);
 
@@ -285,7 +287,8 @@ const server=http.createServer((req,res)=>{
   if(f==='/rooms'&&req.method==='POST'){   // создать планету с настройками (если уже есть — настройки не меняются)
     let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body); }catch(e){}
       const code=String(q.code||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ res.writeHead(400); res.end('bad code'); return; }
-      const r=room(code,q); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({...r.info(), pack:r.cfg.pack})); }); return; }   // ключи ролей — в info(), как и в списке планет: они не секрет
+      const fresh=!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json')); const r=room(code,q); if(fresh) r.save();   // новая — сразу в файл: список лобби и DATA_DIR не расходятся
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({...r.info(), pack:r.cfg.pack})); }); return; }   // ключи ролей — в info(), как и в списке планет: они не секрет
   { const m=/^\/rooms\/([\w-]{1,32})\/(stop|resume|archive|unarchive)$/.exec(f); if(m&&req.method==='POST'){   // stop — «конец игры» для всех (лобби, любой человек); resume — снять остановку, агентов снова пускают; archive/unarchive — в архив лобби и обратно
       let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){}
         const code=m[1]; if(!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ res.writeHead(404); res.end('нет планеты'); return; } const r=room(code);
