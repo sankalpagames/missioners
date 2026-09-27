@@ -47,7 +47,7 @@ class Link {
   // --- пакетизация ---
   enqueue(msg){
     const total=Math.ceil(msg.payload.length/PAYLOAD)||1, pkts=[];
-    for(let i=0;i<total;i++){ const bytes=msg.payload.slice(i*PAYLOAD,(i+1)*PAYLOAD); pkts.push({msgId:msg.id,kind:msg.kind,unit:msg.unit,seq:i,total,bytes,cls:msg.cls,size:bytes.length+HDR,tries:0,born:this.t}); }
+    for(let i=0;i<total;i++){ const bytes=msg.payload.slice(i*PAYLOAD,(i+1)*PAYLOAD); pkts.push({msgId:msg.id,kind:msg.kind,unit:msg.unit,seq:i,total,bytes,cls:msg.cls,after:!!msg.after,size:bytes.length+HDR,tries:0,born:this.t}); }
     if(msg.cls==='bg'){
       const key=msg.unit+':'+msg.kind, pending=this.queues.bg[key];
       if(/^IM[GD]/.test(msg.kind) && pending && pending.length){   // кадр ещё уходит — новый не принимаем: канал не успевает за интервалом
@@ -68,8 +68,8 @@ class Link {
   // --- планировщик ---
   // Лестница (tech.md §3): на каждый пакет — верхняя ступень, где есть что отправить. Квот нет: пакеты ≤ 64 Б, срочное вклинивается между
   // пакетами большого, большое идёт остатком полосы. 1 события · 2 сводка станции · 3 ответы на запросы, кроме кадров · 4 телеметрия ·
-  // 5 прочие подписки (описание, лидар по интервалу) · 6 кадры по запросу · 7 автосъёмка
-  tier(p){ const img=/^IM[GD]/.test(p.kind); if(p.kind==='EVT') return 1; if(p.kind==='HB') return 2; if(p.cls==='cmd') return img?6:3; if(p.kind==='TLM') return 4; return img?7:5; }
+  // 5 прочие подписки (описание, лидар по интервалу) · 6 кадры по запросу · 7 автосъёмка. Событие-следствие ответа (after: «задача закрыта» по прочитанной записи) — на ступени 3, за ответом
+  tier(p){ const img=/^IM[GD]/.test(p.kind); if(p.kind==='EVT') return p.after?3:1; if(p.kind==='HB') return 2; if(p.cls==='cmd') return img?6:3; if(p.kind==='TLM') return 4; return img?7:5; }
   // внутри ступени ответы — по порядку очереди, подписки — по кругу между «тело:вид»; пакет тела вне связи не задерживает остальных
   pickNext(){ const local=p=>!p.unit || (this.localCapBps(p.unit)>0 && (this.localBudget[p.unit]||0)>=p.size);
     const keys=Object.keys(this.queues.bg).filter(k=>this.queues.bg[k].length).sort();

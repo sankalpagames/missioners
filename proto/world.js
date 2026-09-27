@@ -401,8 +401,9 @@ function stepBody(u,len){
 
 // ---------- сообщения наружу ----------
 // st — станция-адресат: её оператор(ы) и получают сообщение; по умолчанию — станция тела
-function emit(cls, kind, unit, payload, st){ if(st===undefined){ const u=units.find(u=>u.id===unit); st=u?u.st:0; } if(muted){ msgId++; return; } postMessage({ t:'msg', id:msgId++, st, cls, kind, unit, payload }); }
-function evt(code, unit=0, arg=0, st){ emit('cmd','EVT', unit, new Uint8Array([code,arg]), st); }
+function emit(cls, kind, unit, payload, st, after){ if(st===undefined){ const u=units.find(u=>u.id===unit); st=u?u.st:0; } if(muted){ msgId++; return; } postMessage({ t:'msg', id:msgId++, st, cls, kind, unit, payload, after }); }
+// after — событие-следствие ответа (задача закрыта по прочитанной записи): идёт в очереди ответов за ним, а не вперёд (link.js, лестница)
+function evt(code, unit=0, arg=0, st, after){ emit('cmd','EVT', unit, new Uint8Array([code,arg]), st, after); }
 // Заметка мира: что решил и почему — в лог хоста (tech.md §12). Консоль этого не видит: станция не пересылает note операторам.
 // Ставится там, где if с числами решает игровой исход и потом спросят «почему оно так». Не трассировка: сотни строк на час, не тысячи.
 function note(kind, data){ if(muted) return; postMessage({ t:'note', at:+t.toFixed(1), kind, ...data }); }
@@ -599,7 +600,7 @@ function doPending(u){
   if(!a){ textReply('ACT',1,'действий нет.'); return; }
   if(a.needs && !u.items.includes(a.needs)){ textReply('ACT',2,`не смог: ${a.fail||'нужен предмет'}`); return; }
   if(a.req && stateOf(a.req.obj)!==a.req.state){ textReply('ACT',3,`не смог: ${a.fail||'условие не выполнено'}`); return; }
-  if(a.special==='finale' && stOf(u).taskOpen){ stOf(u).taskOpen=false; later(1.5,()=>evt(17,u.id)); }
+  if(a.special==='finale' && stOf(u).taskOpen){ stOf(u).taskOpen=false; later(1.5,()=>evt(17,u.id,0,undefined,true)); }
   if(a.item===42){ u.sensors.camera=true; u.lastImg={}; } else if(a.item) u.items.push(a.item);
   objState[o.id]=a.to; textReply('ACT',0,withContents(o,`${a.verb}. ${(cb.states||[])[a.to]||''}`)); sendCont();
 }
