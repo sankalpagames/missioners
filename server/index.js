@@ -40,7 +40,7 @@ const enc=m=>JSON.stringify(m,replacer);
 // настройки комнаты задаёт создатель в лобби, одинаковы для всех платформ: карта, число платформ (не больше площадок карты), ёмкость дальней линии, ускорение времени
 const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4];
 // teams — команда каждой платформы («0,0,1,1»: первые две вместе); нет или не по числу платформ — каждая сама за себя. voice — радиус голоса стаи, м (0 — без предела).
-// Оба уходят миру строкой search (tech.md §6: &teams=…&voice=…); сервер их не толкует
+// Оба уходят миру строкой search (tech.md §1: &teams=…&voice=…); сервер их не толкует
 const roomCfg=q=>{ const map=MAPS[q.map]?q.map:MAP_DEFAULT; const P=MAPS[map].players, n=P.includes(+q.n)?+q.n:P.includes(2)?2:P[0];   // сколько платформ — решает карта (playersOf: раскладки уровня); стая не в счёт
   const teams=String(Array.isArray(q.teams)?q.teams.join(','):q.teams||'').split(',').map(x=>x.trim()).filter(x=>/^\d$/.test(x)).map(Number);
   const hex=v=>/^[0-9a-f]{12,32}$/.test(v||'')?v:crypto.randomBytes(8).toString('hex');
@@ -157,7 +157,7 @@ class Room {
     if(!ws.live) return;
     m.st=ws.st;   // станция — та, к которой подключён оператор, а не та, что назвал клиент
     if(m.t==='up'){ this.st.handle(m); this.lastCmd=Date.now();   // lastCmd — для лобби: не просто сидят, а что-то делают
-      // эхо сокомандникам той же платформы: кто что отправил — знание земной стороны, канала не проходит (tech.md §8)
+      // эхо сокомандникам той же платформы: кто что отправил — знание земной стороны, канала не проходит (server.md §5)
       const e=enc({t:'echo',st:ws.st,op:ws.op.name,bytes:m.bytes}); for(const c of this.clients) if(c!==ws && c.live && c.st===ws.st) c.send(e);
       return; }
     if(DEBUG&&(m.t==='cfg'||m.t==='tp'||m.t==='peek')) this.st.handle(m);   // speed/load/save от клиентов не принимаются: ускорение — настройка комнаты, мир — у сервера

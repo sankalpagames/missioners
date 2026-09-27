@@ -128,7 +128,7 @@ function syncSubs(u,who,got){ const rq=u.subReq||(u.subReq={}); let changed=fals
 function noteSubReq(u,keys){ const rq=u.subReq||(u.subReq={}); for(const k of keys) rq[k]=tNow; }
 function syncSubControls(){ const u=units.get(active); if(u){ $('#sub-tlm').value=u.subs.tlm; $('#tx-pow').value=u.subs.tx||0; $('#sub-sonar').value=u.subs.sonar; $('#sub-desc').value=u.subs.desc; $('#sub-img').value=u.subs.img; $('#img-level').value=u.subs.level; $('#img-delta').checked=u.subs.delta; }
   $('#st-sub-img').value=stcam.subs.img; $('#st-img-level').value=stcam.subs.level; $('#st-img-delta').checked=stcam.subs.delta; }
-// «конец игры, меня мама позвала домой» (tech.md §9): кто-то остановил комнату для всех — сервер закрыл соединение, консоль не переподключается.
+// «конец игры, меня мама позвала домой» (server.md §3): кто-то остановил комнату для всех — сервер закрыл соединение, консоль не переподключается.
 // Терминал поверх консоли; вернуться — через лобби, мир сохранён и продолжится с того же места
 // Причина — пауза или объявленная победа (чья, подтверждена ли миром)
 function onStopped(m){ const by=m.by, w=m.reason==='win'&&m.winner; const why=w?`победа: ${w.side} (${w.name})${w.note?' — '+w.note:''}; ${w.confirmed?'подтверждена миром: '+w.fact:'заявлена'}`:m.reason==='archive'?`комната в архиве (${by}), только смотреть`:`пауза — ${by}${m.note?': «'+m.note+'»':''}`;
