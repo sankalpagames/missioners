@@ -19,7 +19,7 @@ class Link {
       orbit: false, orbitPeriod: 420, orbitVisible: 300, orbitPhase0: 20,
     };
     this.phys = { units:{} };   // по телу: dist — до лучшего узла станции (сама станция или ретранслятор), obstDb, gain — усиление антенны узла, txDbm
-    this.t = 0; this.deepBudget = 0; this.localBudget = {}; this.secBg = 0; this.rr = 0;
+    this.t = 0; this.deepBudget = 0; this.localBudget = {}; this.rr = {};
     this.queues = { bg:{}, cmd:[] };   // bg: по одному свежему сообщению на источник и вид
     this.retry = [];
     this.stats = { sec:this.blankSec(), hist:[], dropped:0, delivered:0, retrans:0 };
@@ -66,7 +66,18 @@ class Link {
   sendUplink(bytes){ if(!this.up()) return false; this.uplinkPending.push({bytes,at:this.t+this.cfg.rtt/2}); return true; }
 
   // --- планировщик ---
-  canSend(p){ if(this.deepBudget<p.size) return false; if(!p.unit) return true; return this.localCapBps(p.unit)>0 && (this.localBudget[p.unit]||0)>=p.size; }
+  // Лестница (tech.md §3): на каждый пакет — верхняя ступень, где есть что отправить. Квот нет: пакеты ≤ 64 Б, срочное вклинивается между
+  // пакетами большого, большое идёт остатком полосы. 1 события · 2 сводка станции · 3 ответы на запросы, кроме кадров · 4 телеметрия ·
+  // 5 прочие подписки (описание, лидар по интервалу) · 6 кадры по запросу · 7 автосъёмка
+  tier(p){ const img=/^IM[GD]/.test(p.kind); if(p.kind==='EVT') return 1; if(p.kind==='HB') return 2; if(p.cls==='cmd') return img?6:3; if(p.kind==='TLM') return 4; return img?7:5; }
+  // внутри ступени ответы — по порядку очереди, подписки — по кругу между «тело:вид»; пакет тела вне связи не задерживает остальных
+  pickNext(){ const local=p=>!p.unit || (this.localCapBps(p.unit)>0 && (this.localBudget[p.unit]||0)>=p.size);
+    const keys=Object.keys(this.queues.bg).filter(k=>this.queues.bg[k].length).sort();
+    for(let s=1;s<=7;s++){
+      const c=this.queues.cmd.find(p=>this.tier(p)===s && local(p)); if(c) return {p:c, q:this.queues.cmd, s};
+      const ks=keys.filter(k=>{ const h=this.queues.bg[k][0]; return this.tier(h)===s && local(h); }); if(!ks.length) continue;
+      const last=this.rr[s], key=ks.find(k=>last===undefined||k>last)||ks[0]; return {p:this.queues.bg[key][0], q:this.queues.bg[key], s, key}; }
+    return null; }
   spend(p){ this.deepBudget-=p.size; if(p.unit) this.localBudget[p.unit]-=p.size; }
   tick(dt){
     this.t+=dt;
@@ -79,20 +90,9 @@ class Link {
 
     let guard=0;
     while(guard++<300){
-      let pick=null, q=null;
-      // 1) пульс станции — всегда (крошечный резерв); 2) фон миссионеров — если нет потока
-      // 1) фон (подписки) — раньше команд, но не больше 40 % полосы в секунду: команды не голодают;
-      // 2) команды в порядке очереди, минуя те, чей миссионер вне зоны
-      const bgAllowed = this.secBg < 0.4*dcap/8 || !this.queues.cmd.length;
-      if(bgAllowed){ // пульс станции первым; остальной фон — по кругу, чтобы ни одна подписка не голодала
-        const keys=Object.keys(this.queues.bg).filter(k=>this.queues.bg[k].length); const hb=keys.filter(k=>k.startsWith('0:')), rest=keys.filter(k=>!k.startsWith('0:'));
-        const start=rest.length?this.rr%rest.length:0; const order=[...hb, ...rest.slice(start), ...rest.slice(0,start)];
-        for(const key of order){ const arr=this.queues.bg[key]; if(this.deepBudget<arr[0].size) break;   // ждём бюджета, а не обгоняем мелкими пакетами
-          if(this.canSend(arr[0])){ pick=arr[0]; q=arr; if(!key.startsWith('0:')) this.rr=(rest.indexOf(key)+1)%rest.length; break; } } }
-      if(!pick){ const arr=this.queues.cmd;   // по порядку; пропускаем только пакеты миссионеров вне зоны, а не «маленькие, которые влезли»
-        for(const p of arr){ if(this.deepBudget<p.size) break; if(p.unit && !(this.localCapBps(p.unit)>0 && (this.localBudget[p.unit]||0)>=p.size)) continue; pick=p; q=arr; break; } }
-      if(!pick) break;
-      q.splice(q.indexOf(pick),1); this.spend(pick); pick.tries++; if(pick.cls==='bg') this.secBg+=pick.size;
+      const n=this.pickNext(); if(!n) break;
+      const pick=n.p; if(this.deepBudget<pick.size) break;   // ждём бюджета на верхний пакет, а не обгоняем его мелкими снизу
+      n.q.splice(n.q.indexOf(pick),1); this.spend(pick); pick.tries++; if(n.key) this.rr[n.s]=n.key;
       this.stats.sec[this.kindOf(pick.kind)]+=pick.size;
       if(Math.random()<this.per(pick.unit,pick.size)){
         this.stats.sec.drop+=pick.size;
@@ -101,7 +101,10 @@ class Link {
       } else { this.stats.delivered++; this.onDeliver({...pick,latency:this.t-pick.born}); }
     }
     this._secAcc+=dt;
-    if(this._secAcc>=1){ this._secAcc-=1; this.secBg=0; this.stats.sec.cap=dcap/8; this.stats.hist.push({...this.stats.sec}); if(this.stats.hist.length>90) this.stats.hist.shift(); this.stats.sec=this.blankSec(); }
+    if(this._secAcc>=1){ this._secAcc-=1; this.stats.sec.cap=dcap/8; this.stats.hist.push({...this.stats.sec}); if(this.stats.hist.length>90) this.stats.hist.shift(); this.stats.sec=this.blankSec(); }
   }
-  etaFor(msgId){ const cap=this.deepCapBps()/8; if(!cap) return Infinity; let last=-1; this.queues.cmd.forEach((p,i)=>{ if(p.msgId===msgId) last=i; }); if(last<0) return 0; let b=this.queueBytes('bg'); for(let i=0;i<=last;i++) b+=this.queues.cmd[i].size; return b/cap; }
+  // сколько ждать ответа: всё, что сейчас в очереди на ступенях выше, и его ступень до последнего пакета включительно (новые подписки не в счёт)
+  etaFor(msgId){ const cap=this.deepCapBps()/8; if(!cap) return Infinity; const Q=this.queues.cmd; let last=-1; Q.forEach((p,i)=>{ if(p.msgId===msgId) last=i; }); if(last<0) return 0;
+    const s=this.tier(Q[last]); let b=0; Q.forEach((p,i)=>{ const t=this.tier(p); if(t<s||(t===s&&i<=last)) b+=p.size; });
+    for(const arr of Object.values(this.queues.bg)) for(const p of arr) if(this.tier(p)<s) b+=p.size; return b/cap; }
 }
