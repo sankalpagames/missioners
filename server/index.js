@@ -41,7 +41,7 @@ const enc=m=>JSON.stringify(m,replacer);
 const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4];
 // teams — команда каждой платформы («0,0,1,1»: первые две вместе); нет или не по числу платформ — каждая сама за себя. voice — радиус голоса стаи, м (0 — без предела).
 // Оба уходят миру строкой search (tech.md §6: &teams=…&voice=…); сервер их не толкует
-const roomCfg=q=>{ const map=MAPS[q.map]?q.map:MAP_DEFAULT; const n=Math.max(2,Math.min(MAPS[map].sites,+q.n||2));
+const roomCfg=q=>{ const map=MAPS[q.map]?q.map:MAP_DEFAULT; const n=Math.max(1,Math.min(MAPS[map].sites,+q.n||2));   // от одной платформы (одиночная партия на сервере) до числа площадок карты
   const teams=String(Array.isArray(q.teams)?q.teams.join(','):q.teams||'').split(',').map(x=>x.trim()).filter(x=>/^\d$/.test(x)).map(Number);
   const hex=v=>/^[0-9a-f]{12,32}$/.test(v||'')?v:crypto.randomBytes(8).toString('hex');
   return { map, n, cap:CAPS.includes(+q.cap)?+q.cap:512, speed:SPEEDS.includes(+q.speed)?+q.speed:1, teams:teams.length===n&&new Set(teams).size<n?teams:[], voice:Math.max(0,Math.min(2000,+q.voice||0)),
