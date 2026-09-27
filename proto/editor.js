@@ -23,7 +23,7 @@ const COL={poi:'#e0a94a',obj:'#cfd6de',scenery:'#9fb59f',decor:'rgba(220,220,220
 // ---------- уровень: история, сериализация, сохранение ----------
 function pushHist(){ hist.push(JSON.stringify(LEVEL)); if(hist.length>100) hist.shift(); dirty=true; setStatus(''); }
 function replaceLevel(obj){ for(const k in LEVEL) delete LEVEL[k]; Object.assign(LEVEL,obj); TER.reload(); hmDirty(); }
-function undo(){ if(!hist.length) return; replaceLevel(JSON.parse(hist.pop())); sel=null; renderProps(); draw(); camShot(); }
+function undo(){ if(!hist.length) return; replaceLevel(JSON.parse(hist.pop())); sel=null; renderProps(); draw(); }
 const num=v=>String(Math.round(v*100)/100);
 const nameOf=t=>(CODEBOOK[t]||{}).name||('тип '+t);
 function setStatus(t,cls=''){ $('#status').textContent=t; $('#status').className=cls; }
@@ -180,7 +180,7 @@ cv.addEventListener('mousemove',e=>{ const wx=iS(e.offsetX), wy=iSy(e.offsetY); 
   moveTo(drag.h,snap(wx-drag.ox,e),snap(wy-drag.oy,e)); renderProps(); draw(); });
 window.addEventListener('mouseup',e=>{ if(!drag) return; const d=drag; drag=null; cv.classList.remove('grab');
   if(d.ruler){ setMode(null); draw(); return; } if(d.pan){ if(!d.moved) select(null); else hmDirty(); return; }
-  if(d.moved&&(d.h.kind==='knee'||d.h.kind==='bump')) hmCompute(); if(d.moved&&['poi','obj','sub','decor','wild','lair','station','turret'].includes(d.h.kind)) camShot(); });
+  if(d.moved&&(d.h.kind==='knee'||d.h.kind==='bump')) hmCompute(); });
 cv.addEventListener('dblclick',e=>{ if(hit(e.offsetX,e.offsetY)||!vis.terrain) return; const wx=iS(e.offsetX), wy=iSy(e.offsetY); const c=TER.canyon(wx,wy); if(!(c.d<c.w/2+2)) return;   // новое колено на расщелине: в ближайший сегмент
   const C=LEVEL.terrain.canyon; const pts=c.branch?C.branch.pts:C.pts, w=c.branch?C.branch.w:C.w; let bi=0,bd=1e9; for(let i=0;i<pts.length-1;i++){ const p=pts[i],q=pts[i+1]; const dx=q.x-p.x,dy=q.y-p.y,L2=dx*dx+dy*dy; const t=Math.max(0,Math.min(1,((wx-p.x)*dx+(wy-p.y)*dy)/L2)); const d=Math.hypot(wx-p.x-dx*t,wy-p.y-dy*t); if(d<bd){ bd=d; bi=i; } }
   pushHist(); pts.splice(bi+1,0,{x:snap(wx,e),y:snap(wy,e)}); w.splice(bi+1,0,Math.round(((w[bi]||w[w.length-1])+(w[bi+1]||w[bi]||w[w.length-1]))/2*10)/10); TER.reload(); select({kind:'knee',layer:'terrain',pts,w,i:bi+1,br:!!c.branch,ref:pts[bi+1]}); hmCompute(); });
@@ -197,8 +197,7 @@ function place(kind,x,y){
     pushHist(); const np={id,x,y,name:'место',text:''}; LEVEL.pois.push(np); select({kind:'poi',layer:'pois',ref:np}); }
   if(kind==='decor'){ pushHist(); const id=Math.max(7000,...LEVEL.decor.map(d=>d.id))+1; const type=$('#add-decor-type').value; const d={id,type,x,y,f:0,Hs:SPRITES[type].H}; LEVEL.decor.push(d); TER.reload(); select({kind:'decor',layer:'decor',ref:d}); }
   if(kind==='bump'){ pushHist(); LEVEL.terrain.bumps=LEVEL.terrain.bumps||[]; const b={x,y,r:12,h:2}; LEVEL.terrain.bumps.push(b); TER.reload(); select({kind:'bump',layer:'terrain',ref:b}); hmCompute(); }
-  if(kind==='wild'){ if(LEVEL.pack.members.length>=6){ setStatus('в стае не больше 6 особей (id 250…255)','err'); return; } pushHist(); const m={x,y,size:1,courage:0.5,attention:0.5}; LEVEL.pack.members.push(m); select({kind:'wild',layer:'pack',ref:m}); }
-  camShot(); }
+  if(kind==='wild'){ if(LEVEL.pack.members.length>=6){ setStatus('в стае не больше 6 особей (id 250…255)','err'); return; } pushHist(); const m={x,y,size:1,courage:0.5,attention:0.5}; LEVEL.pack.members.push(m); select({kind:'wild',layer:'pack',ref:m}); } }
 function del(){ if(!sel) return; const k=sel.kind;
   if(k==='turret'){ if(!sel.ref.turret) return; pushHist(); delete sel.ref.turret; }   // турель площадки → штатная
   else if(k==='sub'){ pushHist(); const st=sel.poi.site; st.subs.splice(sel.i,1); if(!st.subs.length) delete st.subs; }
@@ -209,7 +208,7 @@ function del(){ if(!sel) return; const k=sel.kind;
   else if(k==='wild'){ pushHist(); LEVEL.pack.members.splice(LEVEL.pack.members.indexOf(sel.ref),1); }
   else if(k==='knee'){ if(sel.pts.length<=2){ setStatus('в ломаной должно остаться хотя бы два колена','err'); return; } pushHist(); sel.pts.splice(sel.i,1); if(sel.w.length>sel.i) sel.w.splice(sel.i,1); TER.reload(); hmCompute(); }
   else return;
-  select(null); camShot(); }
+  select(null); }
 document.addEventListener('keydown',e=>{ if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
   if((e.metaKey||e.ctrlKey)&&e.key==='z'){ e.preventDefault(); undo(); return; }
   if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); del(); return; }
@@ -307,18 +306,19 @@ const camW=(()=>{ const base=new URL('.',location.href).href, v=window.__v;
       const img=CAM.renderRaw(m.u,m.W,scene(m.u),{H:m.H,fov:m.fov,heading:m.u.heading,z:m.z}); postMessage({img,W:m.W,H:m.H,ms:Date.now()-t0,atlas:CAM.ready}); };`;
   const w=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'}))); w.busy=false; w.pending=false;
   w.onmessage=e=>{ const m=e.data; const fc=$('#frame'); fc.width=m.W; fc.height=m.H; const id=fc.getContext('2d').createImageData(m.W,m.H); for(let i=0;i<m.img.length;i++){ id.data[i*4]=id.data[i*4+1]=id.data[i*4+2]=m.img[i]; id.data[i*4+3]=255; } fc.getContext('2d').putImageData(id,0,0);
-    $('#cam-info').textContent=`${m.W}×${m.H} · ${m.ms} мс${m.atlas?'':' · атлас не загружен'}`; w.busy=false; if(w.pending){ w.pending=false; camShot(true); } };
+    w.busy=false; if(w.pending){ w.pending=false; camShot(true); } };
   return w; })();
-let shotTimer=null;
-function camShot(now=false){ if(!now&&!$('#cam-auto').classList.contains('on')) return; clearTimeout(shotTimer); shotTimer=setTimeout(()=>{ if(camW.busy){ camW.pending=true; return; } camW.busy=true;
-  const heading=Math.atan2(cam.ty-cam.y,cam.tx-cam.x); camW.postMessage({level:JSON.parse(JSON.stringify(LEVEL)),u:{id:9,x:cam.x,y:cam.y,heading,goal:{x:cam.tx,y:cam.ty},lightOn:cam.light,charge:100,alive:true},W:cam.size,H:cam.size*5/8,fov:cam.fov,z:cam.z}); },now?0:120); }
+let shotTimer=null, shotKey='';   // кадр — только когда камера сдвинулась: ключ положения и настроек последнего снятого
+const camKey=()=>[cam.x,cam.y,cam.tx,cam.ty,cam.z,cam.fov,cam.light,cam.size].join();
+function camShot(force=false){ if(!force&&camKey()===shotKey) return; clearTimeout(shotTimer); shotTimer=setTimeout(()=>{ if(camW.busy){ camW.pending=true; return; } camW.busy=true; shotKey=camKey();
+  const heading=Math.atan2(cam.ty-cam.y,cam.tx-cam.x); camW.postMessage({level:JSON.parse(JSON.stringify(LEVEL)),u:{id:9,x:cam.x,y:cam.y,heading,goal:{x:cam.tx,y:cam.ty},lightOn:cam.light,charge:100,alive:true},W:cam.size,H:cam.size*5/8,fov:cam.fov,z:cam.z}); },0); }
 function setZ(z){ cam.z=Math.max(0.3,Math.min(40,Math.round(z*10)/10)); $('#cam-z').value=cam.z; $('#cam-z-v').textContent=String(cam.z).replace('.',',')+' м'; }
 function camToSel(){ if(!sel) return; const h=handles.find(h=>h.ref===sel.ref); if(!h) return; const a=Math.atan2(cam.y-h.y,cam.x-h.x); cam.tx=h.x; cam.ty=h.y; cam.x=h.x+Math.cos(a)*8; cam.y=h.y+Math.sin(a)*8; draw(); camShot(true); }
 $('#cam-size').onchange=e=>{ cam.size=+e.target.value; camShot(true); };
 $('#cam-fov').oninput=e=>{ cam.fov=+e.target.value; $('#cam-fov-v').textContent=cam.fov+'°'; draw(); camShot(); };
 $('#cam-z').oninput=e=>{ setZ(+e.target.value); camShot(); };
 $('#cam-light').onchange=e=>{ cam.light=e.target.checked; camShot(); };
-$('#cam-shot').onclick=()=>camShot(true); $('#cam-auto').onclick=e=>{ e.target.classList.toggle('on'); camShot(); }; $('#cam-to-sel').onclick=camToSel;
+$('#cam-to-sel').onclick=camToSel; $('#cam-fold').onclick=e=>{ const f=$('#camwin').classList.toggle('fold'); e.target.textContent=f?'+':'–'; };
 
 // ---------- слои: вкладки панели (активный слой), флажки видимости над картой, показ; размер, старт ----------
 function setActive(l){ active=l; if(!vis[l]) setVis(l,true); $$('#ltabs button').forEach(b=>b.classList.toggle('on',b.dataset.lay===l)); $$('.lay').forEach(d=>d.classList.toggle('on',d.dataset.lay===l)); setMode(null); }
