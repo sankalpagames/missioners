@@ -433,18 +433,15 @@ $('#btn-desc').onclick=()=>{ const u=units.get(active); if(!u.alive) return log(
 $('#btn-move').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); moveTo(tg); };
 $('#btn-look').onclick=()=>{ const tg=T(); if(!tg) return log('цель не выбрана','err'); if(send([18,0,active,...coordBytes(tg)],`М${active} смотреть: ${tg.name}`)) setGoal(tg.name); };
 $('#btn-sonar').onclick=()=>{ const u=units.get(active); if(!u.sonar) return log('М'+active+': лидар не установлен','err'); const k=+$('#sonar-tilt').value; send([2,k+90,active],`М${active} лидар${k?` (наклон ${k>0?'+':''}${k}°)`:''}`); };
-$$('button[data-mode]').forEach(b=>b.onclick=()=>{ if(send([7,+b.dataset.mode,active],`М${active} режим ${MODES[b.dataset.mode]}`)){ req(active,'mode',+b.dataset.mode); if(b.dataset.mode==='3') setGoal('шлюз станции',{x:16,y:0}); } });
-$$('button[data-stance]').forEach(b=>b.onclick=()=>{ if(send([25,+b.dataset.stance,active],`М${active} при контакте: ${STANCES[b.dataset.stance]}`)) req(active,'stance',+b.dataset.stance); });
-$('#stealth').onchange=e=>{ const on=e.target.checked?1:0; if(send([24,on,active],`М${active} скрытность ${on?'вкл':'выкл'}`)) req(active,'stealth',!!on); else renderUnit(); };
-// запрошенное состояние тела: свои команды и эхо сокомандника; контур на кнопке, пока телеметрия не подтвердит
+// настройки тела — выпадающие списки: значение — из телеметрии, пока запрос не подтверждён — запрошенное с пунктирной рамкой
+const SETS={ mode:{sel:'#set-mode', cmd:7, text:v=>`режим ${MODES[v]}`}, stance:{sel:'#set-stance', cmd:25, text:v=>`при контакте: ${STANCES[v]}`}, autonomy:{sel:'#set-autonomy', cmd:26, text:v=>`без несущей: ${AUTONOMY[v]}`}, stealth:{sel:'#set-stealth', cmd:24, text:v=>`скрытность ${v?'вкл':'выкл'}`, bool:true} };
+for(const [k,S] of Object.entries(SETS)) $(S.sel).onchange=e=>{ const v=+e.target.value;
+  if(send([S.cmd,v,active],`М${active} ${S.text(v)}`)){ req(active,k,S.bool?!!v:v); if(k==='mode'&&v===3) setGoal('шлюз станции',{x:16,y:0}); } else renderUnit(); };
+// запрошенное состояние тела: свои команды и эхо сокомандника; пунктир у списка, пока телеметрия не подтвердит
 function req(id,k,v,by){ const u=U(id); u.req=u.req||{at:tNow}; u.req[k]=v; u.req.at=tNow; if(by) u.req.by=by; renderUnit(); }
-// кнопки режима и стойки, галочка скрытности: залито — по телеметрии, контур — запрошено (своё или сокомандника), ещё не подтверждено
+// списки настроек тела: значение — по телеметрии; пунктир — запрошено (своё или сокомандника), ещё не подтверждено
 function renderUnit(){ const u=units.get(active); const T=u&&u.tlm, r=u&&u.req||{};
-  $$('button[data-mode]').forEach(b=>{ const v=+b.dataset.mode; b.classList.toggle('on',!!T&&T.mode===v); b.classList.toggle('req',r.mode===v); });
-  $$('button[data-stance]').forEach(b=>{ const v=+b.dataset.stance; b.classList.toggle('on',!!T&&T.stance===v); b.classList.toggle('req',r.stance===v); });
-  $$('button[data-autonomy]').forEach(b=>{ const v=+b.dataset.autonomy; b.classList.toggle('on',!!T&&T.autonomy===v); b.classList.toggle('req',r.autonomy===v); });
-  const st=$('#stealth'); st.checked=r.stealth!==undefined?r.stealth:!!(T&&T.stealth); st.parentElement.classList.toggle('req',r.stealth!==undefined);
-  st.parentElement.title=r.by?`запросил ${r.by}`:''; }
+  for(const [k,S] of Object.entries(SETS)){ const s=$(S.sel), raw=r[k]!==undefined?r[k]:T?T[k]:'', v=S.bool&&raw!==''?+raw:raw; if(s.value!==String(v)) s.value=String(v); s.classList.toggle('req',r[k]!==undefined); s.title=r[k]!==undefined&&r.by?`запросил ${r.by}`:''; } }
 // эхо аплинка сокомандника — знание земной стороны, канал не проходит; подпись команды по байтам
 function cmdLabel(b){ const [c,a,un]=b; const M=un?`М${un} `:''; const xy=()=>`(${(((b[3]<<8)|b[4])-32768)/10}, ${(((b[5]<<8)|b[6])-32768)/10})`;
   return {1:`${M}описание`,2:`${M}лидар`,3:`${M}кадр ${[8,16,32,64][a]}px`,6:`${M}идти ${xy()}`,7:`${M}режим ${MODES[a]||a}`,8:`${M}действие: ${oname(a)}`,9:`${M}передатчик ${a-20} дБм`,10:'вырастить',11:'статус',12:`${M}телеметрия ${a} с`,13:`${M}лидар каждые ${a} с`,14:`${M}описание каждые ${a} с`,15:`пульс ${a} с`,16:`${M}автосъёмка ${a?'каждые '+a+' с':'выкл'}`,17:`${M}стоп`,18:`${M}смотреть ${xy()}`,19:`${M}изучить: ${oname(a)}`,20:`${M}съесть`,21:`${M}склад`,22:`${M}положить ${ITEMS[a]||a}`,23:`${M}взять ${ITEMS[a]||a}`,24:`${M}скрытность ${a?'вкл':'выкл'}`,25:`${M}при контакте: ${STANCES[a]||a}`,26:`${M}без несущей: ${AUTONOMY[a]||a}`,27:'отмена запроса'}[c]||`команда ${c}`; }
@@ -472,7 +469,6 @@ $('#sub-tlm').onchange=e=>{ units.get(active).subs.tlm=+e.target.value; noteSubR
 $('#sub-sonar').onchange=e=>{ units.get(active).subs.sonar=+e.target.value; noteSubReq(units.get(active),['sonar']); send([13,+e.target.value,active],`М${active} лидар: ${e.target.selectedOptions[0].text}`); };
 $('#sub-desc').onchange=e=>{ units.get(active).subs.desc=+e.target.value; noteSubReq(units.get(active),['desc']); send([14,+e.target.value,active],`М${active} описание: ${e.target.selectedOptions[0].text}`); };
 $('#sub-hb').onchange=e=>send([15,+e.target.value,0],`пульс станции: ${e.target.selectedOptions[0].text}`);
-$$('button[data-autonomy]').forEach(b=>b.onclick=()=>{ if(send([26,+b.dataset.autonomy,active],`М${active} без несущей: ${AUTONOMY[b.dataset.autonomy]}`)) req(active,'autonomy',+b.dataset.autonomy); });
 $('#btn-grow').onclick=()=>{ const mask=($('#g-cam').checked?1:0)|($('#g-sonar').checked?2:0); if(send([10,mask,0],`станция: вырастить миссионера (${$('#g-cam').checked?'камера, ':''}${$('#g-sonar').checked?'лидар':''})`)){ $('#btn-grow').disabled=true; $('#grow-state').textContent='команда отправлена, ожидание подтверждения станции…'; } };
 $('#btn-st').onclick=()=>send([11,0,0],'станция: статус');
 $('#turrets').onclick=e=>{ const b=e.target.closest('button.tur'); if(!b||b.disabled) return; const id=+b.dataset.id, on=+b.dataset.on; if(send([28,on,id],`турель ${id}: ${on?'включить':'выключить'}`)) station.turretReq[id]={on:!!on,at:tNow}; };

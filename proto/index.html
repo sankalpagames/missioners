@@ -153,15 +153,11 @@
           <span id="xfer" hidden data-tip="Обмен с контейнером рядом (в 4 м): взять из него или положить в него. Появляется, когда выбран контейнер с известным содержимым и тело стоит рядом."><select class="sub" id="take-item"></select><button id="btn-take">Взять ●</button> <select class="sub" id="put-item"></select><button id="btn-put">Положить ●</button></span>
           <span id="target-label" class="dim small"></span>
         </div>
-        <div class="row modes" data-tip="Режим тела — команда. Исследование — обычный шаг. Отступление — бегом к шлюзу. Отдых — стоя, восстановление психики и заряда. Кнопка с контуром — запрошено, залитая — подтверждено телеметрией.">
-          <label class="cg">режим</label><button data-mode="1">исследование</button><button data-mode="3">отступление</button><button data-mode="4">отдых</button>
-          <label class="cg" data-tip="Настройка на теле: без фонаря, медленно и тихо. Не действует, пока идёт рефлекс по стойке; после — восстанавливается сама."><input type="checkbox" id="stealth"> скрытность</label>
-        </div>
-        <div class="row modes" data-tip="Реакция тела на контакт с чужим — срабатывает сама, без команды. Настройка на теле. Пассивно — ничего. Бегство — к ближайшему узлу, потом стоит. Бой — стоит и отвечает резаком, потом продолжает задачу. Срабатывание — событием в журнале и в строке «режим».">
-          <label class="cg">при контакте</label><button data-stance="0">пассивно</button><button data-stance="1">бегство</button><button data-stance="2">бой</button>
-        </div>
-        <div class="row modes" data-tip="Настройка на теле на случай потери несущей — 5 с без сигнала станции. Продолжать — идёт к цели. Стоп — стоит и ждёт. К шлюзу — бегом к точке старта.">
-          <label class="cg">без несущей</label><button data-autonomy="0">продолжать</button><button data-autonomy="1">стоп</button><button data-autonomy="2">к шлюзу</button>
+        <div class="row modes" id="settings">
+          <span class="set"><label class="cg" data-tip="Режим тела — команда. Исследование — обычный шаг. Отступление — бегом к шлюзу (из расщелины — по её оси к выходу). Отдых — стоя, восстановление психики и заряда. Значения в списках — из телеметрии тела; пунктирная рамка — запрошено, телеметрия ещё не подтвердила (без подтверждения запрос снимается через 90 с).">режим</label><select class="sub" id="set-mode"><option value="" hidden>—</option><option value="1">исследование</option><option value="3">отступление</option><option value="4">отдых</option></select></span>
+          <span class="set"><label class="cg" data-tip="Реакция тела на контакт с чужим — срабатывает сама, без команды. Настройка на теле. Пассивно — ничего. Бегство — к ближайшему узлу, потом стоит. Бой — стоит и отвечает ударами, потом продолжает задачу. Срабатывание — событием в журнале и в строке «режим».">при контакте</label><select class="sub" id="set-stance"><option value="" hidden>—</option><option value="0">пассивно</option><option value="1">бегство</option><option value="2">бой</option></select></span>
+          <span class="set"><label class="cg" data-tip="Настройка на теле на случай потери несущей — 5 с без сигнала станции. Продолжать — идёт к цели. Стоп — стоит и ждёт. К шлюзу — бегом к точке старта, из расщелины — по её оси к выходу.">без несущей</label><select class="sub" id="set-autonomy"><option value="" hidden>—</option><option value="0">продолжать</option><option value="1">стоп</option><option value="2">к шлюзу</option></select></span>
+          <span class="set"><label class="cg" data-tip="Настройка на теле: без фонаря, медленно и тихо. Не действует, пока идёт рефлекс по стойке; после — восстанавливается сама.">скрытность</label><select class="sub" id="set-stealth"><option value="" hidden>—</option><option value="0">выкл</option><option value="1">вкл</option></select></span>
         </div>
       </div>
   </section>
