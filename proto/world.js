@@ -149,7 +149,9 @@ function packStep(p,sp){ const tg=p.target; if(!tg) return; let aim=tg; const cp
   if(cp && cp.along>0){ if(cp.branch){ if(!ct||!ct.branch) aim=dist(p,root)>4?root:tg; }
     else { const a=!ct?-8:ct.branch?rootA:ct.along; if(Math.abs(a-cp.along)>6){ const q=TER.canyonPoint(Math.max(0,Math.min(1,(cp.along+(a>cp.along?5:-5))/TER.LEN))); aim=q; } } }
   else if(ct && ct.along>0 && dist(p,TUN_A)>4) aim=TUN_A;
-  p.heading=dirTo(p,aim); if(stepBody(p,sp*DT)) p.stuckT=0; else { p.stuckT+=DT; if(p.stuckT>3){ p.stuckT=0; p.target=null; if(p.told){ say(p,'не пройти, стою'); } } } }
+  const w=via(p,aim), stop=()=>{ p.stuckT=0; p.target=null; p.plan=null; p.planG=null; if(p.told){ say(p,'не пройти, стою'); } };   // обход в пределах видимого — как у тел
+  if(!w){ stop(); return; }
+  p.heading=dirTo(p,w); if(stepBody(p,sp*DT)) p.stuckT=0; else { p.plan=null; p.stuckT+=DT; if(p.stuckT>3) stop(); } }
 // крик: слово = реакция. Слышат особи в радиусе с затуханием за стенами; кулдаун на глотку. Тела рядом вздрагивают — звук, слов не разбирают
 function cry(p,word){ if(p.throat>0) return false; p.throat=6; cries.push({word,x:p.x,y:p.y,t,i:p.i}); const R=120*(0.8+0.4*p.size); const heard=[];
   for(const q of pack){ if(q===p||q.act==='dead') continue; const d=dist(p,q); if(d>R) continue; const loud=(1-d/R)*(1-0.7*losFrac(p,q,1.5)); if(loud>0.05) heard.push([q,loud]); }
@@ -225,7 +227,7 @@ function stanceTick(u,dt){
   if(u.reflex===6){ const n=nearestNode(u);
     if(t-u.lastContact>20 || dist(u,n)<3){ u.reflex=0; u.target=null; evt(34,u.id); note('unit',{unit:u.id,reflex:'конец бегства',x:+u.x.toFixed(0),y:+u.y.toFixed(0)}); return; }
     // бежит по точкам: в расщелине — по оси к выходу (как одичалые), снаружи — к узлу; новая точка, когда прежняя близко
-    if(!u.target || dist(u,u.target)<3){ u.stuck=0; u.bestD=undefined; u.target=waypointOut(u,n); } }
+    if(!u.target || dist(u,u.target)<3){ u.stuck=0; u.chk=null; u.target=waypointOut(u,n); } }
 }
 // следующая точка к dest: в расщелине — по оси к выходу (как одичалые), у входа и на подходе — вдоль направления входа наружу; снаружи — сама dest.
 // Поиска пути нет — только это: бегство к узлу и возврат к шлюзу (инструкция на потерю несущей, режим «отступление») из глубины иначе упираются в стену
@@ -233,7 +235,7 @@ function waypointOut(u,dest){ const c=TER.canyon(u.x,u.y), a=c.along-8;
   if(c.d<c.w/2+4 && c.along>-50) return a>0 ? TER.canyonPoint(a/TER.LEN) : {x:TUN_A.x+c.dir.x*a, y:TUN_A.y+c.dir.y*a};
   return {x:dest.x, y:dest.y}; }
 // идти домой (u.homing — шлюз): цель пересчитывается по мере хода, пока тело не выйдет из расщелины
-function goHome(u,sp){ u.homing={x:sp.x,y:sp.y}; u.target=waypointOut(u,u.homing); u.goal={x:sp.x,y:sp.y}; u.pending=null; u.stuck=0; u.bestD=undefined; }
+function goHome(u,sp){ u.homing={x:sp.x,y:sp.y}; u.target=waypointOut(u,u.homing); u.goal={x:sp.x,y:sp.y}; u.pending=null; u.stuck=0; u.chk=null; }
 function fightBack(u){ let q=null, qd=4; for(const p of pack){ if(p.act==='dead') continue; const d=dist(u,p); if(d<qd){ qd=d; q=p; } } if(!q){ u.atkTimer=0; return; }
   u.atkTimer+=DT; if(u.atkTimer<2) return; u.atkTimer=0; const was=q.hp;
   if(was===0){ say(q,'двуногий ударил меня'); killPack(q,'удары'); evt(43,u.id); return; }
@@ -398,6 +400,39 @@ function stepBody(u,len){
   for(const a of [Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2]){ const h=u.heading+a, sx=Math.cos(h)*len, sy=Math.sin(h)*len; if(!blocked(u.x+sx,u.y+sy,u.x,u.y)){ u.x+=sx; u.y+=sy; return true; } }
   return false;
 }
+// ---------- обход в пределах видимого: тело не ищет маршрут по миру, но и не упирается в ступеньку или валун ----------
+// Видит вокруг себя SEE_R м (с фонарём; без него — SEE_DARK_R, у одичалых фонаря нет): рельеф, корпуса, валуны. Тем же ходят и тела, и одичалые. Прямо к цели проходимо — идёт прямо.
+// Нет — A* по сетке CELL в круге обзора к цели, не дошёл до неё — к клетке, ближайшей к цели. План годен, только если кончается
+// ближе к цели на PLAN_GAIN, чем тело уже бывало: иначе обхода нет — стоп и «путь перекрыт». Тупики, отростки, хребты — работа оператора
+const SEE_R=8, SEE_DARK_R=3, CELL=0.5, PLAN_GAIN=0.5;
+function walkLine(ax,ay,bx,by){ const L=Math.hypot(bx-ax,by-ay), n=Math.max(1,Math.ceil(L/0.14)); let px=ax, py=ay;   // шагами тела, как stepBody
+  for(let i=1;i<=n;i++){ const x=ax+(bx-ax)*i/n, y=ay+(by-ay)*i/n; if(blocked(x,y,px,py)) return false; px=x; py=y; } return true; }
+function planLocal(u,g){ const R=u.lightOn?SEE_R:SEE_DARK_R, D=dist(u,g);
+  { const k=Math.min(1,R/D), e={x:u.x+(g.x-u.x)*k, y:u.y+(g.y-u.y)*k}; if(walkLine(u.x,u.y,e.x,e.y)) return {pts:[e], h:dist(e,g), detour:false, cells:0}; }   // прямо
+  const N=Math.ceil(R/CELL), W=2*N+1, P=(c)=>({x:u.x+(c%W-N)*CELL, y:u.y+(((c/W)|0)-N)*CELL});
+  const s0=N*W+N, gS=new Map([[s0,0]]), from=new Map(), done=new Set(), open=[s0]; let best=s0, bestH=D, reached=false;
+  while(open.length){ let bi=0, bf=Infinity; for(let i=0;i<open.length;i++){ const c=open[i], f=gS.get(c)+dist(P(c),g); if(f<bf){ bf=f; bi=i; } }
+    const c=open[bi]; open[bi]=open[open.length-1]; open.pop(); if(done.has(c)) continue; done.add(c); const p=P(c);
+    const h=dist(p,g); if(h<bestH){ bestH=h; best=c; }
+    if(h<CELL*1.5 && walkLine(p.x,p.y,g.x,g.y)){ best=c; bestH=0; reached=true; break; }
+    const ci=c%W, cj=(c/W)|0;
+    for(let di=-1;di<=1;di++) for(let dj=-1;dj<=1;dj++){ if(!di&&!dj) continue; const ni=ci+di, nj=cj+dj; if(ni<0||nj<0||ni>=W||nj>=W) continue; const n=nj*W+ni; if(done.has(n)) continue;
+      const q=P(n); if(Math.hypot(q.x-u.x,q.y-u.y)>R) continue; const gn=gS.get(c)+Math.hypot(di,dj)*CELL; if(gn>=(gS.get(n)??Infinity)) continue;
+      if(!walkLine(p.x,p.y,q.x,q.y)) continue; gS.set(n,gn); from.set(n,c); open.push(n); } }
+  const chain=[]; for(let c=best;c!==s0&&c!==undefined;c=from.get(c)) chain.unshift(P(c)); if(reached) chain.push({x:g.x,y:g.y});
+  const pts=[]; let cur={x:u.x,y:u.y}, i=0;   // натянуть нить: к самой дальней точке цепочки, видной напрямую
+  while(i<chain.length){ let j=chain.length-1; while(j>i && !walkLine(cur.x,cur.y,chain[j].x,chain[j].y)) j--; pts.push(chain[j]); cur=chain[j]; i=j+1; }
+  return {pts, h:bestH, detour:true, cells:done.size}; }
+// точка, к которой идти к цели g сейчас: из плана; план кончился, цель ушла дальше метра (тело, за которым гонятся; точка на оси) или шаг упёрся — новый план.
+// null — обхода нет. u — тело или особь (у особи номер i, заметка — 'pack')
+function via(u,g){
+  if(!u.planG || dist(u.planG,g)>1){ u.planG={x:g.x,y:g.y}; u.plan=null; u.nearest=u.nearMark=dist(u,g); u.nearAt=t; }
+  if(u.plan){ while(u.plan.pts.length && dist(u,u.plan.pts[0])<0.3) u.plan.pts.shift(); if(u.plan.pts.length) return u.plan.pts[0]; }
+  const was=u.plan&&u.plan.detour; const P=planLocal(u,g);
+  const who=u.i!==undefined?['pack',{who:u.i}]:['unit',{unit:u.id}];
+  if(P.h>u.nearest-PLAN_GAIN && P.h>0){ u.plan=null; u.planG=null; note(who[0],{...who[1],path:'обхода нет',x:+u.x.toFixed(1),y:+u.y.toFixed(1),near:+u.nearest.toFixed(1),best:+P.h.toFixed(1),cells:P.cells,dark:!u.lightOn}); return null; }
+  if(P.detour&&!was) note(who[0],{...who[1],path:'обход',x:+u.x.toFixed(1),y:+u.y.toFixed(1),pts:P.pts.length,cells:P.cells,left:+P.h.toFixed(1)});
+  u.plan=P; return P.pts[0]; }
 
 // ---------- сообщения наружу ----------
 // st — станция-адресат: её оператор(ы) и получают сообщение; по умолчанию — станция тела
@@ -654,7 +689,7 @@ onmessage = e => {
     case 22: beginAction(u,'put',m.bytes[3],arg); break;    // положить: [22,item,unit,objId] (objId 0 — на грунт)
     case 23: beginAction(u,'take',m.bytes[3],arg); break;   // взять:    [23,item,unit,objId]
     case 20: if(u.alive && arg===40 && u.items.includes(40)){ u.items.splice(u.items.indexOf(40),1); u.glucose=Math.min(100,u.glucose+50); u.electro=Math.min(100,u.electro+20); evt(18,u.id); } else evt(2,u.id); break;   // съесть брикет   // стоп: цель остаётся, тело стоит
-    case 6: if(u.alive){ const g=decPos(m.bytes,3); if(beyondReturn(u,g)) break; u.homing=null; u.goal={x:g.x,y:g.y}; const {x,y}=outsideHulls(g.x,g.y,u); u.target={x,y}; u.bestD=undefined; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
+    case 6: if(u.alive){ const g=decPos(m.bytes,3); if(beyondReturn(u,g)) break; u.homing=null; u.goal={x:g.x,y:g.y}; const {x,y}=outsideHulls(g.x,g.y,u); u.target={x,y}; u.chk=null; u.stuck=0; u.pending=null; u.lastImg={}; evt(8,u.id); } break;   // идти: цель = точка, тело идёт и смотрит туда
     case 18: { const {x,y}=decPos(m.bytes,3); u.goal={x,y}; u.lastImg={}; break; }   // смотреть: повернуть голову к точке, не идя
     case 7: if(u.alive && [1,3,4].includes(arg)){ u.mode=arg; if(arg===3) goHome(u,S.spawn); else u.homing=null; if(arg===4) u.target=null; evt(7,u.id,arg); } break;
     case 24: if(u.alive){ u.stealth=!!arg; evt(32,u.id,arg?1:0); } break;   // скрытность — настройка; действует, пока нет рефлекса
@@ -706,11 +741,14 @@ function tick(){
       else { u.linkLostFor=0; u.autoDone=false; }
       u.lightOn=!(u.stealth && !u.reflex);
       const sp=speedFor(u);
-      if(u.homing && u.target && dist(u,u.target)<3 && dist(u.target,u.homing)>0.1){ u.target=waypointOut(u,u.homing); u.stuck=0; u.bestD=undefined; }
-      if(u.target && sp>0){ const d=dist(u,u.target); if(d<0.5){ u.target=null; u.homing=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3 && u.reflex!==6) evt(1,u.id); }
-        else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
-          // застревание — по продвижению: за 4 с не приблизился к цели на метр (в скрытности — на sp метров: обход при 0,6 м/с метра не даёт) → стоп
-          u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<Math.min(1,sp)){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); note('unit',{unit:u.id,stuck:true,x:+u.x.toFixed(1),y:+u.y.toFixed(1),slope:+TER.slope(u.x,u.y).toFixed(2)}); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
+      if(u.homing && u.target && dist(u,u.target)<3 && dist(u.target,u.homing)>0.1){ u.target=waypointOut(u,u.homing); u.stuck=0; u.chk=null; }
+      if(u.target && sp>0){ const d=dist(u,u.target); if(d<0.5){ u.target=null; u.homing=null; u.planG=null; u.exertion=0; u.stuck=0; u.chk=null; if(u.pending) doPending(u); else if(u.mode!==3 && u.reflex!==6) evt(1,u.id); }
+        else { const w=via(u,u.target); const stop=(why)=>{ u.stuck=0; u.chk=null; u.target=null; u.plan=null; u.planG=null; u.pending=null; u.exertion=0; evt(23,u.id); note('unit',{unit:u.id,stuck:why,x:+u.x.toFixed(1),y:+u.y.toFixed(1),slope:+TER.slope(u.x,u.y).toFixed(2)}); };
+          if(!w) stop('обхода нет');
+          else { u.heading=Math.atan2(w.y-u.y,w.x-u.x); if(!stepBody(u,sp*dt)) u.plan=null; u.exertion=Math.min(1,sp/1.4);   // упёрся — со следующего шага новый план
+            const dn=dist(u,u.target); u.nearest=Math.min(u.nearest,dn); if(dn<u.nearMark-1){ u.nearMark=dn; u.nearAt=t; }
+            // застревание: за 4 с не сдвинулся на sp метров (не больше метра) или за 30 с не стал ближе к цели на метр (ходит кругами) → стоп
+            u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ u.stuck=0; const moved=u.chk?dist(u,u.chk):Infinity; u.chk={x:u.x,y:u.y}; if(moved<Math.min(1,sp)) stop('не идёт'); else if(t-u.nearAt>30) stop('не приближается'); } } } } else u.exertion=0;
       stanceTick(u,dt); if(u.reflex===5) fightBack(u);
       // страх: ближайшая бодрствующая особь (уходящая не в счёт) и крики рядом — звук тело слышит, слов не разбирает
       let fearT=0; for(const p of pack){ const w=p.act==='attack'||p.act==='approach'?1:p.act==='sleep'||p.act==='dead'||p.act==='flee'||p.act==='home'?0:0.5; if(w) fearT=Math.max(fearT,w*(1-dist(u,p)/80)); }

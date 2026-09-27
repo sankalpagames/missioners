@@ -33,7 +33,14 @@ input[type=number]{width:72px}input[type=range]{width:120px;padding:0}
 .props label{color:var(--dim)}.props .wide{grid-column:1/3}
 .props textarea{width:100%;height:64px;resize:vertical;font-size:11px}
 .props input[type=text]{width:100%}
-#frame{width:100%;aspect-ratio:8/5;image-rendering:pixelated;background:#000;border:1px solid var(--line);display:block}
+#camwin{position:absolute;left:10px;bottom:10px;width:min(420px,calc(100% - 20px));background:rgba(18,21,26,.94);border:1px solid var(--line);border-radius:5px;box-shadow:0 4px 18px rgba(0,0,0,.5);z-index:2}
+#camwin .cw-head{display:flex;gap:6px;align-items:center;padding:3px 4px 3px 8px;font-size:11px;letter-spacing:.1em}
+#camwin .cw-head button{padding:1px 7px}
+#camwin.fold .cw-body{display:none}
+#camwin .cw-ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:4px 8px 6px;font-size:11px}
+#camwin .cw-ctl label{display:inline-flex;gap:4px;align-items:center;color:var(--dim)}#camwin .cw-ctl b{font-weight:normal;color:var(--fg)}
+#camwin input[type=range]{width:80px}
+#frame{width:100%;aspect-ratio:8/5;image-rendering:pixelated;background:#000;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:block}
 #status{color:var(--dim)}#status.err{color:var(--red)}#status.ok{color:var(--grn)}
 #gate{margin:auto;max-width:520px;color:var(--dim);line-height:1.6}
 #gate b{color:var(--fg);font-weight:normal}
@@ -86,7 +93,21 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
   <label><input type="checkbox" data-show="labels" checked> подписи</label>
 </div>
 <div id="app" hidden>
-  <div id="mapwrap"><canvas id="map"></canvas></div>
+  <div id="mapwrap"><canvas id="map"></canvas>
+    <!-- окно камеры: кадр перерисовывается, только когда камера сдвинулась -->
+    <div id="camwin">
+      <div class="cw-head"><span class="dim">КАМЕРА</span><span class="grow"></span><button id="cam-to-sel" class="ghost" title="Камера в 8 м от выбранного, смотрит на него">на выбранное</button><button id="cam-fold" class="ghost" title="Свернуть / развернуть">–</button></div>
+      <div class="cw-body">
+        <canvas id="frame" width="160" height="100"></canvas>
+        <div class="cw-ctl">
+          <select id="cam-size" title="Размер кадра"><option value="128">128×80</option><option value="160" selected>160×100</option><option value="192">192×120</option><option value="256">256×160</option></select>
+          <label title="Поле зрения"><input type="range" id="cam-fov" min="25" max="100" value="50" step="1"> <b id="cam-fov-v">50°</b></label>
+          <label title="Высота глаз"><input type="range" id="cam-z" min="0.3" max="40" value="1.6" step="0.1"> <b id="cam-z-v">1,6 м</b></label>
+          <label title="Фонарь"><input type="checkbox" id="cam-light" checked> фонарь</label>
+        </div>
+      </div>
+    </div>
+  </div>
   <aside id="side">
     <div id="ltabs"></div>
     <!-- панель слоя: правило слоя и инструменты добавления; выбрать инструмент, затем клик по карте -->
@@ -125,16 +146,7 @@ kbd{background:#000;border:1px solid var(--line);border-radius:3px;padding:0 4px
     <h3>КУРСОР</h3>
     <div class="kv" id="cur"></div>
     <div class="row small"><label><input type="checkbox" id="relays-on"> все ретрансляторы в сети</label><span class="dim">SNR — тело в точке, линия к лучшему узлу, как в игре (link.js); без флажка узлы — только включённые на старте</span></div>
-    <h3>КАМЕРА <span id="cam-info" class="dim"></span></h3>
-    <canvas id="frame" width="160" height="100"></canvas>
-    <div class="props">
-      <label>размер</label><select id="cam-size"><option value="128">128×80</option><option value="160" selected>160×100</option><option value="192">192×120</option><option value="256">256×160</option></select>
-      <label>поле зрения</label><span><input type="range" id="cam-fov" min="25" max="100" value="50" step="1"> <b id="cam-fov-v">50°</b></span>
-      <label>высота глаз</label><span><input type="range" id="cam-z" min="0.3" max="40" value="1.6" step="0.1"> <b id="cam-z-v">1,6 м</b></span>
-      <label>фонарь</label><span><input type="checkbox" id="cam-light" checked></span>
-      <span class="wide row"><button id="cam-shot">снять</button><button id="cam-auto" class="on" title="Перерисовывать при любом изменении">авто</button><button id="cam-to-sel" title="Камера в 8 м от выбранного, смотрит на него">кадр на выбранное</button></span>
-    </div>
-    <div class="hint">камера и её цель — на карте, перетаскиваются · <kbd>↑</kbd><kbd>↓</kbd> вперёд/назад 2 м (<kbd>⇧</kbd> 10) · <kbd>←</kbd><kbd>→</kbd> поворот 5° · <kbd>PgUp</kbd><kbd>PgDn</kbd> высота · кадр — тот же CAM.renderRaw, что в игре; фигура в точке старта — масштаб</div>
+    <div class="hint">камера — окно в углу карты; камера и её цель на карте перетаскиваются · <kbd>↑</kbd><kbd>↓</kbd> вперёд/назад 2 м (<kbd>⇧</kbd> 10) · <kbd>←</kbd><kbd>→</kbd> поворот 5° · <kbd>PgUp</kbd><kbd>PgDn</kbd> высота · кадр — тот же CAM.renderRaw, что в игре, перерисовывается только при движении камеры; фигура в точке старта — масштаб</div>
     <h3>КАРТА</h3>
     <div class="hint">колёсико — масштаб · перетаскивание пустого места — сдвиг · перетаскивание объекта — переместить (<kbd>⇧</kbd> — шаг 1 м) · клик выбирает только в видимых слоях и переключает панель на слой объекта · <kbd>Del</kbd> — удалить (турель площадки → штатная) · <kbd>Esc</kbd> — снять выбор · серые круги — коллайдеры · пустой кружок — объект без спрайта · пунктир — радиус возврата ПС-2</div>
     <div id="textwrap" hidden><textarea id="text" spellcheck="false"></textarea><div class="row"><button id="btn-copy">скопировать</button><button id="btn-text-close" class="ghost">закрыть</button></div></div>
