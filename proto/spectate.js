@@ -57,6 +57,7 @@ function parseLine(line){ if(!line.trim()) return; let r; try{ r=JSON.parse(line
   if(r.k==='pause'||r.k==='stop'){ ev({t, cls:'note', text:`пауза — ${r.by}`}); return; }
   if(r.k==='win'){ const w=r.winner||{}; ev({t, cls:'note', text:`победа: ${w.side} (${w.name})${w.note?' — '+w.note:''}; ${w.confirmed?'подтверждена миром: '+w.fact:'заявлена'}`}); return; }
   if(r.k==='resume'){ ev({t, cls:'note', text:`возобновлено — ${r.by}`}); return; }
+  if(r.k==='archive'||r.k==='unarchive'){ ev({t, cls:'note', text:`${r.k==='archive'?'в архив':'из архива'} — ${r.by}`}); return; }
   if(r.k==='disputed'){ const w=r.winner||{}; ev({t, cls:'note', text:`победа ${w.side} (${w.name}) оспорена возобновлением — ${r.by}`}); return; }
   if(r.k==='fault'){ ev({t, cls:'note', text:`СБОЙ ${r.where}: ${r.text}`}); } }
 // карта записи: другая, чем на странице, — подгрузить maps/ID.js и подменить LEVEL (рельеф пересчитать); та же, но другой ревизии — заметка в ленте

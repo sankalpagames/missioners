@@ -131,9 +131,9 @@ function syncSubControls(){ const u=units.get(active); if(u){ $('#sub-tlm').valu
 // «конец игры, меня мама позвала домой» (tech.md §9): кто-то остановил комнату для всех — сервер закрыл соединение, консоль не переподключается.
 // Терминал поверх консоли; вернуться — через лобби, мир сохранён и продолжится с того же места
 // Причина — пауза или объявленная победа (чья, подтверждена ли миром)
-function onStopped(m){ const by=m.by, w=m.reason==='win'&&m.winner; const why=w?`победа: ${w.side} (${w.name})${w.note?' — '+w.note:''}; ${w.confirmed?'подтверждена миром: '+w.fact:'заявлена'}`:`пауза — ${by}`;
+function onStopped(m){ const by=m.by, w=m.reason==='win'&&m.winner; const why=w?`победа: ${w.side} (${w.name})${w.note?' — '+w.note:''}; ${w.confirmed?'подтверждена миром: '+w.fact:'заявлена'}`:m.reason==='archive'?`планета в архиве (${by}), только смотреть`:`пауза — ${by}`;
   transport.stopped=true; requestSave(); log(`терминал: игра остановлена, ${why}. Консоли всех операторов отключены; возобновить — через лобби`,'err');
-  terminal(`session closed by peer: ${by}\n\nигра остановлена для всех: ${why}\nмир стоит и сохранён; возобновить — через лобби${w?' (возобновление оспаривает победу)':''}`); }
+  terminal(`session closed by peer: ${by}\n\nигра остановлена для всех: ${why}\nмир стоит и сохранён; ${m.reason==='archive'?'вернуть из архива':'возобновить'} — через лобби${w?' (возобновление оспаривает победу)':''}`); }
 // Одна станция — один игрок: станцию держит другой клиент (консоль или агент) — вход закрыт, консоль не переподключается
 function onBusy(m){ transport.stopped=true; log(`терминал: ${m.text}`,'err'); terminal(`connection refused: station busy\n\n${'ARK-04'+(1+(m.st||0))} — ${m.text}\nнаблюдать можно спектатором; войти — когда станция освободится`); }
 function terminal(text){ boot.dead=true; const el=$('#boot-text'); el.textContent=`$ ares-tk --key ~/old/dse.key ping ${ROOM}\n${text}\n\n`; const a=document.createElement('a'); a.href='/'; a.textContent='$ ares-tk stations'; a.style.color='#cfe3cf'; el.appendChild(a); $('#boot').classList.remove('off'); }
