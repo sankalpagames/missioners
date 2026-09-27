@@ -184,7 +184,7 @@ function listRooms(){ const out=[]; const codes=new Set(rooms.keys());
   return out.sort((a,b)=>(b.ops.length-a.ops.length)||(b.savedAt-a.savedAt)); }
 const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);
 
-// ---- HTTP-API агента-оператора: /op/join, /op/perceive, /op/act, /op/state, /op/leave (docs/agent-api.md §10). Агент — обычный клиент
+// ---- HTTP-API агента-оператора: /op/join, /op/perceive, /op/act, /op/state, /op/leave (docs/agent-op.md, устройство — docs/server.md §6). Агент — обычный клиент
 // станции: виртуальная консоль (server/opconsole.js) входит в комнату как оператор платформы, получает те же пакеты, что консоль
 // в браузере, и шлёт те же байты. Мир и станция разницы не видят; сессия держит мир идущим, как любой оператор.
 // ответ на остановку текстом: пауза или победа — чья, подтверждена миром или заявлена
