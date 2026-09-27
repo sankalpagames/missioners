@@ -77,7 +77,7 @@ function nodeDist(x,y){ return Math.min(...nodesOf().map(n=>Math.hypot(x-n.x,y-n
 const hm={cv:document.createElement('canvas'),box:null,timer:null};
 function hmDirty(ms=80){ clearTimeout(hm.timer); hm.timer=setTimeout(hmCompute,ms); }
 function isoStep(){ return sc>=5?0.5 : sc>=2?1 : sc>=0.8?2 : 5; }
-function hmCompute(){ MAPDRAW.heightmap(hm.cv,{W,H,sc,iS,iSy,hm:show.hm,iso:show.iso,steep:show.steep,isoStep:isoStep(),MAX_SLOPE}); hm.box={x0:iS(0),y0:iSy(0),x1:iS(W),y1:iSy(H)}; draw(); }   // слой высот — общий со спектатором (mapdraw.js)
+function hmCompute(){ if(ledgesRefresh()) renderRules(); MAPDRAW.heightmap(hm.cv,{W,H,sc,iS,iSy,hm:show.hm,iso:show.iso,steep:show.steep,isoStep:isoStep(),MAX_SLOPE}); hm.box={x0:iS(0),y0:iSy(0),x1:iS(W),y1:iSy(H)}; draw(); }   // слой высот — общий со спектатором (mapdraw.js)
 
 // ---------- рисование ----------
 let handles=[];   // {kind, layer, ref, x, y, r, ...} — что можно схватить; заполняется при рисовании, только для видимых слоёв
@@ -101,6 +101,7 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     knee(C.pts,C.w,false); knee(C.branch.pts,C.branch.w,true);
     for(const b of T.bumps||[]){ handles.push({kind:'bump',layer:'terrain',ref:b,x:b.x,y:b.y,r:Math.max(6,b.r*sc)}); ctx.strokeStyle=b.h>=0?'rgba(200,170,90,0.7)':'rgba(90,150,200,0.7)'; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(S(b.x),Sy(b.y),b.r*sc,0,7); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=ctx.strokeStyle; ctx.fillRect(S(b.x)-2,Sy(b.y)-2,5,5); if(show.labels&&sc>=1) ctx.fillText(`${b.h>=0?'+':''}${b.h} м`,S(b.x)+6,Sy(b.y)+8); } }
   // радиус возврата: площадки и ретрансляторы в сети (nodesOf)
+  if(show.steep) for(const l of ledgesNow()){ ctx.strokeStyle='#ff5a4a'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(S(l.x),Sy(l.y),Math.max(6,1.5*sc),0,7); ctx.stroke(); ctx.lineWidth=1; }   // ступеньки на дне: тело застрянет
   if(show.ret){ ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(224,169,74,0.45)'; ctx.lineWidth=1; for(const n of nodesOf()){ ctx.beginPath(); ctx.arc(S(n.x),Sy(n.y),RETURN_R*sc,0,7); ctx.stroke(); } ctx.setLineDash([]); }
   // ---- базы: площадка — призрак базы, как её развернёт хост (корпус из кодовой книги, зона питания, турель сектором, старт), объекты у шлюза ----
   if(vis.bases){ const AIR=airlocks();
@@ -230,7 +231,12 @@ function showCursor(x,y){ const z=TER.H(x,y), sl=TER.slope(x,y), c=TER.canyon(x,
   $('#cur').innerHTML=rows.map(([k,v])=>`<label>${k}</label><b>${v}</b>`).join(''); }
 $('#relays-on').onchange=()=>draw();
 const objTypes=()=>Object.keys(CODEBOOK).filter(t=>t>=10&&t<250);
-function renderRules(){ const el=$('#rules'); const L=levelLint(LEVEL); if(!L.length){ el.innerHTML='<div class="okk">нарушений нет</div>'; return; }
+// ступеньки на дне расщелины (TER.ledges — та же проверка, что blocked() в мире, ~0,3 с): пересчёт в hmCompute и только если поменялся тирейн,
+// не на каждом кадре перетаскивания. Завал в конце задуман — не в счёт
+let ledgeCache={key:'',L:[]};
+function ledgesRefresh(){ const k=JSON.stringify(LEVEL.terrain); if(k===ledgeCache.key) return false; ledgeCache={key:k,L:TER.ledges(MAX_SLOPE).filter(l=>!l.fall)}; return true; }
+const ledgesNow=()=>ledgeCache.L;
+function renderRules(){ const el=$('#rules'); const L=levelLint(LEVEL).concat(ledgesNow().map(l=>({text:`ступенька на дне: ${l.along.toFixed(0)} м от входа, ${(Math.atan(l.worst)*180/Math.PI).toFixed(0)}° — тело не переступит`,ref:{x:l.x,y:l.y}}))); if(!L.length){ el.innerHTML='<div class="okk">нарушений нет</div>'; return; }
   el.innerHTML=L.map((w,i)=>`<div class="${w.info?'info':'warn'}" data-i="${i}">${w.info?'·':'!'} ${w.text}</div>`).join('');
   el.querySelectorAll('[data-i]').forEach(d=>d.onclick=()=>{ const w=L[+d.dataset.i]; const h=handles.find(h=>h.ref===w.ref); if(h){ if(!vis[h.layer]) setVis(h.layer,true); select(h); cx=h.x; cy=h.y; draw(); hmDirty(); } else { const o=w.ref; if(o&&o.x!==undefined){ cx=o.x; cy=o.y; draw(); hmDirty(); } } }); }
 function renderProps(){ renderRules(); const P=$('#props'); if(!sel){ $('#sel-title').textContent=''; P.innerHTML='<span class="dim wide">клик по объекту на карте</span>'; return; }
