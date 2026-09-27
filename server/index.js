@@ -58,10 +58,10 @@ function parseKey(key){ const m=/^([\w-]{1,32})\.(op\d|pack)\.([0-9a-f]{12,32})$
   const role=m[2], st=role==='pack'?-1:+role.slice(2); if(role!=='pack'&&!r.cfg.ops[st]) return null; if(m[3]!==(role==='pack'?r.cfg.pack:r.cfg.ops[st])) return null; return {room:r, role, st}; }
 class Room {
   constructor(code,cfg){ this.code=code; this.file=path.join(DATA,code+'.json'); this.logFile=path.join(DATA,code+'.log'); this.logBuf=[]; this.clients=new Set(); this.watchers=new Set(); this.timer=null; this.saveTimer=null; this.seen={};   // seen: токен → {name, st}, все операторы, что были в комнате
-    let d=null; try{ d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==4){ log(`${code}: старый формат сохранения v${d.v}, новая планета`); d=null; } }
-    catch(e){ if(e.code!=='ENOENT') log(`${code}: сохранение не прочитано (${e.message}), новая планета`); }
+    let d=null; try{ d=JSON.parse(fs.readFileSync(this.file,'utf8')); if(d.v!==4){ log(`${code}: старый формат сохранения v${d.v}, новая комната`); d=null; } }
+    catch(e){ if(e.code!=='ENOENT') log(`${code}: сохранение не прочитано (${e.message}), новая комната`); }
     this.cfg=roomCfg(d?(d.cfg||{}):(cfg||{}));   // карта и число платформ — из сохранения, если оно есть: мир уже с ними
-    if(d&&d.cfg&&d.cfg.map&&d.cfg.map!==this.cfg.map) log(`${code}: карты «${d.cfg.map}» на сервере нет, планета поднята на «${this.cfg.map}» — снимок мира может не сойтись с картой`);
+    if(d&&d.cfg&&d.cfg.map&&d.cfg.map!==this.cfg.map) log(`${code}: карты «${d.cfg.map}» на сервере нет, комната поднята на «${this.cfg.map}» — снимок мира может не сойтись с картой`);
     if(d&&d.map&&d.map.id===this.cfg.map&&d.map.v!==MAPS[this.cfg.map].v) log(`${code}: карта ${d.map.id} v${d.map.v} → v${MAPS[this.cfg.map].v}, снимок мира может не сойтись с картой`);
     this.pack={ lines:[], waiters:[], last:0, capture:null };   // сторона стаи: лента восприятия с курсором n, ожидающие долгого опроса, время последнего запроса, перехват ответов мира
     this.agents=d&&d.agents||{};   // сессии агентов-операторов из сохранения (id → имя, платформа, курсор журнала): поднимаются по первому запросу с этим id (opApi)
@@ -72,7 +72,7 @@ class Room {
     // атлас — после того, как отвергнутый fetch в CAM.load отработает (иначе он обнулит атлас)
     setImmediate(()=>this.st.W.CAM.build(atlas.json,atlas.px));
     if(d){ this.st.restore(d.world,d.n); (d.rings||[]).forEach((r,k)=>{ if(this.rings[k]) this.rings[k]=r; }); this.seen=d.seen||{}; log(`${code}: восстановлена, карта ${this.cfg.map}, t=${d.world.t|0} с, платформ ${this.cfg.n}, пакетов ${[].concat(d.n).join('/')}`); }
-    else log(`${code}: новая планета, карта ${this.cfg.map}, платформ ${this.cfg.n}${this.cfg.teams.length?', команды '+this.cfg.teams.join(','):''}${this.cfg.voice?', голос стаи '+this.cfg.voice+' м':''}`);
+    else log(`${code}: новая комната, карта ${this.cfg.map}, платформ ${this.cfg.n}${this.cfg.teams.length?', команды '+this.cfg.teams.join(','):''}${this.cfg.voice?', голос стаи '+this.cfg.voice+' м':''}`);
     this.st.log({k:'start', host:'server', code, cfg:pubCfg(this.cfg), map:this.st.meta, restored:!!d, wall:new Date().toISOString()});
     for(const L of this.st.links) L.link.cfg.deepCapBps=this.cfg.cap; this.st.handle({t:'speed',v:this.cfg.speed});
   }
@@ -114,10 +114,10 @@ class Room {
     const S=w.stations[+String(role).slice(2)]; const ok=!!(S&&S.store&&S.store[44]>0); return {confirmed:ok, fact:ok?'планшет на складе':''}; }
   // Завершение с причиной: pause — пауза (человек из лобби, агент), win — объявление победы ролью (who: {role, name}). Всех выкидывает, мир стоит
   stop(by,opt={}){ const reason=opt.reason==='win'&&opt.who?'win':'pause', wall=new Date().toISOString(), t=+this.st.links[0].link.t.toFixed(1);
-    this.stopped={by:String(by||'кто-то').slice(0,40), reason, wall, t};
-    if(reason==='win'){ const role=opt.who.role; this.winner={role, side:role==='pack'?'стая':'ARK-04'+(1+ +role.slice(2)), name:opt.who.name, note:String(opt.note||'').slice(0,200), ...this.winFact(role), wall, t}; this.stopped.winner=this.winner; }
+    this.stopped={by:String(by||'кто-то').slice(0,40), reason, wall, t}; const note=String(opt.note||'').trim().slice(0,200); if(note) this.stopped.note=note;   // сообщение остальным — в лобби, в консоли, агентам
+    if(reason==='win'){ const role=opt.who.role; this.winner={role, side:role==='pack'?'стая':'ARK-04'+(1+ +role.slice(2)), name:opt.who.name, note, ...this.winFact(role), wall, t}; this.stopped.winner=this.winner; }
     this.st.log({k:reason, by:this.stopped.by, winner:this.winner||undefined, wall});
-    const s=enc({t:'stopped', by:this.stopped.by, reason, winner:this.winner}); for(const c of [...this.clients]){ if(c.live) c.send(s); if(c.close) c.close(); else this.leave(c); }
+    const s=enc({t:'stopped', by:this.stopped.by, reason, note:this.stopped.note, winner:this.winner}); for(const c of [...this.clients]){ if(c.live) c.send(s); if(c.close) c.close(); else this.leave(c); }
     for(const [id,S] of opSessions) if(S.room===this){ opSessions.delete(id); stoppedSessions.set(id,{room:this, stopped:this.stopped}); } this.agents={}; this.packHold=null;
     for(const w of this.pack.waiters.splice(0)) w(); this.save(); log(`${this.code}: остановлена — ${this.stopped.by}`); }
   // Архив — чтобы тестовые планеты не загромождали лобби: планета остановлена, войти за роль нельзя, только смотреть. Флаг — в файле планеты, реестра нет
@@ -188,12 +188,14 @@ const log=s=>console.log(new Date().toISOString().slice(11,19)+' '+s);
 // станции: виртуальная консоль (server/opconsole.js) входит в комнату как оператор платформы, получает те же пакеты, что консоль
 // в браузере, и шлёт те же байты. Мир и станция разницы не видят; сессия держит мир идущим, как любой оператор.
 // ответ на остановку текстом: пауза или победа — чья, подтверждена миром или заявлена
-const stopText=r=>{ const w=r.winner; return w&&r.stopped.reason==='win'?`победа объявлена: ${w.side} (${w.name})${w.note?' — '+w.note:''}; ${w.confirmed?'подтверждена миром: '+w.fact:'заявлена (факта мира нет)'}; игра остановлена для всех`:'пауза: игра остановлена для всех'; };
+const stopText=r=>{ const w=r.winner; return w&&r.stopped.reason==='win'?`победа объявлена: ${w.side} (${w.name})${w.note?' — '+w.note:''}; ${w.confirmed?'подтверждена миром: '+w.fact:'заявлена (факта мира нет)'}; игра остановлена для всех`:`пауза: игра остановлена для всех (${r.stopped.by}${r.stopped.note?': «'+r.stopped.note+'»':''})`; };
 const OP_TTL=10*60*1000, OP_MIN_MS=200; const opSessions=new Map();
 class OpClient { constructor(){ this.oc=new OpConsole(); this.live=false; this.st=0; this.op={name:'агент',token:''}; this.waiters=[]; this.last=Date.now(); this.oc.onLine=()=>{ for(const w of this.waiters.splice(0)) w(); }; }
   send(s){ let m; try{ m=JSON.parse(s); }catch(e){ return; } this.oc.onMsg(m); } }
 const stoppedSessions=new Map();   // id закрытой остановкой сессии → {room, stopped}: чтобы агент понял, почему сессии нет
-const STOP_HINT='вход — когда человек снимет остановку: «продолжить» у планеты в лобби или вход консоли планеты';
+// почему нельзя войти: кто остановил, когда, его сообщение остальным — одним текстом в JSON и в ?text=1
+const stopErr=s=>`игра остановлена (${s.by}${s.wall?', '+s.wall:''})${s.note?': «'+s.note+'»':''}; ${STOP_HINT}`;
+const STOP_HINT='вход — когда человек снимет остановку: «возобновить» у комнаты в лобби или вход консоли в комнату';
 // Сессия — id вида КОД.hex: после перезапуска сервера комната поднимает её из сохранения (Room.agents) по первому же запросу — тот же id, тот же
 // курсор журнала; строки за секунды до перезапуска могут пропасть. Пропавшая или устаревшая — 404, повторный /op/join
 function opSession(id){ const S=opSessions.get(id); if(S) return S; const m=/^([\w-]{1,32})\.[0-9a-f]{16}$/.exec(id); if(!m||!rooms.has(m[1])&&!fs.existsSync(path.join(DATA,m[1]+'.json'))) return null;
@@ -206,14 +208,14 @@ function opApi(req,res,u,op){
   const send=(code,obj,text)=>{ if(wantText&&text!==undefined){ res.writeHead(code,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}); res.end(text); } else { res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(obj)); } };
   const withBody=cb=>{ let body=''; req.on('data',c=>{ body+=c; if(body.length>2e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){ q={}; } cb(q); }); };
   const sess=q=>{ const id=String(q.id||u.searchParams.get('id')||''); const S=opSession(id); if(!S){ const x=stoppedSessions.get(id), st=x&&x.room.stopped;
-      if(st) send(423,{error:`игра остановлена (${st.by}); ${STOP_HINT}`, stopped:st},'игра остановлена — '+STOP_HINT);
+      if(st) send(423,{error:stopErr(st), stopped:st},stopErr(st));
       else send(404,{error:x?'сессия закрыта остановкой игры; остановка снята — войти заново: /op/join':'сессии нет или вышла по тишине: /op/join'},x?'сессия закрыта остановкой, войти заново':'сессии нет'); return null; }
     const now=Date.now(); if(now-S.client.last<OP_MIN_MS){ send(429,{error:'не чаще '+OP_MIN_MS+' мс'},'слишком часто'); return null; } S.client.last=now; return S; };
   const header=S=>{ const M=S.client.oc.modem; return M?`${M.up?'связь':'НЕТ СВЯЗИ'} · ${(M.cap/8).toFixed(0)} Б/с · в очереди ${M.qcmd+M.qbg} Б${M.qcmd+M.qbg?' ('+S.client.oc.loadText()+')':''}`:'модем: нет показаний'; };
   if(op==='join'&&req.method==='POST'){ withBody(q=>{ let r, st=+q.st||0;
       if(q.key){ const k=parseKey(q.key); if(!k||k.role==='pack'){ send(401,{error:'ключ не подходит (нужен ключ платформы: КОД.opN.секрет)'},'ключ не подходит'); return; } r=k.room; st=k.st; }
-      else { const code=String(q.room||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ send(400,{error:'нужен ключ платформы (key) или код планеты (room)'},'нужен ключ или код планеты'); return; } r=room(code); }
-      if(r.stopped){ send(423,{error:`игра остановлена (${r.stopped.by}, ${r.stopped.wall}); ${STOP_HINT}`, stopped:r.stopped},'игра остановлена — '+STOP_HINT); return; }
+      else { const code=String(q.room||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ send(400,{error:'нужен ключ платформы (key) или код комнаты (room)'},'нужен ключ или код комнаты'); return; } r=room(code); }
+      if(r.stopped){ send(423,{error:stopErr(r.stopped), stopped:r.stopped},stopErr(r.stopped)); return; }
       // тот же агент после обрыва или перезапуска — join с id прежней сессии: та же сессия, курсор журнала цел. Без него роль, занятая кем-то (консоль или другая сессия), — 409
       const name=opName(q.name||'агент'); let id=String(q.id||''), S=id?opSession(id):null; if(S&&(S.room!==r||S.client.st!==st)) S=null;
       const resumed=!!S; if(S) S.client.last=Date.now();
@@ -246,9 +248,9 @@ function packApi(req,res,u,op){
   const auth=(q,quiet)=>{ let r; const key=q.key||u.searchParams.get('key');
     if(key){ const k=parseKey(key); if(!k||k.role!=='pack'){ send(401,{error:'ключ не подходит (нужен ключ стаи: КОД.pack.секрет)'},'ключ не подходит'); return null; } r=k.room; }
     else { const code=String(q.room||u.searchParams.get('room')||'').trim(), token=String(q.token||u.searchParams.get('token')||'').trim();
-      if(!/^[\w-]{1,32}$/.test(code)||!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ send(404,{error:'планеты нет: '+code},'планеты нет'); return null; }
+      if(!/^[\w-]{1,32}$/.test(code)||!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ send(404,{error:'комнаты нет: '+code},'комнаты нет'); return null; }
       r=room(code); if(token!==r.cfg.pack){ send(401,{error:'токен стаи не подходит'},'токен стаи не подходит'); return null; } }
-    if(r.stopped&&!quiet){ send(423,{error:`игра остановлена (${r.stopped.by}, ${r.stopped.wall}); ${STOP_HINT}`, stopped:r.stopped},'игра остановлена — '+STOP_HINT); return null; }
+    if(r.stopped&&!quiet){ send(423,{error:stopErr(r.stopped), stopped:r.stopped},stopErr(r.stopped)); return null; }
     const now=Date.now(); if(now-r.pack.last<PACK_MIN_MS){ send(429,{error:'не чаще '+PACK_MIN_MS+' мс'},'слишком часто'); return null; } r.pack.last=now; return r; };
   // сессия стаи: роль одна — perceive/act/stop/leave только с id сессии, выданной join. Чужая живая сессия — 409, нет сессии — 404
   const hold=(r,q)=>{ const id=String(q.id||u.searchParams.get('id')||''), h=r.packHolder();
@@ -293,8 +295,11 @@ const server=http.createServer((req,res)=>{
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({...r.info(), pack:r.cfg.pack})); }); return; }   // ключи ролей — в info(), как и в списке планет: они не секрет
   { const m=/^\/rooms\/([\w-]{1,32})\/(stop|resume|archive|unarchive)$/.exec(f); if(m&&req.method==='POST'){   // stop — «конец игры» для всех (лобби, любой человек); resume — снять остановку, агентов снова пускают; archive/unarchive — в архив лобби и обратно
       let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){}
-        const code=m[1]; if(!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ res.writeHead(404); res.end('нет планеты'); return; } const r=room(code);
-        const by=String(q.by||'человек из лобби').slice(0,40); if(m[2]==='stop') r.stop(by); else if(m[2]==='resume') r.resume(by); else if(m[2]==='archive') r.archive(by); else r.unarchive(by);
+        const code=m[1]; if(!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'))){ res.writeHead(404); res.end('нет комнаты'); return; } const r=room(code);
+        const by=String(q.by||'человек из лобби').slice(0,40);
+        // из лобби: пауза с сообщением остальным или заявка на победу за роль (op0…, pack) — факт мира проверяется так же, как у агента
+        const role=q.reason==='win'&&(q.role==='pack'||/^op\d$/.test(q.role||'')&&+q.role.slice(2)<r.cfg.n)?q.role:null;
+        if(m[2]==='stop') r.stop(by,{note:q.note, reason:role?'win':'pause', who:role?{role, name:String(q.name||by).slice(0,40)}:null}); else if(m[2]==='resume') r.resume(by); else if(m[2]==='archive') r.archive(by); else r.unarchive(by);
         res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.info())); }); return; } }
   { const m=/^\/agent\/([^\/]+?)(\.md)?$/.exec(f); if(m){ const k=parseKey(decodeURIComponent(m[1])); if(!k){ res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'}); res.end('ключ не подходит: нужен КОД.РОЛЬ.СЕКРЕТ из лобби'); return; }   // спека роли по ключу: страница или markdown с подставленными ключом и адресом
       if(!m[2]){ res.writeHead(200,{'Content-Type':MIME['.html'],'Cache-Control':'no-store'}); res.end(fs.readFileSync(path.join(__dirname,'agent.html'))); return; }
