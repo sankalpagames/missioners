@@ -276,12 +276,16 @@ function packApi(req,res,u,op){
 }
 
 // Спека роли: docs/agent-pack.md или docs/agent-op.md с подстановкой {{BASE}} (адрес сервера), {{KEY}}, {{ROOM}}, {{STATION}}, {{MAP}} и брифинга карты
-// (docs/brief-ID.md, если есть) — агенту достаточно этой страницы, чтобы войти и играть свою роль
+// (docs/brief-ID.md, если есть) — агенту достаточно этой страницы, чтобы войти и играть свою роль. В брифинге — от своей платформы:
+// {{PLATFORM}} — где она стоит (x, y), {{DIST:x,y}} — расстояние от неё до точки, м; {{N}} — платформ в комнате
 function roleDoc(k,req){ const r=k.room; const base=(req.headers['x-forwarded-proto']||'http')+'://'+(req.headers['x-forwarded-host']||req.headers.host||'localhost');
   const file=k.role==='pack'?'agent-pack.md':'agent-op.md'; let md=''; try{ md=fs.readFileSync(path.join(ROOT,'docs',file),'utf8'); }catch(e){ return 'спеки роли нет: docs/'+file; }
   let brief=''; try{ brief=fs.readFileSync(path.join(ROOT,'docs','brief-'+r.cfg.map+(k.role==='pack'?'-pack':'')+'.md'),'utf8'); }catch(e){}
-  const vars={BASE:base, KEY:roleKey(r.code,r.cfg,k.role), ROOM:r.code, STATION:k.role==='pack'?'':'ARK-04'+(1+k.st), ST:String(k.st), MAP:MAPS[r.cfg.map].name, BRIEF:brief.trim()};
-  return md.replace(/\{\{(\w+)\}\}/g,(_,v)=>vars[v]??''); }
+  const S=k.role==='pack'?null:r.st.snapshot().stations[k.st], n0=v=>String(Math.round(v)).replace('-','−');
+  brief=brief.replace(/\{\{DIST:(-?[\d.]+),\s*(-?[\d.]+)\}\}/g,(_,x,y)=>S?String(Math.round(Math.hypot(+x-S.x,+y-S.y))):'?');
+  const vars={BASE:base, KEY:roleKey(r.code,r.cfg,k.role), ROOM:r.code, STATION:k.role==='pack'?'':'ARK-04'+(1+k.st), ST:String(k.st), MAP:MAPS[r.cfg.map].name, N:String(r.cfg.n), PLATFORM:S?`${n0(S.x)}, ${n0(S.y)}`:''};
+  const sub=t=>t.replace(/\{\{(\w+)\}\}/g,(_,v)=>vars[v]??''); vars.BRIEF=sub(brief.trim());
+  return sub(md); }
 // статика: proto/ в корне, без кэша
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon'};
 const server=http.createServer((req,res)=>{
