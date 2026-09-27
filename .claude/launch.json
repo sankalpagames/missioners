@@ -29,6 +29,15 @@
         "debug"
       ],
       "port": 8777
+    },
+    {
+      "name": "server-play",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "server/index.js",
+        "8778"
+      ],
+      "port": 8778
     }
   ]
 }
