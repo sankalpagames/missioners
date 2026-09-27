@@ -163,20 +163,22 @@ class OpConsole {
     if(/^стоп|^стой/.test(v)) return {bytes:[17,0,unit], label:`М${unit} стоп`};
     // именные команды объекта, как их показывает описание («вскрыть ящик», «переключить ретранслятор», «прочитать запись планшет», «заправить турель патроны»):
     // это то же «взаимодействовать» — что именно сделать, мир выбирает по состоянию объекта; «заправить: X» — «положить X в объект»
-    { const verb=stem(v.split(/\s+/)[0]); const o=obj(); if(o&&o.cls===0){ const own=o.type===34?(this.station.turrets||[]).some(T=>T.id===o.id):undefined;
-        const hit=objCmds(o.type||0,o.state||0,{own}).find(c=>stem(c.label.split(/[:\s]/)[0])===verb);
+    // объект выбирается среди тех, у кого такая команда есть: «срастить кабель» — оборванный кабель, а не кабель-примета с тем же словом в имени
+    { const verb=stem(v.split(/\s+/)[0]); const cmdOf=o=>{ if(!o||o.cls!==0) return null; const own=o.type===34?(this.station.turrets||[]).some(T=>T.id===o.id):undefined;
+        return objCmds(o.type||0,o.state||0,{own}).find(c=>stem(c.label.split(/[:\s]/)[0])===verb)||null; };
+      const o=this.findKnown(rest,cmdOf); const hit=cmdOf(o);
         if(hit&&hit.kind==='fill') return {bytes:[22,hit.item,unit,o.id], label:`М${unit} положить ${ITEMS[hit.item]} в ${o.name}`};
-        if(hit) return {bytes:[8,o.id,unit], label:`М${unit} взаимодействовать ${o.name} (${hit.label})`}; } }
+        if(hit) return {bytes:[8,o.id,unit], label:`М${unit} взаимодействовать ${o.name} (${hit.label})`}; }
     return {error:'не понял; знаю: описание, лидар [наклон N], кадр [8|16|32|64] [дельта], идти X Y | идти к <объект>, смотреть …, изучить <объект>, взаимодействовать <объект>, взять <вещь> из <контейнер> | со склада, положить <вещь> в <контейнер> | на грунт, сдать <вещь>, съесть брикет, режим …, стойка …, скрытность вкл|выкл, при потере несущей …, передатчик -10|0|10, телеметрия|лидар|описание каждые N|выкл, автосъёмка каждые N [32] [дельта]|выкл, стоп'};
   }
   level(v){ const r=/\b(8|16|32|64)\b/.exec(v); return r?[8,16,32,64].indexOf(+r[1]):2; }
   // ссылка на объект: «М5» / «миссионер М5» — тело 200+5; номер отдельным словом («205», «[205]») — id; иначе по словам имени.
   // Названный номер, которого нет в описаниях, — null, а не похожее имя (\b в JS не знает кириллицы: в «м5» номер — не отдельное слово)
-  findKnown(v){ const s=v.trim(); const mu=/(?:^|[\s\[])[мm]\s*(\d{1,3})\]?$/i.exec(s); if(mu) return this.known.get(200+ +mu[1])||null;
+  findKnown(v,only){ const s=v.trim(); const mu=/(?:^|[\s\[])[мm]\s*(\d{1,3})\]?$/i.exec(s); if(mu) return this.known.get(200+ +mu[1])||null;
     const id=/(?:^|[\s\[])(\d{1,3})\]?$/.exec(s); if(id) return this.known.get(+id[1])||null;
     const words=v.trim().replace(/^(к|на|в)\s+/,'').split(/[\s,]+/).filter(w=>w.length>2); if(!words.length) return null;
     const ws=words.map(stem); let best=null, bs=0;   // сколько слов фразы нашлось в имени; все слова имени покрыты — плюс: «ящик» раньше «штабеля ящиков», «вскрытый ящик» — по двум словам
-    for(const k of this.known.values()){ const nw=k.name.split(' ').map(stem); const hit=(a,b)=>a.startsWith(b)||b.startsWith(a); const matched=ws.filter(w=>nw.some(n=>hit(n,w))).length; if(!matched) continue;
+    for(const k of this.known.values()){ if(only&&!only(k)) continue; const nw=k.name.toLowerCase().replace(/ё/g,'е').split(' ').map(stem);   /* фраза — без ё (parse), имя — тоже */ const hit=(a,b)=>a.startsWith(b)||b.startsWith(a); const matched=ws.filter(w=>nw.some(n=>hit(n,w))).length; if(!matched) continue;
       const sc=matched*2+(nw.every(n=>ws.some(w=>hit(n,w)))?1:0); if(sc>bs||(sc===bs&&(k.name.length<best.name.length||(k.name.length===best.name.length&&k.at>best.at)))){ best=k; bs=sc; } } return best; }
 }
 module.exports={OpConsole};

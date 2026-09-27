@@ -593,7 +593,7 @@ function doPending(u){
   if(!a){ textReply('ACT',1,'действий нет.'); return; }
   if(a.needs && !u.items.includes(a.needs)){ textReply('ACT',2,`не смог: ${a.fail||'нужен предмет'}`); return; }
   if(a.req && stateOf(a.req.obj)!==a.req.state){ textReply('ACT',3,`не смог: ${a.fail||'условие не выполнено'}`); return; }
-  if(a.special==='finale' && stOf(u).taskOpen){ stOf(u).taskOpen=false; setTimeout(()=>evt(17,u.id),1500/speed); }
+  if(a.special==='finale' && stOf(u).taskOpen){ stOf(u).taskOpen=false; later(1.5,()=>evt(17,u.id)); }
   if(a.item===42){ u.sensors.camera=true; u.lastImg={}; } else if(a.item) u.items.push(a.item);
   objState[o.id]=a.to; textReply('ACT',0,withContents(o,`${a.verb}. ${(cb.states||[])[a.to]||''}`)); sendCont();
 }
@@ -683,11 +683,14 @@ let muted=false;
 function catchUp(sec){ const n=Math.min(sec,8*3600)/DT; muted=true; for(let i=0;i<n;i++) tick(); muted=false; }
 
 // ---------- тик ----------
+// отложенное на игровое время (не стенное: ускорение, headless-прогон, пауза хоста — одно и то же)
+const LATER=[]; function later(sec,f){ LATER.push({at:t+sec,f}); }
 function tick(){
   const dt=DT; t+=dt;
+  for(let i=LATER.length-1;i>=0;i--) if(LATER[i].at<=t){ const {f}=LATER.splice(i,1)[0]; f(); }
   for(const S of stations){ const own=units.filter(u=>u.st===S.k);
     // тупик: живых нет, биоматериала нет, ничего не растёт — станция закрывает серию
-    if(S.taskOpen && !S.seriesClosed && own.length && !own.some(u=>u.alive) && S.bioStock<=0 && !S.growing){ S.seriesClosed=true; note('station',{st:S.k,series:'closed'}); setTimeout(()=>evt(27,0,0,S.k),2000/speed); }
+    if(S.taskOpen && !S.seriesClosed && own.length && !own.some(u=>u.alive) && S.bioStock<=0 && !S.growing){ S.seriesClosed=true; note('station',{st:S.k,series:'closed'}); later(2,()=>evt(27,0,0,S.k)); }
     if(S.growing){ S.growing.tLeft-=dt; if(S.growing.tLeft<=0){ const u=spawn(S.growing.sensors,S); S.growing=null; evt(6,u.id); } } }
   packTick(); for(const T of turrets) turretTick(T,dt); relayTick();
   for(const u of units){
@@ -698,8 +701,8 @@ function tick(){
       const sp=speedFor(u);
       if(u.target && sp>0){ const d=dist(u,u.target); if(d<0.5){ u.target=null; u.exertion=0; u.stuck=0; u.bestD=undefined; if(u.pending) doPending(u); else if(u.mode!==3 && u.reflex!==6) evt(1,u.id); }
         else { u.heading=Math.atan2(u.target.y-u.y,u.target.x-u.x); stepBody(u,sp*dt); u.exertion=Math.min(1,sp/1.4);
-          // застревание — по продвижению: за 4 с не приблизился к цели на метр → стоп
-          u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<1){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); note('unit',{unit:u.id,stuck:true,x:+u.x.toFixed(1),y:+u.y.toFixed(1),slope:+TER.slope(u.x,u.y).toFixed(2)}); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
+          // застревание — по продвижению: за 4 с не приблизился к цели на метр (в скрытности — на sp метров: обход при 0,6 м/с метра не даёт) → стоп
+          u.stuck=(u.stuck||0)+dt; if(u.stuck>=4){ const d2=dist(u,u.target); if(u.bestD!==undefined && u.bestD-d2<Math.min(1,sp)){ u.stuck=0; u.bestD=undefined; u.target=null; u.pending=null; u.exertion=0; evt(23,u.id); note('unit',{unit:u.id,stuck:true,x:+u.x.toFixed(1),y:+u.y.toFixed(1),slope:+TER.slope(u.x,u.y).toFixed(2)}); } else { u.bestD=d2; u.stuck=0; } } } } else u.exertion=0;
       stanceTick(u,dt); if(u.reflex===5) fightBack(u);
       // страх: ближайшая бодрствующая особь (уходящая не в счёт) и крики рядом — звук тело слышит, слов не разбирает
       let fearT=0; for(const p of pack){ const w=p.act==='attack'||p.act==='approach'?1:p.act==='sleep'||p.act==='dead'||p.act==='flee'||p.act==='home'?0:0.5; if(w) fearT=Math.max(fearT,w*(1-dist(u,p)/80)); }
