@@ -25,6 +25,7 @@ function logText(cb){ const out=[]; const done=()=>cb(out.concat(pending).join('
 Promise.all(['maps/'+MAP+'.js','codebook.js','terrain.js','camera.js','world.js'].map(f=>fetch(f+'?v='+VER).then(r=>{ if(!r.ok) throw new Error(f+': '+r.status); return r.text(); }))).then(srcs=>{
   if(!/^\/\/ УРОВЕНЬ/.test(srcs[0])||!/\nconst LEVEL = \{/.test(srcs[0])) throw new Error('maps/'+MAP+'.js: не файл уровня');
   st=makeStation({ worldSrc:srcs.join('\n'), search:self.location.search, out:m=>postMessage(m), debug:true, fetch:(u,o)=>fetch(u,o), log:logRec });   // отладочная шторка есть только в одиночной игре
+  if(!st.players.includes(st.NST)) throw new Error(`карта «${st.meta.name}» — на ${st.players.join(', ')} платф.; одиночная игра — на одну: эта карта только по сети`);   // сколько платформ — решает карта
   for(const m of inbox) handle(m); inbox.length=0; schedule(); postMessage({t:'ready'});
 });
 function handle(m){

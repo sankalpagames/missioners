@@ -21,13 +21,13 @@ const PACK_RING=2000, PACK_WAIT_MAX=30, PACK_MIN_MS=200;   // сторона с�
 // станция и мир — теми же исходниками, что в браузере
 const read=f=>fs.readFileSync(P+f,'utf8');
 const makeStation=new Function(read('link.js')+'\n'+read('station.js')+'\nreturn makeStation;')();
-const {levelCheck}=require('../proto/codebook.js');
+const {levelCheck, playersOf}=require('../proto/codebook.js');
 // карты: proto/maps/*.js и, если задан, level=ФАЙЛ. id — из meta (для файлов из maps/ должен совпадать с именем). Карта чужого формата не поднимается.
 const MAPS={};
 function loadMap(file){ let src, L; try{ src=fs.readFileSync(file,'utf8'); if(!/^\/\/ УРОВЕНЬ/.test(src)||!/\nconst LEVEL = \{/.test(src)) throw new Error('не файл уровня'); L=new Function(src+'\nreturn LEVEL;')(); const e=levelCheck(L); if(e) throw new Error(e);
     if(path.dirname(file)===path.join(P,'maps')&&path.basename(file,'.js')!==L.meta.id) throw new Error(`meta.id «${L.meta.id}» не совпадает с именем файла`); }
   catch(e){ console.error(`карта ${file} не поднята: ${e.message}`); return; }
-  MAPS[L.meta.id]={ id:L.meta.id, name:L.meta.name||L.meta.id, v:L.meta.v||0, format:L.meta.format, sites:L.sites.length, file, worldSrc:[src, ...['codebook.js','terrain.js','camera.js','world.js'].map(read)].join('\n') }; }
+  MAPS[L.meta.id]={ id:L.meta.id, name:L.meta.name||L.meta.id, v:L.meta.v||0, format:L.meta.format, sites:L.sites.length, players:playersOf(L), file, worldSrc:[src, ...['codebook.js','terrain.js','camera.js','world.js'].map(read)].join('\n') }; }
 for(const f of fs.readdirSync(P+'maps').filter(f=>/^[a-z0-9_-]+\.js$/.test(f)).sort()) loadMap(P+'maps/'+f);
 if(LEVEL_FILE) loadMap(path.resolve(LEVEL_FILE));
 const MAP_DEFAULT=MAPS[process.env.MAP_DEFAULT]?process.env.MAP_DEFAULT:MAPS.act1?'act1':Object.keys(MAPS)[0];
@@ -41,7 +41,7 @@ const enc=m=>JSON.stringify(m,replacer);
 const CAPS=[512,1024,2048,4096], SPEEDS=[1,2,4];
 // teams — команда каждой платформы («0,0,1,1»: первые две вместе); нет или не по числу платформ — каждая сама за себя. voice — радиус голоса стаи, м (0 — без предела).
 // Оба уходят миру строкой search (tech.md §6: &teams=…&voice=…); сервер их не толкует
-const roomCfg=q=>{ const map=MAPS[q.map]?q.map:MAP_DEFAULT; const n=Math.max(1,Math.min(MAPS[map].sites,+q.n||2));   // от одной платформы (одиночная партия на сервере) до числа площадок карты
+const roomCfg=q=>{ const map=MAPS[q.map]?q.map:MAP_DEFAULT; const P=MAPS[map].players, n=P.includes(+q.n)?+q.n:P.includes(2)?2:P[0];   // сколько платформ — решает карта (playersOf: раскладки уровня); стая не в счёт
   const teams=String(Array.isArray(q.teams)?q.teams.join(','):q.teams||'').split(',').map(x=>x.trim()).filter(x=>/^\d$/.test(x)).map(Number);
   const hex=v=>/^[0-9a-f]{12,32}$/.test(v||'')?v:crypto.randomBytes(8).toString('hex');
   return { map, n, cap:CAPS.includes(+q.cap)?+q.cap:512, speed:SPEEDS.includes(+q.speed)?+q.speed:1, teams:teams.length===n&&new Set(teams).size<n?teams:[], voice:Math.max(0,Math.min(2000,+q.voice||0)),
@@ -287,7 +287,9 @@ const server=http.createServer((req,res)=>{
   if(f==='/rooms'&&req.method==='POST'){   // создать планету с настройками (если уже есть — настройки не меняются)
     let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body); }catch(e){}
       const code=String(q.code||'').trim(); if(!/^[\w-]{1,32}$/.test(code)){ res.writeHead(400); res.end('bad code'); return; }
-      const fresh=!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json')); const r=room(code,q); if(fresh) r.save();   // новая — сразу в файл: список лобби и DATA_DIR не расходятся
+      const fresh=!rooms.has(code)&&!fs.existsSync(path.join(DATA,code+'.json'));
+      if(fresh&&q.n!==undefined){ const M=MAPS[q.map]||MAPS[MAP_DEFAULT]; if(!M.players.includes(+q.n)){ res.writeHead(400,{'Content-Type':'text/plain; charset=utf-8'}); res.end(`карта ${M.id}: платформ — ${M.players.join(', ')}`); return; } }
+      const r=room(code,q); if(fresh) r.save();   // новая — сразу в файл: список лобби и DATA_DIR не расходятся
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({...r.info(), pack:r.cfg.pack})); }); return; }   // ключи ролей — в info(), как и в списке планет: они не секрет
   { const m=/^\/rooms\/([\w-]{1,32})\/(stop|resume|archive|unarchive)$/.exec(f); if(m&&req.method==='POST'){   // stop — «конец игры» для всех (лобби, любой человек); resume — снять остановку, агентов снова пускают; archive/unarchive — в архив лобби и обратно
       let body=''; req.on('data',c=>{ body+=c; if(body.length>1e4) req.destroy(); }); req.on('end',()=>{ let q={}; try{ q=JSON.parse(body||'{}'); }catch(e){}

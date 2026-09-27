@@ -131,7 +131,8 @@ function levelText(L){ const o=[]; const num=v=>String(Math.round(v*100)/100); c
 //   sites    — площадки под базы: центр и курс ang в градусах. База разворачивается по штатному составу BASE из кодовой книги; subs — сюжетные
 //              объекты у шлюза сверх штатных (смещения от шлюза в осях площадки, id 160 + k·10 + i, не больше 10 вместе со штатными);
 //              turret — своя турель вместо штатной: dx/dy от центра площадки, f — курс от курса площадки, fov/range/aim/reload.
-//   layouts  — какие площадки заняты при n платформах: индексы площадок в порядке платформ (ARK-041, 042, …). Без записи — первые n.
+//   layouts  — на сколько платформ карта (стая не в счёт) и какие площадки заняты: n — индексы площадок в порядке платформ (ARK-041, 042, …);
+//              нет записи для n — на n платформ карта не играется (без layouts вообще — от 1 до числа площадок).
 //   pois     — указатели: место с именем и текстом осмотра (id 120…159). Не объект: спрайта нет, действий нет, тело к нему идёт и «изучает» —
 //              получает text. Текст — про местность, без того, что может измениться.
 //   objects  — объекты мира (id 1…99): type — тип из кодовой книги, x/y — м, f — курс, градусы (нет — по хешу id); state — начальное состояние;
@@ -163,6 +164,9 @@ const LEVEL = {`);
   o.push(`  pack: { lair:{x:${num(L.pack.lair.x)},y:${num(L.pack.lair.y)}}, members:[`); for(const m of L.pack.members) o.push(`    {x:${num(m.x)}, y:${num(m.y)}, size:${num(m.size)}, courage:${num(m.courage)}, attention:${num(m.attention)}},`); o.push(`  ] },`);
   o.push(`};`); o.push(`if (typeof module !== 'undefined') module.exports = { LEVEL };`); return o.join('\n')+'\n'; }
 // Какие площадки заняты при n платформах: LEVEL.layouts[n] — список индексов площадок в порядке платформ (ARK-041, 042, …); нет записи — первые n
+// Сколько платформ (операторов; стая не в счёт) допускает карта: ключи LEVEL.layouts — раскладка на n есть, значит на n и играется
+// (duel — только 2, act1 — 1…4). Раскладки нет совсем — от 1 до числа площадок. Хосты (сервер, одиночная игра) берут число отсюда
+function playersOf(L){ const ks=Object.keys(L.layouts||{}).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=L.sites.length).sort((a,b)=>a-b); return ks.length?ks:L.sites.map((_,i)=>i+1); }
 function sitesFor(L,n){ const a=(L.layouts&&L.layouts[n])||L.sites.map((_,i)=>i); return a.slice(0,n).filter(i=>L.sites[i]); }
 // База на площадке: всё в мировых координатах (углы — градусы), подобъекты — смещения от шлюза, турель — из уровня или штатная
 function baseAt(site){ const ang=site.ang||0, a=ang*Math.PI/180, c=Math.cos(a), s=Math.sin(a); const R=(dx,dy)=>({x:site.x+dx*c-dy*s, y:site.y+dx*s+dy*c});
@@ -239,4 +243,4 @@ const EVENTS = {
   43:'контакт: цель не двигается',
 };
 
-if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, ITEM_PROPS, objCmds, MODES, STANCES, AUTONOMY, EVENTS, STATION, BASE, SPRITES, LEVEL_FORMAT, IDS, levelCheck, levelLint, levelText, objCollider, sitesFor, baseAt, encText, decText };
+if (typeof module !== 'undefined') module.exports = { CODEBOOK, ITEMS, ITEM_PROPS, objCmds, MODES, STANCES, AUTONOMY, EVENTS, STATION, BASE, SPRITES, LEVEL_FORMAT, IDS, levelCheck, levelLint, levelText, objCollider, playersOf, sitesFor, baseAt, encText, decText };

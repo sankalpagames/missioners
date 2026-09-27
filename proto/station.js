@@ -23,7 +23,7 @@ function makeStation(opts){
   const shims={ self:{location:{search:opts.search||'?v=0'}}, importScripts(){}, postMessage:m=>fromWorld(m),
     setInterval(){ return 1; }, clearInterval(){}, setTimeout:(f,ms)=>setTimeout(f,ms), onmessage:null,
     fetch:opts.fetch||(()=>Promise.reject(new Error('no fetch'))) };
-  const W=new Function(...Object.keys(shims), opts.worldSrc+'\nreturn { tick, snapshot, restore, catchUp, CAM, NST, meta:LEVEL.meta, handle:m=>onmessage({data:m}), setSpeed:v=>{ speed=v; } };')(...Object.values(shims));
+  const W=new Function(...Object.keys(shims), opts.worldSrc+'\nreturn { tick, snapshot, restore, catchUp, CAM, NST, meta:LEVEL.meta, players:playersOf(LEVEL), handle:m=>onmessage({data:m}), setSpeed:v=>{ speed=v; } };')(...Object.values(shims));
 
   // канал на каждую платформу
   const links=[]; for(let k=0;k<W.NST;k++){ const link=new Link(); const L={k, link, rxN:0, lastSec:-1}; links.push(L);
@@ -60,7 +60,7 @@ function makeStation(opts){
   }
 
   return {
-    links, W, DT, NST:W.NST, meta:W.meta,   // meta — карта мира: id, name, v (LEVEL.meta), хост пишет её в лог и сохранение
+    links, W, DT, NST:W.NST, meta:W.meta, players:W.players,   // meta — карта мира: id, name, v (LEVEL.meta), хост пишет её в лог и сохранение; players — на сколько платформ карта
     get speed(){ return speed; },
     // один такт игрового времени: мир, каналы, несущие в мир; раз в секунду — модем каждой станции
     tick(){ try{ tickOnce(); }catch(e){ fault('такт мира',e); } },
