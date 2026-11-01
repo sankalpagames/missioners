@@ -9,9 +9,11 @@ const TER = (()=>{
 
   // ---- расщелина: ломаная с тупиковым отростком, ширина по коленам; начинается у входа. Колена и ширины — LEVEL.terrain.canyon ----
   // Производные (направление входа, длина, хребет, сюжетные декорации) считаются в reload(); редактор зовёт его после правки уровня.
-  let CANYON, A0, D0, LEN, RIDGE, FIXED, CBOX, BUMPS, PAD, BIG;   // CBOX — прямоугольник, вне которого расщелина и подход не влияют; BUMPS — пятна рельефа уровня; PAD — центр посадочного поля
+  let CANYON, A0, D0, LEN, RIDGE, FIXED, CBOX, BUMPS, PAD, BIG, VAULT;   // VAULT — тоннель уровня (LEVEL.terrain.tunnel) или null   // CBOX — прямоугольник, вне которого расщелина и подход не влияют; BUMPS — пятна рельефа уровня; PAD — центр посадочного поля
   // посадочное поле — под площадкой 1 (она всегда ARK-041): остальные платформы стоят на естественном рельефе
-  function reload(){ CANYON=LEVEL.terrain.canyon; BUMPS=(LEVEL.terrain.bumps||[]).filter(b=>b.r>0); { const s=(LEVEL.sites||[])[0]; PAD=s?{x:s.x,y:s.y}:{x:0,y:0}; } A0=CANYON.pts[0]; { const q=CANYON.pts[1]; const dx=q.x-A0.x, dy=q.y-A0.y, L=Math.hypot(dx,dy)||1; D0={x:dx/L,y:dy/L}; }   // направление входа
+  // карта без расщелины (тоннель) — заглушка далеко за краем: canyon() отвечает FAR по CBOX, производные считаются как обычно
+  const NO_CANYON={pts:[{x:1e6,y:1e6},{x:1e6+20,y:1e6}], w:[4,4], branch:{pts:[{x:1e6+10,y:1e6},{x:1e6+10,y:1e6+10}], w:[4,4]}};
+  function reload(){ CANYON=LEVEL.terrain.canyon||NO_CANYON; vaultLoad(); BUMPS=(LEVEL.terrain.bumps||[]).filter(b=>b.r>0); { const s=(LEVEL.sites||[])[0]; PAD=s?{x:s.x,y:s.y}:{x:0,y:0}; } A0=CANYON.pts[0]; { const q=CANYON.pts[1]; const dx=q.x-A0.x, dy=q.y-A0.y, L=Math.hypot(dx,dy)||1; D0={x:dx/L,y:dy/L}; }   // направление входа
     LEN=0; for(let i=0;i<CANYON.pts.length-1;i++) LEN+=Math.hypot(CANYON.pts[i+1].x-CANYON.pts[i].x,CANYON.pts[i+1].y-CANYON.pts[i].y);
     { const q=canyonPoint(62/LEN); BIG={x:q.x-q.dir.y*2.2, y:q.y+q.dir.x*2.2, d:q.dir}; }   // обрушение: 62 м от входа, 2,2 м от оси
     RIDGE={ c:{x:A0.x+D0.x*28, y:A0.y+D0.y*28}, d:{x:-D0.y,y:D0.x}, n:{x:D0.x,y:D0.y} };   // позвоночник в 28 м за входом, поперёк входа
@@ -28,6 +30,20 @@ const TER = (()=>{
   function inside(x,y,margin=0){ const c=canyon(x,y); return c.d<c.w/2-margin ? c : null; }                   // внутри расщелины (или на подходе)
   function corridor(x,y){ const c=canyon(x,y); return c.d<c.w/2+4 ? c : null; }
   function canyonPoint(t){ const a=t*LEN; let acc=0; for(let i=0;i<CANYON.pts.length-1;i++){ const p=CANYON.pts[i], q=CANYON.pts[i+1]; const L=Math.hypot(q.x-p.x,q.y-p.y); if(a<=acc+L||i===CANYON.pts.length-2){ const k=Math.max(0,Math.min(1,(a-acc)/L)); return {x:p.x+(q.x-p.x)*k, y:p.y+(q.y-p.y)*k, dir:{x:(q.x-p.x)/L,y:(q.y-p.y)/L}}; } acc+=L; } }
+
+  // ---- тоннель: закрытый коридор в скальной массе (LEVEL.terrain.tunnel {h, segs:[{pts, w}]}) ----
+  // Оси segs — коридоры и залы, w — ширина в каждой точке оси; потолок h над полом. Пол ровный, за полуширину стена круто поднимается до
+  // потолка, скальная масса — вровень с ним. Карта с тоннелем — только тоннель: равнины, хребта и процедурного декора нет.
+  let VBOX=null;
+  function vaultLoad(){ VAULT=LEVEL.terrain.tunnel||null; if(!VAULT){ VBOX=null; return; } const ps=VAULT.segs.flatMap(s=>s.pts);
+    VBOX={x0:Math.min(...ps.map(p=>p.x))-12,x1:Math.max(...ps.map(p=>p.x))+12,y0:Math.min(...ps.map(p=>p.y))-12,y1:Math.max(...ps.map(p=>p.y))+12}; }
+  // до стены тоннеля, м: < 0 — внутри (глубина от стены), > 0 — в скале
+  function vaultD(x,y){ if(x<VBOX.x0||x>VBOX.x1||y<VBOX.y0||y>VBOX.y1) return 1e9; let best=1e9;
+    for(const s of VAULT.segs) for(let i=0;i<s.pts.length-1;i++){ const si=segInfo(s.pts[i],s.pts[i+1],x,y); const w=s.w[i]+(s.w[i+1]-s.w[i])*si.t; best=Math.min(best,si.d-w/2); }
+    return best; }
+  function vaultH(x,y){ const fl=0.03*(vnoise(x/1.5,y/1.5)-0.5); return fl+VAULT.h*ss(0,0.35,vaultD(x,y)); }
+  // потолок: высота над уровнем станции; без тоннеля — нет (Infinity)
+  function C(x,y){ return VAULT?VAULT.h:Infinity; }
 
   // ---- макро: равнина и хребет ----
   const WIND={x:0.94,y:0.34};
@@ -48,7 +64,7 @@ const TER = (()=>{
     const fall=2.2*Math.max(0,(a-(LEN-7))/7)*(0.7+0.6*vnoise(x/1.5,y/1.5)); return r+big+fall+0.02*vnoise(x/0.3,y/0.3); }   // осыпь, обрушение, завал в конце
   function floorZ(x,y,a){ return 0.08*(vnoise(x/1.2,y/1.2)-0.5)+rubble(x,y,a); }
   // высота поверхности
-  function H(x,y,lod=0){ const c=canyon(x,y); let r=ridgeH(x,y); if(c.along<0 && c.along>-60){ const strip=(1-ss(6,11,Math.abs(c.perp)))*ss(-50,-25,c.along); r*=1-strip; }   // подход через осыпь расчищен
+  function H(x,y,lod=0){ if(VAULT) return vaultH(x,y); const c=canyon(x,y); let r=ridgeH(x,y); if(c.along<0 && c.along>-60){ const strip=(1-ss(6,11,Math.abs(c.perp)))*ss(-50,-25,c.along); r*=1-strip; }   // подход через осыпь расчищен
     const h=hills(x,y)+dunes(x,y)+bumps(x,y)+(lod?0:micro(x,y))+r; if(c.d>c.w/2+4) return h;
     const f=floorZ(x,y,c.along); const wall=c.w/2; const k=1-ss(wall,wall+1.6,c.d);   // стена начинается ровно на полуширине — там же, где явная стена для лидара и ходьбы
     const g=k<=0? h : h*(1-k)+f*k;
@@ -79,7 +95,7 @@ const TER = (()=>{
   // ---- декор: объекты кадра и лидара, но не объекты мира (не в описании, не на карте); с коллайдером — стена для ходьбы (world.js HULLS);
   // процедурный (proc) — валуны, выходы породы, останцы — стена по своему радиусу отражателя (world.js solidDecor), россыпь и стебли проходятся ----
   // из уровня (FIXED, LEVEL.decor): завал в конце расщелины, обломки вокруг корабля, пирамидки по тропе ящики → расщелина, столбики кабеля станция → мачта (act1)
-  function decor(u,R){ const out=FIXED.filter(o=>Math.abs(o.x-u.x)<R&&Math.abs(o.y-u.y)<R); const cell=9; const i0=Math.floor((u.x-R)/cell), i1=Math.floor((u.x+R)/cell), j0=Math.floor((u.y-R)/cell), j1=Math.floor((u.y+R)/cell);
+  function decor(u,R){ const out=FIXED.filter(o=>Math.abs(o.x-u.x)<R&&Math.abs(o.y-u.y)<R); if(VAULT) return out; const cell=9; const i0=Math.floor((u.x-R)/cell), i1=Math.floor((u.x+R)/cell), j0=Math.floor((u.y-R)/cell), j1=Math.floor((u.y+R)/cell);
     for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){ const h=hash(i*31+7,j*17+3), h2=hash(i*13+1,j*29+5), h3=hash(i*7+11,j*3+13); const x=(i+0.15+0.7*h2)*cell, y=(j+0.15+0.7*h3)*cell;
       const rx=x-RIDGE.c.x, ry=y-RIDGE.c.y; const n=rx*RIDGE.n.x+ry*RIDGE.n.y; const c=corridor(x,y);
       const talus = n<0 ? ss(-75,-40,n)*(1-ss(-34,-26,n)) : 0;
@@ -110,5 +126,5 @@ const TER = (()=>{
   function mountains(bearing){ const b=bearing*3; return { far: 0.02+0.10*Math.pow(Math.abs(vnoise(b*1.1+40,1)*2-1),0.8)+0.025*vnoise(b*4+9,2), near: 0.005+0.035*vnoise(b*2.5+77,5)+0.012*vnoise(b*9+3,6) }; }   // угол возвышения по пеленгу
 
   reload();
-  return { reload, ss, hash, vnoise, get CANYON(){ return CANYON; }, get LEN(){ return LEN; }, get RIDGE(){ return RIDGE; }, get FIXED(){ return FIXED; }, canyon, inside, corridor, canyonPoint, ridgeH, hills, dunes, bumps, landing, H, floorZ, slope, ledges, groundTone, rockTone, wallTone, DECAL, decor, SUN, mountains };
+  return { reload, ss, hash, vnoise, get CANYON(){ return CANYON; }, get LEN(){ return LEN; }, get RIDGE(){ return RIDGE; }, get FIXED(){ return FIXED; }, get VAULT(){ return VAULT; }, C, vaultD, canyon, inside, corridor, canyonPoint, ridgeH, hills, dunes, bumps, landing, H, floorZ, slope, ledges, groundTone, rockTone, wallTone, DECAL, decor, SUN, mountains };
 })();

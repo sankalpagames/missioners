@@ -53,9 +53,9 @@ const CODEBOOK = {
   252:{ key:'missionary',   name:'миссионер',           states:['Наш. Идёт.'] },
 };
 
-const ITEMS = { 40:'пищевой брикет', 41:'резак', 42:'камера', 43:'патроны', 44:'планшет' };   // патроны — пачка на 8 выстрелов, кладётся в турель; планшет — берётся у объекта 32 (pickup), сдаётся на склад
-// Свойства предметов: small — мелкий, кладётся в любой контейнер. Носимое, но не мелкое (тело миссионера — в биореактор) — потом: carry без small
-const ITEM_PROPS = { 40:{small:1}, 41:{small:1}, 42:{small:1}, 43:{small:1}, 44:{small:1} };
+const ITEMS = { 40:'пищевой брикет', 41:'резак', 42:'камера', 43:'патроны', 44:'планшет', 45:'лидар' };   // патроны — пачка на 8 выстрелов, кладётся в турель; планшет — берётся у объекта 32 (pickup), сдаётся на склад
+// Свойства предметов: small — мелкий, кладётся в любой контейнер; sensor — датчик: у тела не предмет, а флаг датчика (взял — работает). Носимое, но не мелкое (тело миссионера — в биореактор) — потом: carry без small
+const ITEM_PROPS = { 40:{small:1}, 41:{small:1}, 42:{small:1,sensor:'camera'}, 43:{small:1}, 44:{small:1}, 45:{small:1,sensor:'sonar'} };
 // Интерфейс объекта для консоли — по типу и состоянию из описания, без запроса к миру (design.md §11г). Тип 0 (не корпоративный) — одна кнопка
 // «взаимодействовать». ctx.own — своя ли турель (по пульсу станции). Возвращает [{kind:'act'|'fill', label, needs?, afterExam?, item?}]
 function objCmds(type,state,ctx={}){ const cb=CODEBOOK[type]; if(!cb||!cb.corp) return [{kind:'act',label:'взаимодействовать'}];
@@ -91,7 +91,7 @@ const LEVEL_FORMAT=2;
 const IDS={ obj:[1,99], ground:[100,119], poi:[120,159], base:160, unit:200, turret:230, station:240, pack:250 };
 function levelCheck(L){ if(!L||typeof L!=='object') return 'не уровень'; const m=L.meta||{}; if(!/^[a-z0-9_-]{1,32}$/.test(m.id||'')) return 'meta.id: нужен [a-z0-9_-]{1,32}';
   if(m.format!==LEVEL_FORMAT) return `формат уровня ${m.format}, нужен ${LEVEL_FORMAT}`;
-  if(!Array.isArray(L.sites)||!L.sites.length||!L.terrain||!L.terrain.canyon||!Array.isArray(L.pois)||!Array.isArray(L.objects)||!Array.isArray(L.decor)||!L.pack) return 'нет площадок, тирейна, указателей, объектов, декора или стаи';
+  if(!Array.isArray(L.sites)||!L.sites.length||!L.terrain||!(L.terrain.canyon||L.terrain.tunnel)||!Array.isArray(L.pois)||!Array.isArray(L.objects)||!Array.isArray(L.decor)||!L.pack) return 'нет площадок, тирейна (расщелины или тоннеля), указателей, объектов, декора или стаи';
   const seen={}; for(const o of L.objects){ if(!(o.id>=IDS.obj[0]&&o.id<=IDS.obj[1])) return `объект ${o.id}: id вне ${IDS.obj[0]}…${IDS.obj[1]}`; if(seen[o.id]) return `объект ${o.id}: id повторяется`; seen[o.id]=1; if(!CODEBOOK[o.type]) return `объект ${o.id}: тип ${o.type} не в кодовой книге`; }
   const ps={}; for(const p of L.pois){ if(!(p.id>=IDS.poi[0]&&p.id<=IDS.poi[1])) return `указатель ${p.id}: id вне ${IDS.poi[0]}…${IDS.poi[1]}`; if(ps[p.id]) return `указатель ${p.id}: id повторяется`; ps[p.id]=1; if(!p.name) return `указатель ${p.id}: нет имени`; }
   return ''; }
@@ -127,10 +127,15 @@ function levelText(L){ const o=[]; const num=v=>String(Math.round(v*100)/100); c
 //   meta     — id (имя файла без .js), name — название, v — ревизия (редактор поднимает при каждом сохранении), format — версия формата (LEVEL_FORMAT).
 //   terrain  — тирейн: грунт. Высота — формула (terrain.js) плюс: canyon — расщелина: колена pts и ширина w в каждом колене, м, branch — тупиковый
 //              отросток (первое колено — на оси); bumps — пятна рельефа {x, y, r, h}: купол радиуса r высотой h (h < 0 — яма);
-//              bounds — край уровня, м: дальше тела и одичалые не ступают. Стены — из уклона (круче 40° — непроходимо), отдельно не задаются.
+//              tunnel — вместо расщелины: закрытый тоннель {h — потолок над полом, segs — коридоры и залы: оси pts и ширина w в каждой точке};
+//              карта с тоннелем — только тоннель в скале. bounds — край уровня, м: дальше тела и одичалые не ступают. Стены — из уклона (круче 40° — непроходимо), отдельно не задаются.
 //   sites    — площадки под базы: центр и курс ang в градусах. База разворачивается по штатному составу BASE из кодовой книги; subs — сюжетные
 //              объекты у шлюза сверх штатных (смещения от шлюза в осях площадки, id 160 + k·10 + i, не больше 10 вместе со штатными);
 //              turret — своя турель вместо штатной: dx/dy от центра площадки, f — курс от курса площадки, fov/range/aim/reload.
+//              bare:1 — без штатного состава и турели (корпус, шлюз, старт); stock {bio, cam} — запас станции (иначе 4 и 0);
+//              start {camera, sonar} — датчики первого тела (иначе оба).
+//   passport — строки паспорта станции (иначе — act1): status — после имени платформы, task — открытая задача, done — закрытая;
+//              sim — строка «симуляция: …» (консоль ведёт по ней учебную процедуру).
 //   layouts  — на сколько платформ карта (стая не в счёт) и какие площадки заняты: n — индексы площадок в порядке платформ (ARK-041, 042, …);
 //              нет записи для n — на n платформ карта не играется (без layouts вообще — от 1 до числа площадок).
 //   pois     — указатели: место с именем и текстом осмотра (id 120…159). Не объект: спрайта нет, действий нет, тело к нему идёт и «изучает» —
@@ -143,15 +148,19 @@ function levelText(L){ const o=[]; const num=v=>String(Math.round(v*100)/100); c
 //   pack     — одичалые: lair — логово, members — особи: лёжка x/y и черты 0…1 — size, courage, attention. Не больше 6 (id 250 + i).
 const LEVEL = {`);
   const M=L.meta||{}; o.push(`  meta: { id:'${M.id}', name:${q(M.name)}, v:${M.v|0}, format:${LEVEL_FORMAT} },`);
+  if(L.passport){ const P=L.passport; o.push(`  passport: { ${['status','task','done','sim'].filter(k=>P[k]).map(k=>`${k}:${q(P[k])}`).join(', ')} },`); }
   const T=L.terrain, pts=a=>a.map(p=>`{x:${num(p.x)},y:${num(p.y)}}`).join(', ');
-  o.push(`  terrain: {`); o.push(`    canyon: {`); o.push(`      pts: [${pts(T.canyon.pts)}],`); o.push(`      w: [${T.canyon.w.map(num).join(', ')}],`);
-  o.push(`      branch: { pts: [${pts(T.canyon.branch.pts)}], w: [${T.canyon.branch.w.map(num).join(', ')}] },`); o.push(`    },`);
+  o.push(`  terrain: {`);
+  if(T.canyon){ o.push(`    canyon: {`); o.push(`      pts: [${pts(T.canyon.pts)}],`); o.push(`      w: [${T.canyon.w.map(num).join(', ')}],`);
+    o.push(`      branch: { pts: [${pts(T.canyon.branch.pts)}], w: [${T.canyon.branch.w.map(num).join(', ')}] },`); o.push(`    },`); }
+  if(T.tunnel){ o.push(`    tunnel: { h:${num(T.tunnel.h)}, segs: [`); for(const g of T.tunnel.segs) o.push(`      { pts: [${pts(g.pts)}], w: [${g.w.map(num).join(', ')}] },`); o.push(`    ] },`); }
   if(T.bounds) o.push(`    bounds: {x0:${num(T.bounds.x0)}, y0:${num(T.bounds.y0)}, x1:${num(T.bounds.x1)}, y1:${num(T.bounds.y1)}},`);
   o.push(`    bumps: [`); for(const b of T.bumps||[]) o.push(`      {x:${num(b.x)}, y:${num(b.y)}, r:${num(b.r)}, h:${num(b.h)}},`); o.push(`    ],`); o.push(`  },`);
   o.push(`  sites: [`);
   L.sites.forEach((S,i)=>{ const Tu=S.turret; const tur=Tu?`, turret:{dx:${num(Tu.dx)}, dy:${num(Tu.dy)}, f:${num(Tu.f||0)}${Tu.fov!==undefined?', fov:'+num(Tu.fov):''}${Tu.range!==undefined?', range:'+num(Tu.range):''}${Tu.aim!==undefined?', aim:'+num(Tu.aim):''}${Tu.reload!==undefined?', reload:'+num(Tu.reload):''}}`:'';
-    if(!S.subs||!S.subs.length){ o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}${tur} },   // площадка ${1+i}`); return; }
-    o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}${tur}, subs:[   // площадка ${1+i}`);
+    const ext=tur+(S.bare?', bare:1':'')+(S.stock?`, stock:{bio:${S.stock.bio|0}, cam:${S.stock.cam|0}}`:'')+(S.start?`, start:{camera:${S.start.camera?1:0}, sonar:${S.start.sonar?1:0}}`:'');
+    if(!S.subs||!S.subs.length){ o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}${ext} },   // площадка ${1+i}`); return; }
+    o.push(`    { x:${num(S.x)}, y:${num(S.y)}, ang:${num(S.ang||0)}${ext}, subs:[   // площадка ${1+i}`);
     for(const s of S.subs){ let f=`{type:${s.type}, dx:${num(s.dx)}, dy:${num(s.dy)}`; if(s.f!==undefined) f+=`, f:${num(s.f)}`; if(s.state) f+=`, state:${s.state}`; if(s.items&&s.items.length) f+=`, items:[${s.items.join(',')}]`; f+=relay(s)+col(s.collider); o.push(`      ${f}},   // ${nm(s.type)}`); }
     o.push(`    ] },`); });
   o.push(`  ],`);
@@ -171,9 +180,9 @@ function sitesFor(L,n){ const a=(L.layouts&&L.layouts[n])||L.sites.map((_,i)=>i)
 // База на площадке: всё в мировых координатах (углы — градусы), подобъекты — смещения от шлюза, турель — из уровня или штатная
 function baseAt(site){ const ang=site.ang||0, a=ang*Math.PI/180, c=Math.cos(a), s=Math.sin(a); const R=(dx,dy)=>({x:site.x+dx*c-dy*s, y:site.y+dx*s+dy*c});
   const rot=o=>({...o, dx:o.dx*c-o.dy*s, dy:o.dx*s+o.dy*c, f:o.f===undefined?undefined:o.f+ang});
-  const T={...BASE.turret, ...(site.turret||{})}; const tp=R(T.dx,T.dy);
+  const T={...BASE.turret, ...(site.turret||{})}; const tp=R(T.dx,T.dy); const kit=site.bare?[]:BASE.subs;   // bare — без штатного состава: корпус, шлюз и старт; турель — только своя из уровня
   return { x:site.x, y:site.y, ang, airlock:R(BASE.airlock.dx,BASE.airlock.dy), spawn:R(BASE.spawn.dx,BASE.spawn.dy),
-    subs:[...BASE.subs, ...(site.subs||[])].slice(0,10).map(rot), turret:{x:tp.x, y:tp.y, f:T.f+ang, fov:T.fov, range:T.range, aim:T.aim, reload:T.reload} }; }
+    subs:[...kit, ...(site.subs||[])].slice(0,10).map(rot), turret:site.bare&&!site.turret?null:{x:tp.x, y:tp.y, f:T.f+ang, fov:T.fov, range:T.range, aim:T.aim, reload:T.reload} }; }
 const SPRITES = {
   13:{sheet:'crate_sheet',H:0.9}, 14:{sheet:'crate_sheet',H:0.9},                            // ящик запечатан / вскрытый — один лист (второе состояние — art.md §8)
   11:{sheet:'floodlight_sheet',H:3.0}, 12:{flat:true}, 16:{flat:true}, 17:{sheet:'mast_sheet',H:7}, 18:{sheet:'cabinet_sheet',H:1.8}, 19:{flat:true}, 35:{sheet:'cabinet_sheet',H:1.8}, 36:{sheet:'cabinet_sheet',H:0.9},

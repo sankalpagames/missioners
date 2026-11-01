@@ -39,17 +39,18 @@ const CAM = (()=>{
   // игра рендерит квадрат size×size с FOV, курс — camHeading из world.js, глаза на CAM_Z
   function renderRaw(u,size,objs,opt={}){ const W=size, H=opt.H||size, fov=opt.fov||FOV;
     const f=(W/2)/Math.tan(fov/2*Math.PI/180); const hd=opt.heading!==undefined?opt.heading:camHeading(u); const SUN=TER.SUN;
-    const cU=TER.canyon(u.x,u.y); const inT=!!(cU && cU.d<cU.w/2+1 && cU.along>2); const light=u.lightOn&&u.charge>0;
+    const cU=TER.canyon(u.x,u.y); const vault=!!TER.VAULT; const inT=vault||!!(cU && cU.d<cU.w/2+1 && cU.along>2);   /* vault — тоннель: неба и солнца нет, только фонарь */ const light=u.lightOn&&u.charge>0;
     const eye=TER.H(u.x,u.y)+(opt.z||CAM_Z); const horizon=H/2;
     const img=new Uint8Array(W*H), depth=new Float32Array(W*H).fill(Infinity), gx=new Float32Array(W*H), gy=new Float32Array(W*H), floor=new Uint8Array(W*H);
     const lamp=(t,lam)=> (light? 1.0/(1+(t/8)**2)*(0.25+0.75*lam) : 0.8/(1+(t/1.0)**2)*(0.6+0.4*lam))+0.03;   // фонарь; без него — только ближний метр
     const fog=(v,t)=>v+(118-v)*Math.min(1,Math.pow(t/260,1.1));
-    const maxT=inT?140:420; const scene=(x,y,z,lod)=>z-TER.H(x,y,lod);
+    const maxT=inT?140:420; const scene=(x,y,z,lod)=>Math.min(z-TER.H(x,y,lod), TER.C(x,y)-z);
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){ const ax=hd+Math.atan((x-W/2+0.5)/f); const dzs=-(y-horizon)/f; const n3=Math.hypot(1,dzs);
       const dx=Math.cos(ax)/n3, dy=Math.sin(ax)/n3, dz=dzs/n3; let t=0.08, hit=false, px=0,py=0,pz=0, tp=0.08;
       for(let k=0;k<220&&t<maxT;k++){ px=u.x+dx*t; py=u.y+dy*t; pz=eye+dz*t; const lod=t>50?1:0; const d=scene(px,py,pz,lod); if(d<0.02*(1+t*0.02)){ hit=true; if(d<-0.05){ let lo=tp, hi=t; for(let b=0;b<7;b++){ const m=(lo+hi)/2; if(scene(u.x+dx*m,u.y+dy*m,eye+dz*m,lod)<0) hi=m; else lo=m; } t=hi; px=u.x+dx*t; py=u.y+dy*t; pz=eye+dz*t; } break; } tp=t; t+=Math.max(0.04, d*(t<40?(inT?0.35:0.5):0.75)); }
       const i=y*W+x; let v;
-      if(!hit){ const elev=Math.atan(dzs); const m=TER.mountains(ax); floor[i]=0; const skyDark = inT? 0.35*ss(0.6,0.95,cU.along/TER.LEN) : 0;
+      if(!hit&&vault){ v=0; floor[i]=0; }   // в тоннеле луч, не нашедший стены за maxT, — темнота
+      else if(!hit){ const elev=Math.atan(dzs); const m=TER.mountains(ax); floor[i]=0; const skyDark = inT? 0.35*ss(0.6,0.95,cU.along/TER.LEN) : 0;
         if(elev<m.near && elev>-0.03) v=96+6*ss(0,m.near,elev)+5*(vnoise(ax*60,1)-0.5); else if(elev<m.far && elev>-0.03) v=112+8*ss(0,m.far,elev)+3*(vnoise(ax*40,2)-0.5); else v=60+70*Math.min(1,Math.max(0,y/horizon)); v*=(1-skyDark); }
       else { const e=0.05+t*0.003, lod=t>50?1:0; const nx=scene(px+e,py,pz,lod)-scene(px-e,py,pz,lod), ny=scene(px,py+e,pz,lod)-scene(px,py-e,pz,lod), nz=scene(px,py,pz+e,lod)-scene(px,py,pz-e,lod); const nl=Math.hypot(nx,ny,nz)||1; const nzn=nz/nl;
         const c=TER.canyon(px,py); const inC = c && c.d<c.w/2+2.5 && c.along>-1; const isF=nzn>0.6;
@@ -57,7 +58,7 @@ const CAM = (()=>{
           const ratio=wallH/Math.max(2,c.w); const deep=ss(0.55,0.95,c.along/TER.LEN); skyK=(1-ss(0.3,2.5,ratio)*0.82)*(1-0.5*deep); sunK=(1-ss(0.15,0.8,ratio))*(1-deep); sunK*=Math.max(0,Math.min(1,(4-c.along)/6+1)); }
         const tone = isF ? TER.groundTone(px,py,nzn,inC) : (inC ? TER.wallTone(px,py,pz) : (nzn<0.72 ? TER.rockTone(px,py,pz) : TER.groundTone(px,py,nzn,false)));
         const sunLam=Math.max(0,(nx*SUN.x+ny*SUN.y+nz*SUN.z)/nl); const camLam=Math.max(0,-(nx*dx+ny*dy+nz*dz)/nl);
-        const I = 0.5*skyK + 0.5*sunLam*sunK + (inC ? lamp(t,camLam)*(1-skyK) : (light?0.12*lamp(t,camLam):0));
+        const I = vault ? lamp(t,camLam) : 0.5*skyK + 0.5*sunLam*sunK + (inC ? lamp(t,camLam)*(1-skyK) : (light?0.12*lamp(t,camLam):0));
         v = fog(tone*I, t); floor[i]=isF?1:0; depth[i]=t/n3; gx[i]=px; gy[i]=py; }
       img[i]=clamp(v); }
     // ---- тени и декали по точкам земли ----

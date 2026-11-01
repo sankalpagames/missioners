@@ -29,9 +29,9 @@ const TUN_A = TER.CANYON.pts[0];                                             // 
 const BASES = sitesFor(LEVEL,NST).map(si=>({si, ...baseAt(LEVEL.sites[si])}));
 const stations = BASES.map((B,k)=>{ const ang=B.ang*Math.PI/180; const a={x:B.airlock.x,y:B.airlock.y};
   const dx=a.x-B.x, dy=a.y-B.y, d=Math.hypot(dx,dy)||1, ox=dx/d, oy=dy/d;   // наружу — от центра корпуса к шлюзу
-  return { k, site:B.si, name:'ARK-04'+(1+k), x:B.x, y:B.y, ang, spawn:{...B.spawn}, airlock:a,
+  return { k, site:B.si, bare:!!LEVEL.sites[B.si].bare, name:'ARK-04'+(1+k), x:B.x, y:B.y, ang, spawn:{...B.spawn}, airlock:a,
     subs:B.subs.map(s=>[s.type,s.dx,s.dy,s.f===undefined?undefined:s.f*Math.PI/180]),
-    bioStock:4, camInv:0, store:{40:0,41:0,44:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2, team:teamOf(k), freq:1+teamOf(k), ox, oy,
+    bioStock:(LEVEL.sites[B.si].stock||{bio:4}).bio|0, camInv:(LEVEL.sites[B.si].stock||{}).cam|0, store:{40:0,41:0,44:0}, power:100, growing:null, taskOpen:true, hbTimer:0, hbInterval:2, team:teamOf(k), freq:1+teamOf(k), ox, oy,
     // стационарная камера у шлюза: смотрит от люка наружу, сигнала не требует — она на станции
     cam:{ id:0, st:k, x:a.x-4*ox, y:a.y-4*oy, heading:Math.atan2(oy,ox), goal:{x:a.x+44*ox-8*oy,y:a.y+44*oy+8*ox}, lightOn:true, charge:100, alive:true, lastImg:{}, pendingImg:null, frameNo:0, sensors:{camera:true}, sub:{img:{interval:0,level:2,delta:true}}, subT:{img:0}, items:[] } }; });
 const SPOIS = stations.map(S=>({ id:240+S.k, x:S.airlock.x, y:S.airlock.y, subs:S.subs, station:S, idBase:160+S.k*10 }));
@@ -39,8 +39,8 @@ const SPOIS = stations.map(S=>({ id:240+S.k, x:S.airlock.x, y:S.airlock.y, subs:
 // сектором наружу; площадка может задать свою). Питание — зона станции STATION.powerR (розетки и кабели — потом). Магазин 8, ёмкость AMMO_MAX;
 // без патронов наводится и светит, не стреляет. Повреждённая — слепа. Своя команда — по транспондеру, не цель.
 const AMMO_MAX=24;
-const turrets = BASES.map((B,k)=>{ const T=B.turret;
-  return { id:230+k, st:k, x:T.x, y:T.y, ang:T.f*Math.PI/180, fov:T.fov*Math.PI/180, range:T.range, aim:T.aim, reload:T.reload, ammo:8, on:true, broken:false, powered:true, aimT:0, reloadT:0, tgt:null, cut:null }; });
+const turrets = BASES.flatMap((B,k)=>{ const T=B.turret; if(!T) return [];   // голая площадка (bare) — без турели
+  return [{ id:230+k, st:k, x:T.x, y:T.y, ang:T.f*Math.PI/180, fov:T.fov*Math.PI/180, range:T.range, aim:T.aim, reload:T.reload, ammo:8, on:true, broken:false, powered:true, aimT:0, reloadT:0, tgt:null, cut:null }]; });
 function turretState(T){ objState[T.id]=T.broken?2:T.on?0:1; }   // состояние объекта для описаний и осмотра: 0 включена, 1 выключена, 2 повреждена
 function turretAlive(T){ return T.on&&!T.broken&&T.powered; }
 function stOf(u){ return stations[u.st]||stations[0]; }
@@ -73,7 +73,7 @@ function nodes(S){ return [{x:S.x,y:S.y,gain:0,id:0}, ...relays.filter(R=>R.link
 function nodeDist(S,p){ return Math.min(...nodes(S).map(n=>dist(p,n))); }
 function beyondReturn(u,p){ const d=nodeDist(stOf(u),p); if(d<=RETURN_R || d<=nodeDist(stOf(u),u)) return false; evt(28,u.id,Math.min(255,Math.ceil(d/10))); note('station',{st:u.st,unit:u.id,refuse:'ПС-2',d:+d.toFixed(0),nodes:nodes(stOf(u)).length}); return true; }   // отказ: arg — расстояние до узла, десятки метров. Цель ближе к узлу, чем тело сейчас, — не отказ: отступить можно и из-за черты
 // Коллайдеры: корпуса платформ (эллипс из кодовой книги), объекты и декор с коллайдером (круги). Одно свойство — стена для ходьбы, отражатель лидара, преграда обзора; остальное — рельеф
-const HULLS = [ ...stations.map(S=>({x:S.x,y:S.y,rx:STATION.rx,ry:STATION.ry,ang:S.ang,h:STATION.h})), ...OBJS.filter(o=>o.col).map(o=>({x:o.x,y:o.y,r:o.col.r,h:o.col.h,id:o.id})), ...TER.FIXED.filter(d=>d.collider).map(d=>({x:d.x,y:d.y,r:d.collider.r,h:d.collider.h||d.Hs})) ];
+const HULLS = [ ...stations.filter(S=>!S.bare).map(S=>({x:S.x,y:S.y,rx:STATION.rx,ry:STATION.ry,ang:S.ang,h:STATION.h})), ...OBJS.filter(o=>o.col).map(o=>({x:o.x,y:o.y,r:o.col.r,h:o.col.h,id:o.id})), ...TER.FIXED.filter(d=>d.collider).map(d=>({x:d.x,y:d.y,r:d.collider.r,h:d.collider.h||d.Hs})) ];
 // точка внутри корпуса (с запасом pad); луч в корпус: эллипс приводится к единичному кругу, параметр t — в метрах по лучу
 function hullIn(x,y,c,pad=0){ if(c.r!==undefined) return Math.hypot(x-c.x,y-c.y)<c.r+pad; const ca=Math.cos(c.ang), sa=Math.sin(c.ang), lx=(x-c.x)*ca+(y-c.y)*sa, ly=-(x-c.x)*sa+(y-c.y)*ca; return (lx/(c.rx+pad))**2+(ly/(c.ry+pad))**2<1; }
 function rayHull(ox,oy,dx,dy,c){ if(c.r!==undefined) return rayCircle(ox,oy,dx,dy,c); const ca=Math.cos(c.ang), sa=Math.sin(c.ang); const fx=((ox-c.x)*ca+(oy-c.y)*sa)/c.rx, fy=(-(ox-c.x)*sa+(oy-c.y)*ca)/c.ry, ex=(dx*ca+dy*sa)/c.rx, ey=(-dx*sa+dy*ca)/c.ry;
@@ -101,12 +101,17 @@ BASES.forEach((B,k)=>B.subs.forEach((s,i)=>{ const id=160+k*10+i; if(s.state) ob
 const ground = [];                          // свёртки на грунте: {id, x, y}; id 100…119 (IDS.ground)
 let nextGround = 100;
 // изъять предмет из контейнера (тело — камера отдельно; пустой свёрток исчезает); свёрток на грунт — предмет под ногами
-function removeItem(o,item){ if(o.unit){ const v=o.unit; if(item===42){ v.sensors.camera=false; v.sub.img.interval=0; } else v.items.splice(v.items.indexOf(item),1); }
+// предмет-датчик (камера, лидар — ITEM_PROPS.sensor): у тела не в items, а флаг датчика; снятый датчик гасит свою подписку
+function sensorOf(item){ return (ITEM_PROPS[item]||{}).sensor; }
+function hasItem(u,item){ const s=sensorOf(item); return s?!!u.sensors[s]:u.items.includes(item); }
+function giveItem(u,item){ const s=sensorOf(item); if(s){ u.sensors[s]=true; if(s==='camera') u.lastImg={}; } else u.items.push(item); }
+function dropItem(u,item){ const s=sensorOf(item); if(s){ u.sensors[s]=false; if(s==='camera') u.sub.img.interval=0; else u.sub.sonar=0; } else u.items.splice(u.items.indexOf(item),1); }
+function removeItem(o,item){ if(o.unit) dropItem(o.unit,item);
   else { const arr=contents[o.id]; arr.splice(arr.indexOf(item),1); if(o.type===33&&!arr.length){ const gi=ground.findIndex(g=>g.id===o.id); if(gi>=0){ ground.splice(gi,1); delete contents[o.id]; } } } }   // свёрток уровня (не из ground) пустым остаётся
 function dropBundle(x,y,item){ const g={id:nextGround++, x:Math.round(x), y:Math.round(y)}; if(nextGround>IDS.ground[1]) nextGround=IDS.ground[0]; ground.push(g); contents[g.id]=[item]; return g; }
 function isContainer(o){ if(o.unit) return !o.unit.alive; const cb=CODEBOOK[o.type]; return !!cb && cb.container!==undefined; }
 function containerOpen(o){ if(o.unit) return true; const cb=CODEBOOK[o.type]; return stateOf(o.id)>=cb.container; }
-function contentsOf(o){ if(o.unit){ const v=o.unit; return [...(v.sensors.camera?[42]:[]), ...v.items]; } return contents[o.id]||[]; }
+function contentsOf(o){ if(o.unit){ const v=o.unit; return [...(v.sensors.camera?[42]:[]), ...(v.sensors.sonar?[45]:[]), ...v.items]; } return contents[o.id]||[]; }
 const units = []; let nextUnit = 1;
 function spawn(sensors,S){
   const u = { id:nextUnit++, st:S.k, alive:true, x:S.spawn.x, y:S.spawn.y, heading:0, target:null, mode:1, stealth:false, stance:0, reflex:0, lightOn:true,
@@ -117,7 +122,7 @@ function spawn(sensors,S){
     sub:{ tlm:1, sonar:0, desc:0, img:{interval:0,level:2,delta:true} }, goal:null, items:[], pending:null, subT:{ sonar:0, desc:0, img:0 }, lastImg:{}, pendingImg:null, frameNo:0 };
   units.push(u); return u;
 }
-for(const S of stations) spawn({camera:true, sonar:true},S);          // первый миссионер каждой станции уже готов и несёт её единственную камеру
+for(const S of stations) spawn(LEVEL.sites[S.site].start||{camera:true, sonar:true},S);   // первый миссионер каждой станции уже готов; датчики — из площадки (штатно — камера и лидар)
 relayTick(true);                                                       // кто кого слышит на старте — без событий
 
 // Режим (mode) — команда: 1 исследование, 3 отступление, 4 отдых. Скрытность (stealth) и стойка при контакте (stance: 0 пассивно,
@@ -142,7 +147,7 @@ function foeOf(p){ return p.foe && t-p.foe.t<20+60*(1-p.courage) ? p.foe : null;
 function dirTo(a,b){ return Math.atan2(b.y-a.y,b.x-a.x); }
 // доля отрезка a→b, закрытая рельефом или корпусом (луч на высоте h над концами): 0 — чисто, 1 — стена. Одна функция для зрения, слуха и крика
 function losFrac(a,b,h=1.2,hb=h){ const d=dist(a,b); if(d<3) return 0; const n=Math.min(40,Math.ceil(d/2.5)); const za=TER.H(a.x,a.y)+h, zb=TER.H(b.x,b.y)+hb; let hit=0;
-  for(let i=1;i<n;i++){ const k=i/n, x=a.x+(b.x-a.x)*k, y=a.y+(b.y-a.y)*k; if(TER.H(x,y)>za+(zb-za)*k || HULLS.some(c=>hullIn(x,y,c))) hit++; } return hit/(n-1); }
+  for(let i=1;i<n;i++){ const k=i/n, x=a.x+(b.x-a.x)*k, y=a.y+(b.y-a.y)*k; const z=za+(zb-za)*k; if(TER.H(x,y)>z || z>TER.C(x,y) || HULLS.some(c=>hullIn(x,y,c))) hit++; } return hit/(n-1); }
 // шаг особи к цели: те же столкновения, что у тела; в расщелине — вдоль оси (поиска пути нет, колена обходятся по оси)
 function packStep(p,sp){ const tg=p.target; if(!tg) return; let aim=tg; const cp=TER.inside(p.x,p.y), ct=TER.inside(tg.x,tg.y);
   const root=TER.CANYON.branch.pts[0], rootA=TER.canyon(root.x,root.y).along;
@@ -534,7 +539,8 @@ function decorR(o){ return o.type==='post'?0.08:(DECOR_R[o.type]||0)*o.Hs; }
 // один луч: первое препятствие по направлению (ca,sa) под наклоном tilt; возвращает наклонную дальность (100 — нет эха) и точку попадания
 function castRay(u,z0,ca,sa,tilt,objs){ const ch=Math.cos(tilt), sh=Math.sin(tilt), dx=ca*ch, dy=sa*ch; const hitZ=(t)=>z0+sh*t; let best=100;   // dx,dy — шаг по горизонтали на метр наклонной дальности
   for(const c of HULLS){ const t=rayHull(u.x,u.y,ca,sa,c)/ch; if(t<best && hitZ(t)<TER.H(c.x,c.y)+c.h) best=t; }
-  for(let t=0.5;t<best;t+=0.5){ const px=u.x+dx*t, py=u.y+dy*t; if(hitZ(t)<=TER.H(px,py)){ let lo=t-0.5, hi=t; for(let k=0;k<5;k++){ const m=(lo+hi)/2; if(hitZ(m)<=TER.H(u.x+dx*m,u.y+dy*m)) hi=m; else lo=m; } best=hi; break; } }
+  const solidAt=(t)=>{ const px=u.x+dx*t, py=u.y+dy*t, z=hitZ(t); return z<=TER.H(px,py)||z>=TER.C(px,py); };   // грунт или потолок тоннеля
+  for(let t=0.5;t<best;t+=0.5){ if(solidAt(t)){ let lo=t-0.5, hi=t; for(let k=0;k<5;k++){ const m=(lo+hi)/2; if(solidAt(m)) hi=m; else lo=m; } best=hi; break; } }
   for(const o of objs){ if(o.landmark||o.col||o.collider) continue; const r=o.pack?0.5*o.pack.size:o.unit?0.5:o.decor?decorR(o):(SONAR_R[o.type]||0); if(!r) continue; const t=rayCircle(u.x,u.y,ca,sa,{x:o.x,y:o.y,r})/ch; const oh=o.pack?(o.pack.act!=='sleep'?1.6:0.6)*o.pack.size:o.unit?(o.unit.alive?1.8:0.5):o.decor?o.Hs:(OBJ_H[o.type]||1);
     if(t<best && hitZ(t)<TER.H(o.x,o.y)+oh && hitZ(t)>TER.H(o.x,o.y)-0.5) best=t; }
   return {t:best, x:u.x+dx*best, y:u.y+dy*best, z:hitZ(best)}; }
@@ -557,7 +563,7 @@ function sceneObjects(u){ const out=[];
     let type=o.type, Hs; if(o.pack){ const p=o.pack, ly=p.act==='sleep'||p.act==='dead'; type=ly?'sleep':250; Hs=(ly?0.6:1.6)*p.size; } if(o.unit) type=o.unit.alive?(o.unit.target?'walk':252):251;
     if(!SPRITES[type]) continue; const facing=o.unit?o.unit.heading:o.pack?(o.pack.target?o.pack.heading:Math.atan2(u.y-o.y,u.x-o.x)):o.facing;   // тела и идущие особи — по курсу, стоящая особь — на камеру, объекты — по уровню
     out.push({id:o.id,type,x:o.x,y:o.y,facing,Hs}); }
-  for(const S of stations) out.push({id:900+S.k,type:'station',x:S.x,y:S.y,facing:S.ang}); return out.concat(TER.decor(u,120)); }
+  for(const S of stations) if(!S.bare) out.push({id:900+S.k,type:'station',x:S.x,y:S.y,facing:S.ang}); return out.concat(TER.decor(u,120)); }
 function render(u,size){ return CAM.render(u,size,sceneObjects(u)); }   // size×size, 8 бит; внутри — удвоенное разрешение и усреднение
 function downsample(img,size,to){ const f=size/to, out=new Uint8Array(to*to); for(let y=0;y<to;y++)for(let x=0;x<to;x++){ let s=0; for(let j=0;j<f;j++)for(let i=0;i<f;i++) s+=img[(y*f+j)*size+x*f+i]; out[y*to+x]=s/(f*f);} return out; }
 // Изображение. Пирамида уровней 8→16→32→64 (kind IMG0..3), либо дельта-кадр на одном уровне (kind IMDn):
@@ -586,8 +592,8 @@ function findObj(u,id){ return objectsAround(u,100).find(o=>o.id===id); }
 function beginAction(u,kind,id,item){
   if(!u.alive) return;
   if(kind==='put'&&id===0){ // сбросить на грунт: свёрток под ногами
-    const has = item===42 ? u.sensors.camera : u.items.includes(item); if(!has){ evt(2,u.id); return; }
-    if(item===42){ u.sensors.camera=false; u.sub.img.interval=0; } else u.items.splice(u.items.indexOf(item),1);
+    if(!hasItem(u,item)){ evt(2,u.id); return; }
+    dropItem(u,item);
     const g=dropBundle(u.x,u.y,item);
     const t=encText(`сбросил: ${ITEMS[item]}.`); emit('cmd','ACT',u.id,new Uint8Array([g.id,0,0,t.length>>8,t.length&255,...t])); emit('cmd','CONT',u.id,new Uint8Array([g.id,1,item])); return; }
   const o=findObj(u,id); if(!o){ evt(16,u.id,id); return; }
@@ -623,12 +629,12 @@ function doPending(u){
     const item=p.item;
     if(p.kind==='take'){ const c=contentsOf(o); if(!c.includes(item)){ textReply('ACT',1,`здесь нет: ${ITEMS[item]}.`); return; }
       removeItem(o,item);
-      if(item===42){ u.sensors.camera=true; u.lastImg={}; } else u.items.push(item);
+      giveItem(u,item);
       textReply('ACT',0,`взял: ${ITEMS[item]}.`); sendCont(); return; }
     // put
-    const has = item===42 ? u.sensors.camera : u.items.includes(item); if(!has){ textReply('ACT',1,`нечего положить: ${ITEMS[item]}.`); return; }
-    if(item===42){ u.sensors.camera=false; u.sub.img.interval=0; } else u.items.splice(u.items.indexOf(item),1);
-    if(o.unit){ const v=o.unit; if(item===42) v.sensors.camera=true; else v.items.push(item); } else (contents[o.id]=contents[o.id]||[]).push(item);
+    if(!hasItem(u,item)){ textReply('ACT',1,`нечего положить: ${ITEMS[item]}.`); return; }
+    dropItem(u,item);
+    if(o.unit) giveItem(o.unit,item); else (contents[o.id]=contents[o.id]||[]).push(item);
     textReply('ACT',0,`положил: ${ITEMS[item]}.`); sendCont(); return; }
   // взаимодействие: действие из текущего состояния; ответ — текст, составленный станцией
   const acts=cb.actions||[]; const a=acts.find(a=>a.from===st);
@@ -636,7 +642,7 @@ function doPending(u){
   if(a.needs && !u.items.includes(a.needs)){ textReply('ACT',2,`не смог: ${a.fail||'нужен предмет'}`); return; }
   if(a.req && stateOf(a.req.obj)!==a.req.state){ textReply('ACT',3,`не смог: ${a.fail||'условие не выполнено'}`); return; }
   if(a.special==='finale' && stOf(u).taskOpen){ stOf(u).taskOpen=false; later(1.5,()=>evt(17,u.id,0,undefined,true)); }
-  if(a.item===42){ u.sensors.camera=true; u.lastImg={}; } else if(a.item) u.items.push(a.item);
+  if(a.item) giveItem(u,a.item);
   objState[o.id]=a.to; textReply('ACT',0,withContents(o,`${a.verb}. ${(cb.states||[])[a.to]||''}`)); sendCont();
 }
 
@@ -665,7 +671,8 @@ onmessage = e => {
   }
   if(cmd===11){ // статус: паспорт станции текстом + пульс
     const own=units.filter(u=>u.st===S.k);
-    const info=`${S.name}, посадочная платформа; штатно; миссия 39 л 211 д\nоператор: нет; последний сеанс 31 г 004 д назад\nплатформа: ${S.x.toFixed(0)}, ${S.y.toFixed(0)}; курс ${Math.round(S.ang*180/Math.PI)}°\nбиоматериал ${S.bioStock}; камер ${S.camInv}${S.store[44]?'; планшет на складе':''}; развёрнуто ${own.length}\nвозврат: ПС-2, ${RETURN_R} м от узла; узлов ${nodes(S).length}\nтурели: ${turrets.filter(T=>T.st===S.k).map(T=>`${T.id} (${T.x.toFixed(0)}, ${T.y.toFixed(0)}) курс ${Math.round(T.ang*180/Math.PI)}° сектор ${Math.round(T.fov*180/Math.PI)}° дальность ${T.range} м`).join('; ')}; питание ${STATION.powerR} м от корпуса\n${relayLine(S)}\nзадача: ${S.taskOpen?'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся. Серия 0 исчерпана (7)':'ПС-7 закрыта'}`;
+    const PP=LEVEL.passport||{}, tu=turrets.filter(T=>T.st===S.k);   // строки паспорта — из карты (иначе act1)
+    const info=`${S.name}, ${PP.status||'посадочная платформа; штатно; миссия 39 л 211 д'}\n${PP.sim?'симуляция: '+PP.sim+'\n':''}оператор: нет; последний сеанс 31 г 004 д назад\nплатформа: ${S.x.toFixed(0)}, ${S.y.toFixed(0)}; курс ${Math.round(S.ang*180/Math.PI)}°\nбиоматериал ${S.bioStock}; камер ${S.camInv}${S.store[44]?'; планшет на складе':''}; развёрнуто ${own.length}\nвозврат: ПС-2, ${RETURN_R} м от узла; узлов ${nodes(S).length}\nтурели: ${tu.length?'':'нет'}${tu.map(T=>`${T.id} (${T.x.toFixed(0)}, ${T.y.toFixed(0)}) курс ${Math.round(T.ang*180/Math.PI)}° сектор ${Math.round(T.fov*180/Math.PI)}° дальность ${T.range} м`).join('; ')}; питание ${STATION.powerR} м от корпуса\n${relayLine(S)}\nзадача: ${S.taskOpen?PP.task||'ПС-7 открыта 39 л 209 д — поиск М-07, не вернулся. Серия 0 исчерпана (7)':PP.done||'ПС-7 закрыта'}`;
     emit('cmd','INFO',0,encText(info),S.k); heartbeat(S); return; }
   if(cmd===15){ S.hbInterval=arg; return; }
   if(cmd===28){ const T=turrets.find(T=>T.id===unit&&T.st===S.k); if(!T) return; T.on=!!arg; if(!T.on) turretDrop(T); turretState(T); evt(40,0,(arg?1:0)|((T.id&63)<<1),S.k); note('turret',{st:S.k,id:T.id,on:T.on,by:'станция'}); heartbeat(S); return; }   // турель: arg — вкл/выкл, третий байт — id
@@ -792,5 +799,5 @@ function truth(){ return {
   ground:ground.map(g=>({id:g.id,x:g.x,y:g.y,items:contents[g.id]||[]})),
   cries:cries.filter(c=>t-c.t<4).map(c=>({x:c.x,y:c.y,word:c.word,age:+(t-c.t).toFixed(1)})) }; }
 // расщелина и ориентиры — один раз при старте
-postMessage({ t:'level', canyon:{pts:LEVEL.terrain.canyon.pts, branch:LEVEL.terrain.canyon.branch.pts}, pois:[...POIS,...SPOIS].map(p=>({id:p.id,x:p.x,y:p.y})), stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang})) });
+postMessage({ t:'level', canyon:{pts:TER.CANYON.pts, branch:TER.CANYON.branch.pts}, pois:[...POIS,...SPOIS].map(p=>({id:p.id,x:p.x,y:p.y})), stations:stations.map(S=>({k:S.k,name:S.name,x:S.x,y:S.y,ang:S.ang})) });
 let timer=null; function schedule(){ if(timer) clearInterval(timer); timer=setInterval(tick, DT*1000/speed); } schedule();

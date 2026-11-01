@@ -8,7 +8,7 @@
 <body>
 <div id="boot"><pre id="boot-text"></pre></div>
 <div id="tip"></div>
-<div id="finale" hidden><div class="fin"><h2 id="fin-title">ЗАДАЧА ПС-7 ЗАКРЫТА</h2><pre id="fin-text"></pre><div class="row"><button id="fin-close">продолжить сеанс</button></div></div></div>
+<div id="finale" hidden><div class="fin"><h2 id="fin-title">ЗАДАЧА ПС-7 ЗАКРЫТА</h2><pre id="fin-text"></pre><div class="row"><button id="fin-close">продолжить сеанс</button> <a id="fin-link" hidden class="btnlink">рабочий сеанс →</a></div></div></div>
 
 <header id="top">
   <span id="link-state" class="badge" data-tip="Есть ли дальняя линия (станция ↔ оператор). Линия СВС: задержка не зависит от расстояния, полоса фиксированная. Насколько линия занята — лампа у вкладки «Канал».">—</span>
@@ -141,6 +141,7 @@
     </div>
     <div id="splitter" data-tip="Перетащить: высота лога"></div>
     <div id="logwrap">
+      <div id="proc" class="small" hidden data-tip="Процедура оператора ares-tk: шаги отмечаются по принятым пакетам и действиям в консоли. Подсвечено — где это делается."><span id="proc-text"></span> <button class="mini ghost" id="proc-off">скрыть</button></div>
       <div id="task" class="small" data-tip="Открытая задача по протоколу станции. Приходит в паспорте станции при подключении; закрывается событием станции."></div>
       <div id="log"></div>
     </div>

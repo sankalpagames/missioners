@@ -96,9 +96,10 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     const C=T.canyon; const band=(pts,w,col,perSeg)=>{ for(let i=0;i<pts.length-1;i++){ const p=pts[i], q=pts[i+1]; const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L; const w0=(w[i]!==undefined?w[i]:w[w.length-1])/2, w1=perSeg?w0:(w[i+1]!==undefined?w[i+1]:w0*2)/2;
         ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(S(p.x+nx*w0),Sy(p.y+ny*w0)); ctx.lineTo(S(q.x+nx*w1),Sy(q.y+ny*w1)); ctx.lineTo(S(q.x-nx*w1),Sy(q.y-ny*w1)); ctx.lineTo(S(p.x-nx*w0),Sy(p.y-ny*w0)); ctx.closePath(); ctx.fill(); }
       ctx.strokeStyle='rgba(120,180,255,0.7)'; ctx.lineWidth=1; ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(S(p.x),Sy(p.y)):ctx.moveTo(S(p.x),Sy(p.y))); ctx.stroke(); };
-    band(C.pts,C.w,'rgba(80,140,255,0.18)',false); band(C.branch.pts,C.branch.w,'rgba(80,140,255,0.12)',true);   // ширина: у расщелины — по коленам, у отростка — по сегментам
+    const TN=(T.tunnel||{segs:[]}).segs; for(const g of TN) band(g.pts,g.w,'rgba(80,140,255,0.18)',false);   // тоннель: коридоры и залы, ручки — как у колен
+    if(C){ band(C.pts,C.w,'rgba(80,140,255,0.18)',false); band(C.branch.pts,C.branch.w,'rgba(80,140,255,0.12)',true); }   // ширина: у расщелины — по коленам, у отростка — по сегментам
     const knee=(pts,w,br)=>pts.forEach((p,i)=>{ handles.push({kind:'knee',layer:'terrain',ref:p,pts,w,i,br,x:p.x,y:p.y,r:7}); ctx.fillStyle=COL.terrain; ctx.fillRect(S(p.x)-3,Sy(p.y)-3,7,7); if(show.labels&&sc>=1.5&&w[i]!==undefined){ ctx.fillStyle='rgba(160,200,255,0.8)'; ctx.fillText((br?'отр ':'')+i+' · '+w[i]+' м',S(p.x)+6,Sy(p.y)-8); } });
-    knee(C.pts,C.w,false); knee(C.branch.pts,C.branch.w,true);
+    if(C){ knee(C.pts,C.w,false); knee(C.branch.pts,C.branch.w,true); } for(const g of TN) knee(g.pts,g.w,true);
     for(const b of T.bumps||[]){ handles.push({kind:'bump',layer:'terrain',ref:b,x:b.x,y:b.y,r:Math.max(6,b.r*sc)}); ctx.strokeStyle=b.h>=0?'rgba(200,170,90,0.7)':'rgba(90,150,200,0.7)'; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(S(b.x),Sy(b.y),b.r*sc,0,7); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=ctx.strokeStyle; ctx.fillRect(S(b.x)-2,Sy(b.y)-2,5,5); if(show.labels&&sc>=1) ctx.fillText(`${b.h>=0?'+':''}${b.h} м`,S(b.x)+6,Sy(b.y)+8); } }
   // радиус возврата: площадки и ретрансляторы в сети (nodesOf)
   if(show.steep) for(const l of ledgesNow()){ ctx.strokeStyle='#ff5a4a'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(S(l.x),Sy(l.y),Math.max(6,1.5*sc),0,7); ctx.stroke(); ctx.lineWidth=1; }   // ступеньки на дне: тело застрянет
@@ -108,7 +109,7 @@ function draw(){ handles=[]; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
     AIR.forEach(A=>{ const st=A.site, B=A.base, i=A.i, X=S(st.x),Y=Sy(st.y); handles.push({kind:'station',layer:'bases',ref:st,x:st.x,y:st.y,r:8}); ctx.strokeStyle='#aaa'; ctx.lineWidth=1; ctx.setLineDash([4,3]); ctx.beginPath(); ctx.ellipse(X,Y,STATION.rx*sc,STATION.ry*sc,(st.ang||0)*Math.PI/180,0,7); ctx.stroke(); ctx.setLineDash([]);
       if(show.labels&&sc>=0.7){ ctx.fillStyle='#aaa'; ctx.fillText(`площадка ${1+i} · ${layoutsOf(i)}`,X-14,Y-STATION.ry*sc-4); }
       ctx.setLineDash([3,5]); ctx.strokeStyle='rgba(255,220,120,0.35)'; ctx.beginPath(); ctx.arc(X,Y,STATION.powerR*sc,0,7); ctx.stroke(); ctx.setLineDash([]);   // зона питания
-      const Tu=B.turret; handles.push({kind:'turret',layer:'bases',ref:st,x:Tu.x,y:Tu.y,r:7}); const TX=S(Tu.x),TY=Sy(Tu.y), a=Tu.f*Math.PI/180, fov=Tu.fov*Math.PI/180, R=Tu.range*sc; ctx.fillStyle='rgba(255,220,120,0.06)'; ctx.strokeStyle=st.turret?'rgba(255,220,120,0.4)':'rgba(255,220,120,0.2)'; ctx.beginPath(); ctx.moveTo(TX,TY); ctx.arc(TX,TY,R,a-fov/2,a+fov/2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle=st.turret?'#ffdc78':'rgba(255,220,120,0.5)'; ctx.fillRect(TX-3,TY-3,7,7); if(show.labels&&sc>=1){ ctx.fillText(st.turret?'турель':'турель (штатная)',TX+7,TY+8); }
+      const Tu=B.turret; if(Tu){ handles.push({kind:'turret',layer:'bases',ref:st,x:Tu.x,y:Tu.y,r:7}); const TX=S(Tu.x),TY=Sy(Tu.y), a=Tu.f*Math.PI/180, fov=Tu.fov*Math.PI/180, R=Tu.range*sc; ctx.fillStyle='rgba(255,220,120,0.06)'; ctx.strokeStyle=st.turret?'rgba(255,220,120,0.4)':'rgba(255,220,120,0.2)'; ctx.beginPath(); ctx.moveTo(TX,TY); ctx.arc(TX,TY,R,a-fov/2,a+fov/2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle=st.turret?'#ffdc78':'rgba(255,220,120,0.5)'; ctx.fillRect(TX-3,TY-3,7,7); if(show.labels&&sc>=1){ ctx.fillText(st.turret?'турель':'турель (штатная)',TX+7,TY+8); } }   /* голая площадка (bare) — без турели */
       const sp=B.spawn; ctx.fillStyle='#5cb85c'; ctx.beginPath(); ctx.arc(S(sp.x),Sy(sp.y),4,0,7); ctx.fill(); if(show.labels&&sc>=1) ctx.fillText('старт',S(sp.x)+7,Sy(sp.y)+1);
       // шлюз — ромб; объекты у шлюза: штатные (BASE) тусклее и не правятся, сюжетные — из площадки
       const on=sel&&(sel.ref===st||(sel.poi&&sel.poi.site===st)); const AX=S(A.x),AY=Sy(A.y); const subs=B.subs, nk=BASE.subs.length;
@@ -152,7 +153,7 @@ function moveTo(h,x,y){ switch(h.kind){
   case 'turret': { const st=h.ref; const l=toLocal(st,x-st.x,y-st.y); st.turret={...(st.turret||{f:0}), ...l}; break; }   // перетащенная штатная турель становится турелью площадки
   case 'sub': { const l=toLocal(h.poi.site,x-h.poi.x,y-h.poi.y); h.ref.dx=l.dx; h.ref.dy=l.dy; break; }
   case 'ksub': return;   // штатный объект базы — из кодовой книги, не двигается
-  case 'knee': { const p=h.pts[h.i]; if(!h.br&&h.i>0){ const b=LEVEL.terrain.canyon.branch.pts[0]; if(Math.abs(b.x-p.x)<1e-6&&Math.abs(b.y-p.y)<1e-6){ b.x=x; b.y=y; } }   // корень отростка сидит на колене — едет вместе
+  case 'knee': { const p=h.pts[h.i]; if(!h.br&&h.i>0&&LEVEL.terrain.canyon){ const b=LEVEL.terrain.canyon.branch.pts[0]; if(Math.abs(b.x-p.x)<1e-6&&Math.abs(b.y-p.y)<1e-6){ b.x=x; b.y=y; } }   // корень отростка сидит на колене — едет вместе
     p.x=x; p.y=y; TER.reload(); hmDirty(150); break; }
   case 'bound': { const b=h.ref; b[h.kx]=x; b[h.ky]=y; if(b.x1<b.x0) [b.x0,b.x1]=[b.x1,b.x0]; if(b.y1<b.y0) [b.y0,b.y1]=[b.y1,b.y0]; break; }
   case 'bump': h.ref.x=x; h.ref.y=y; TER.reload(); hmDirty(150); break;

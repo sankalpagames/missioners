@@ -12,7 +12,7 @@ const CLS_RU={0:'объект',1:'ориентир',2:'неопознанное'
 const pos=(b,o)=>({x:(((b[o]<<8)|b[o+1])-32768)/10, y:(((b[o+2]<<8)|b[o+3])-32768)/10});
 const coordBytes=p=>{ const X=Math.round(p.x*10)+32768, Y=Math.round(p.y*10)+32768; return [X>>8,X&255,Y>>8,Y&255]; };
 const f1=v=>(Math.round(v*10)/10).toFixed(1);
-const ITEM_BY_WORD=[['брикет',40],['резак',41],['камер',42],['патрон',43],['планшет',44]];
+const ITEM_BY_WORD=[['брикет',40],['резак',41],['камер',42],['патрон',43],['планшет',44],['лидар',45]];
 const itemOf=s=>{ const w=(s||'').toLowerCase(); for(const [k,id] of ITEM_BY_WORD) if(w.includes(k)) return id; return null; };
 const stem=w=>w.toLowerCase().slice(0,Math.max(3,w.length-2));
 
@@ -145,11 +145,11 @@ class OpConsole {
     if(/^смотр/.test(v)){ const t=tgt(); if(!t) return {error:'смотреть: точка или объект из описания'}; return {bytes:[18,0,unit,...coordBytes(t)], label:`М${unit} смотреть`}; }
     if(/^изуч/.test(v)){ const o=obj(); if(!o) return {error:'изучить: объект из описания (имя или id)'}; return {bytes:[19,o.id,unit], label:`М${unit} изучить ${o.name}`}; }
     if(/^(взаимодейств|действ|открой|включи)/.test(v)){ const o=obj(); if(!o) return {error:'взаимодействовать: объект из описания'}; return {bytes:[8,o.id,unit], label:`М${unit} взаимодействовать ${o.name}`}; }
-    if(/^взять|^возьми/.test(v)){ const it=itemOf(v); if(!it) return {error:'взять: брикет / резак / камеру / патроны / планшет'}; if(/со склад/.test(v)) return {bytes:[21,it,unit,1], label:`М${unit} взять со склада ${ITEMS[it]}`}; const from=/\sиз\s/.test(v)?v.replace(/^.*?\sиз\s/,'').trim():''; let o=from?this.findKnown(from):null;
+    if(/^взять|^возьми/.test(v)){ const it=itemOf(v); if(!it) return {error:'взять: брикет / резак / камеру / патроны / планшет / лидар'}; if(/со склад/.test(v)) return {bytes:[21,it,unit,1], label:`М${unit} взять со склада ${ITEMS[it]}`}; const from=/\sиз\s/.test(v)?v.replace(/^.*?\sиз\s/,'').trim():''; let o=from?this.findKnown(from):null;
       if(from&&!o) return {error:`контейнер «${from}» не известен (нет в описаниях${/[мm]\s*\d/.test(from)?' и в телеметрии':''})`};
       if(!o){ const k=this.findKnown(rest); if(k&&(CB.CODEBOOK[k.type]||{}).pickup===it) o=k; }   // объект-предмет: «взять планшет» — сам объект из описания
       if(!o) return {error:'взять X из <контейнер> | взять X со склада'}; /* \b в JS не знает кириллицы — границы по пробелам */ return {bytes:[23,it,unit,o.id], label:`М${unit} взять ${ITEMS[it]} из ${o.name}`}; }
-    if(/^(полож|сдать|сдай|брос)/.test(v)){ const it=itemOf(v); if(!it) return {error:'положить: брикет / резак / камеру / патроны'}; if(/^сда|на склад/.test(v)) return {bytes:[21,it,unit,0], label:`М${unit} сдать на склад ${ITEMS[it]}`}; if(/на грунт|^брос/.test(v)) return {bytes:[22,it,unit,0], label:`М${unit} сбросить ${ITEMS[it]}`}; const into=/\sв\s/.test(v)?v.replace(/^.*?\sв\s/,'').trim():''; const o=into?this.findKnown(into):null; if(into&&!o) return {error:`контейнер «${into}» не известен (нет в описаниях)`}; if(!o) return {error:'положить X в <контейнер> | на грунт | сдать X (склад)'}; return {bytes:[22,it,unit,o.id], label:`М${unit} положить ${ITEMS[it]} в ${o.name}`}; }
+    if(/^(полож|сдать|сдай|брос)/.test(v)){ const it=itemOf(v); if(!it) return {error:'положить: брикет / резак / камеру / патроны / лидар'}; if(/^сда|на склад/.test(v)) return {bytes:[21,it,unit,0], label:`М${unit} сдать на склад ${ITEMS[it]}`}; if(/на грунт|^брос/.test(v)) return {bytes:[22,it,unit,0], label:`М${unit} сбросить ${ITEMS[it]}`}; const into=/\sв\s/.test(v)?v.replace(/^.*?\sв\s/,'').trim():''; const o=into?this.findKnown(into):null; if(into&&!o) return {error:`контейнер «${into}» не известен (нет в описаниях)`}; if(!o) return {error:'положить X в <контейнер> | на грунт | сдать X (склад)'}; return {bytes:[22,it,unit,o.id], label:`М${unit} положить ${ITEMS[it]} в ${o.name}`}; }
     if(/^(съесть|съешь|ешь)/.test(v)) return {bytes:[20,40,unit], label:`М${unit} съесть брикет`};
     if(/^режим/.test(v)){ const mode=/исслед/.test(v)?1:/отступ/.test(v)?3:/отдых/.test(v)?4:null; if(!mode) return {error:'режим: исследование | отступление | отдых'}; return {bytes:[7,mode,unit], label:`М${unit} режим ${MODES[mode]}`}; }
     if(/^стойк|^при контакте/.test(v)){ const st=/пассив/.test(v)?0:/бег/.test(v)?1:/бой/.test(v)?2:null; if(st==null) return {error:'стойка: пассивно | бегство | бой'}; return {bytes:[25,st,unit], label:`М${unit} стойка ${STANCES[st]}`}; }
